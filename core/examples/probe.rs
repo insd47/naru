@@ -2,10 +2,10 @@
 //!
 //! ```sh
 //! # 인증 없이 보안 유형과 서버 공개키만 확인합니다.
-//! cargo run --example naru-probe -- mac-mini.local --handshake-only
+//! cargo run --example probe -- mac-mini.local --handshake-only
 //!
 //! # 인증부터 첫 키프레임까지 확인하고, 받은 영상을 Annex-B 파일로 저장합니다.
-//! NARU_PASSWORD=… cargo run --example naru-probe -- mac-mini.local insd --out capture.h264 --seconds 10
+//! NARU_PASSWORD=… cargo run --example probe -- mac-mini.local insd --out capture.h264 --seconds 10
 //! ```
 //!
 //! - 비밀번호는 `NARU_PASSWORD`에서 읽고, 없으면 터미널에서 묻습니다. 비밀번호, 키, 클립보드 내용은 출력하지 않습니다.
@@ -29,7 +29,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
-const USAGE: &str = "사용법: naru-probe <호스트> [사용자] [--port N] [--local-ports A,B] [--display 1280x800@2] [--audio] [--out 파일] [--seconds N] [--handshake-only]";
+const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--local-ports A,B] [--display 1280x800@2] [--audio] [--out 파일] [--seconds N] [--handshake-only]";
 
 #[tokio::main]
 async fn main() {
