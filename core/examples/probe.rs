@@ -11,6 +11,7 @@
 //! - 비밀번호는 `NARU_PASSWORD`에서 읽고, 없으면 터미널에서 묻습니다. 비밀번호, 키, 클립보드 내용은 출력하지 않습니다.
 //! - 서버 공개키는 `~/.naru-probe/<호스트>.der`에 저장하고, 다음 접속에서 바뀌었으면 접속을 멈춥니다.
 //! - 저장한 파일은 `ffplay capture.h264`로 재생할 수 있습니다.
+//! - `--resize 30:1600x1000@2`는 30초 뒤 가상 디스플레이의 크기를 바꿉니다. 서버가 새 SSRC로 넘어가는 장면을 캡처에 담을 때 씁니다.
 use naru_core::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey};
 use naru_core::media::h264;
 use naru_core::media::h264::DecoderConfig;
@@ -29,7 +30,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
-const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--local-ports A,B] [--display 1280x800@2] [--audio] [--out 파일] [--seconds N] [--handshake-only]";
+const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--local-ports A,B] [--display 1280x800@2] [--resize 30:1600x1000@2] [--audio] [--out 파일] [--seconds N] [--handshake-only]";
 
 #[tokio::main]
 async fn main() {
@@ -59,6 +60,7 @@ struct Args {
     port: u16,
     local_ports: Option<(u16, u16)>,
     display: Option<Mode>,
+    resize: Option<(u64, Mode)>,
     audio: bool,
     out: Option<PathBuf>,
     seconds: u64,
@@ -73,6 +75,7 @@ impl Args {
             port: 5900,
             local_ports: None,
             display: None,
+            resize: None,
             audio: false,
             out: None,
             seconds: 10,
@@ -88,6 +91,13 @@ impl Args {
                 "--port" => parsed.port = value()?.parse().map_err(|_| "포트가 올바르지 않습니다")?,
                 "--local-ports" => parsed.local_ports = Some(pair(&value()?, ',').ok_or("--local-ports A,B")?),
                 "--display" => parsed.display = Some(display(&value()?).ok_or("--display 1280x800@2")?),
+                "--resize" => {
+                    let text = value()?;
+                    let parsed_resize = text
+                        .split_once(':')
+                        .and_then(|(at, mode)| Some((at.parse().ok()?, display(mode)?)));
+                    parsed.resize = Some(parsed_resize.ok_or("--resize 30:1600x1000@2")?);
+                }
                 "--audio" => parsed.audio = true,
                 "--out" => parsed.out = Some(value()?.into()),
                 "--seconds" => parsed.seconds = value()?.parse().map_err(|_| "--seconds N")?,
@@ -238,11 +248,7 @@ async fn session(args: Args) -> Result<(), String> {
     config.audio = args.audio;
     config.known_key = std::fs::read(&key_path).ok();
 
-    config.display = args.display.map(|mode| DisplayConfig {
-        name: "Naru".into(),
-        physical_mm: (369.45, 207.82),
-        modes: vec![mode],
-    });
+    config.display = args.display.map(display_config);
 
     let mut out = match &args.out {
         Some(path) => Some(BufWriter::new(File::create(path).map_err(|error| error.to_string())?)),
@@ -257,6 +263,13 @@ async fn session(args: Args) -> Result<(), String> {
     let stop = tokio::time::sleep(Duration::from_secs(args.seconds));
     tokio::pin!(stop);
 
+    let resize_at = args
+        .resize
+        .map_or(Duration::MAX, |(seconds, _)| Duration::from_secs(seconds));
+    let resize = tokio::time::sleep(resize_at.min(Duration::from_secs(u32::MAX.into())));
+    tokio::pin!(resize);
+    let mut resized = args.resize.is_none();
+
     let mut stats = Stats::default();
     let mut decoder: Option<DecoderConfig> = None;
     let mut closing = false;
@@ -268,6 +281,19 @@ async fn session(args: Args) -> Result<(), String> {
                 println!("[{:>6}] {}초가 지나 세션을 닫습니다", elapsed(started), args.seconds);
                 closing = true;
                 let _ = session.close();
+                continue;
+            }
+            _ = &mut resize, if !resized => {
+                resized = true;
+
+                if let Some((_, mode)) = args.resize {
+                    println!("[{:>6}] 해상도 변경 요청: 논리 {:?}, 픽셀 {:?}", elapsed(started), mode.logical, mode.pixels);
+
+                    if let Err(error) = session.resize(&display_config(mode)) {
+                        println!("[{:>6}] 해상도 변경 실패: {error}", elapsed(started));
+                    }
+                }
+
                 continue;
             }
             _ = tokio::signal::ctrl_c(), if !closing => {
@@ -412,6 +438,14 @@ impl Stats {
         self.reported = Some((now, self.frames));
         let rate = (self.frames - frames) as f64 / elapsed.as_secs_f64();
         Some(format!("{rate:.1} fps, 누적 {}프레임", self.frames))
+    }
+}
+
+fn display_config(mode: Mode) -> DisplayConfig {
+    DisplayConfig {
+        name: "Naru".into(),
+        physical_mm: (369.45, 207.82),
+        modes: vec![mode],
     }
 }
 
