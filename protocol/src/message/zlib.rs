@@ -1,7 +1,5 @@
 use crate::error::{Error, Result};
-use flate2::Decompress;
-use flate2::FlushDecompress;
-use flate2::Status;
+use flate2::{Decompress, FlushDecompress, Status};
 
 // 서버의 zlib 데이터는 종료 블록 없이 동기 플러시로 끝납니다. 한 번에 푸는 함수는 이를 잘린 스트림으로 거부하므로,
 // 스트림 해제기에 넣고 정해진 길이가 나오면 성공으로 봅니다. 출력은 `len`을 넘지 않습니다.
@@ -37,10 +35,7 @@ pub fn starts_stream(data: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{inflate, starts_stream};
-    use flate2::Compress;
-    use flate2::Compression;
-    use flate2::Decompress;
-    use flate2::FlushCompress;
+    use flate2::{Compress, Compression, Decompress, FlushCompress};
 
     // 서버처럼 동기 플러시로 끝나는 스트림을 만듭니다.
     fn sync_flushed(compress: &mut Compress, data: &[u8]) -> Vec<u8> {

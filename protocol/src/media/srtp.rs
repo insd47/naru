@@ -1,12 +1,9 @@
 //! SRTP와 SRTCP(RFC 3711)입니다. 암호는 AES-256 카운터 모드, 인증은 HMAC-SHA1 80비트입니다.
 use super::RtpPacket;
 use crate::offer::KEY_BLOB_BYTES;
-use aes::Aes128;
-use aes::Aes256;
-use aes::cipher::KeyIvInit;
-use aes::cipher::StreamCipher;
-use hmac::Hmac;
-use hmac::Mac;
+use aes::cipher::{KeyIvInit, StreamCipher};
+use aes::{Aes128, Aes256};
+use hmac::{Hmac, Mac};
 use sha1::Sha1;
 use std::collections::HashMap;
 

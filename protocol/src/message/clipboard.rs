@@ -5,9 +5,8 @@
 use super::zlib;
 use crate::error::{Error, Result};
 use crate::reader::Reader;
-use flate2::Compression;
-use flate2::Decompress;
 use flate2::write::ZlibEncoder;
+use flate2::{Compression, Decompress};
 use std::io::Write;
 
 const TEXT: &str = "public.utf8-plain-text";

@@ -1,16 +1,11 @@
 use super::{Event, MediaStats};
 use crate::error::Result;
-use crate::media::rtcp;
-use crate::media::{Assembled, Assembler, Routed, RtpPacket, SrtpContext, Streams};
+use crate::media::{Assembled, Assembler, Routed, RtpPacket, SrtpContext, Streams, rtcp};
 use crate::offer::Offer;
-use socket2::Domain;
-use socket2::Socket;
-use socket2::Type;
-use std::net::IpAddr;
-use std::net::SocketAddr;
+use socket2::{Domain, Socket, Type};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 
 const RECEIVE_BUFFER_BYTES: usize = 4 << 20;

@@ -2,9 +2,8 @@
 use super::encoding;
 use crate::record::RecordKeys;
 use aes::Aes128;
-use aes::cipher::BlockEncrypt;
-use aes::cipher::KeyInit;
 use aes::cipher::generic_array::GenericArray;
+use aes::cipher::{BlockEncrypt, KeyInit};
 
 /// ClientInit. 1바이트이며 공유 플래그 대신 서버가 정한 값을 보냅니다.
 pub const CLIENT_INIT: [u8; 1] = [0xc1];
@@ -132,9 +131,8 @@ mod tests {
     use super::{framebuffer_request, key, pointer, set_encodings, viewer_info};
     use crate::record::RecordKeys;
     use aes::Aes128;
-    use aes::cipher::BlockDecrypt;
-    use aes::cipher::KeyInit;
     use aes::cipher::generic_array::GenericArray;
+    use aes::cipher::{BlockDecrypt, KeyInit};
 
     #[test]
     fn viewer_info_matches_the_captured_bytes() {

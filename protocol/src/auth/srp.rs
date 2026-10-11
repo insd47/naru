@@ -3,9 +3,7 @@ use crate::reader::Reader;
 use num_bigint_dig::BigUint;
 use rand::RngCore;
 use rand::rngs::OsRng;
-use sha2::Digest;
-use sha2::Sha256;
-use sha2::Sha512;
+use sha2::{Digest, Sha256, Sha512};
 
 // 그룹은 4096비트 MODP 소수이므로 모든 큰 수는 512바이트로 채워 해시합니다.
 const PAD_BYTES: usize = 512;
@@ -202,8 +200,7 @@ mod tests {
     use super::{Challenge, hash, number_hash, pad};
     use crate::error::Error;
     use num_bigint_dig::BigUint;
-    use sha2::Digest;
-    use sha2::Sha256;
+    use sha2::{Digest, Sha256};
 
     // 서버가 실제로 쓰는 값과 같은 모양의 옵션 문자열입니다.
     const OPTIONS: &[u8] = b"mda=SHA-512,replay_detection,conf+int=ChaCha20-Poly1305,kdf=SALTED-SHA512-PBKDF2";

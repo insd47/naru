@@ -2,8 +2,7 @@ use crate::message::client;
 use crate::message::gesture::{Magnify, Momentum, Phase, Scroll};
 use crate::record::RecordKeys;
 use std::collections::VecDeque;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 // 줄 단위 값 하나가 몇 포인트인지입니다. Apple 클라이언트의 트랙패드 스크롤에서 약 10이고, 휠 한 칸도 이만큼 스크롤합니다.
 const POINTS_PER_LINE: f32 = 10.0;
@@ -243,8 +242,7 @@ mod tests {
     use super::{Event, FRAME, Input};
     use crate::message::gesture::Phase;
     use crate::record::RecordKeys;
-    use std::time::Duration;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     fn input() -> Input {
         Input::new(RecordKeys {

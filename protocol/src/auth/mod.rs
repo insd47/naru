@@ -6,9 +6,8 @@
 use crate::error::{Error, Result};
 use crate::reader::Reader;
 use rand::rngs::OsRng;
-use rsa::Pkcs1v15Encrypt;
-use rsa::RsaPublicKey;
 use rsa::pkcs8::DecodePublicKey;
+use rsa::{Pkcs1v15Encrypt, RsaPublicKey};
 pub use srp::{Challenge, Proof};
 
 mod srp;
@@ -92,9 +91,8 @@ impl ServerKey {
 mod tests {
     use super::ServerKey;
     use rand::rngs::OsRng;
-    use rsa::Pkcs1v15Encrypt;
-    use rsa::RsaPrivateKey;
     use rsa::pkcs8::EncodePublicKey;
+    use rsa::{Pkcs1v15Encrypt, RsaPrivateKey};
 
     // 서버의 키 응답 본문과 같은 모양을 만듭니다.
     fn response(private: &RsaPrivateKey) -> Vec<u8> {

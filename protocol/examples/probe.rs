@@ -15,17 +15,13 @@
 //! - `--resize 30:1600x1000@2`는 30초 뒤 가상 디스플레이의 크기를 바꿉니다. 서버가 새 SSRC로 넘어가는 장면을 캡처에 담을 때 씁니다.
 use protocol::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey};
 use protocol::{Config, DecoderConfig, DisplayConfig, Event, MediaStats, Mode, Session};
-use sha2::Digest;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use std::error::Error as _;
 use std::fs::File;
-use std::io::BufWriter;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
-use std::time::Duration;
-use std::time::Instant;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--local-ports A,B] [--display 1280x800@2] [--resize 30:1600x1000@2] [--unlock N] [--audio] [--out 파일] [--seconds N] [--handshake-only]";

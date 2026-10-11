@@ -1,8 +1,6 @@
 use super::RtpPacket;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::time::Duration;
-use std::time::Instant;
+use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 // 새 SSRC로 넘어가는 조건입니다. 현재 스트림에서 이 시간 동안 프레임이 나오지 않았고, 새 SSRC에서 패킷이 이만큼 왔어야 합니다.
 const SWITCH_AFTER: Duration = Duration::from_secs(2);

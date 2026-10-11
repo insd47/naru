@@ -1,14 +1,11 @@
 use super::{Config, Event, Stage};
 use crate::auth::{Challenge, KEY_REQUEST, MAX_MESSAGE_BYTES, SECURITY_TYPE, ServerKey};
 use crate::error::{Error, Result};
-use crate::message::client;
-use crate::message::{Messages, Rect, ServerMessage};
+use crate::message::{Messages, Rect, ServerMessage, client};
 use crate::record::{Opener, RecordKeys, Sealer};
-use std::net::IpAddr;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::time::timeout;

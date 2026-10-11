@@ -11,10 +11,8 @@ use flate2::write::ZlibEncoder;
 use prost::Message;
 use rand::RngCore;
 use rand::rngs::OsRng;
-use std::io::Read;
-use std::io::Write;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
+use std::io::{Read, Write};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 mod blob;
 
@@ -317,8 +315,7 @@ mod tests {
     use flate2::read::ZlibDecoder;
     use flate2::write::ZlibEncoder;
     use prost::Message;
-    use std::io::Read;
-    use std::io::Write;
+    use std::io::{Read, Write};
 
     fn blob(plist_bytes: &[u8]) -> MediaBlob {
         let value: plist::Value = plist::from_bytes(plist_bytes).unwrap();

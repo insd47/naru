@@ -3,29 +3,22 @@
 //! - 서버 쪽 SRP는 법이 소수이기만 하면 성립하므로 작은 소수(2^127 − 1)로 계산합니다. 클라이언트는 그룹의 크기를 가정하지 않습니다.
 //! - 키 교체 메시지 바로 뒤에 레코드를 이어 붙여 보내, 평문과 레코드의 경계를 정확히 나누는지 확인합니다.
 use aes::Aes128;
-use aes::cipher::BlockEncrypt;
-use aes::cipher::KeyInit;
 use aes::cipher::generic_array::GenericArray;
+use aes::cipher::{BlockEncrypt, KeyInit};
 use flate2::Compression;
 use flate2::write::ZlibEncoder;
 use num_bigint_dig::BigUint;
 use protocol::record::{Opener, RecordKeys, Sealer};
 use protocol::{Config, Event, RtpPacket, Session, SrtpContext};
 use rand::rngs::OsRng;
-use rsa::Pkcs1v15Encrypt;
-use rsa::RsaPrivateKey;
 use rsa::pkcs8::EncodePublicKey;
-use sha2::Digest;
-use sha2::Sha256;
-use sha2::Sha512;
+use rsa::{Pkcs1v15Encrypt, RsaPrivateKey};
+use sha2::{Digest, Sha256, Sha512};
 use std::io::Write;
 use std::net::SocketAddr;
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
-use tokio::net::TcpListener;
-use tokio::net::TcpStream;
-use tokio::net::UdpSocket;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::time::timeout;
 
 const USERNAME: &str = "insd";

@@ -1,8 +1,7 @@
 use super::RtpPacket;
 use super::h264::{AccessUnit, CONFIG_MARKER, DecoderConfig};
 use std::collections::BTreeMap;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 // 순번에 구멍이 생긴 접근 단위를 재전송이 올 때까지 붙잡아 두는 시간입니다. LAN에서는 보통 몇 ms 안에 옵니다.
 const HOLD: Duration = Duration::from_millis(75);
@@ -228,8 +227,7 @@ impl Assembler {
 mod tests {
     use super::{Assembled, Assembler, HOLD};
     use crate::media::RtpPacket;
-    use std::time::Duration;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     const SSRC: u32 = 7;
     const IDR: &[u8] = &[0x65, 0x88];

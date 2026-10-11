@@ -6,14 +6,9 @@
 use crate::error::{Error, Result};
 use crate::reader::Reader;
 use aes::Aes128;
-use aes::cipher::BlockDecrypt;
-use aes::cipher::BlockDecryptMut;
-use aes::cipher::BlockEncryptMut;
-use aes::cipher::KeyInit;
-use aes::cipher::KeyIvInit;
 use aes::cipher::generic_array::GenericArray;
-use sha1::Digest;
-use sha1::Sha1;
+use aes::cipher::{BlockDecrypt, BlockDecryptMut, BlockEncryptMut, KeyInit, KeyIvInit};
+use sha1::{Digest, Sha1};
 
 const BLOCK_BYTES: usize = 16;
 const TAG_BYTES: usize = 20;
@@ -175,9 +170,8 @@ mod tests {
     use super::{MAX_BODY_BYTES, Opener, RecordKeys, Sealer};
     use crate::error::Error;
     use aes::Aes128;
-    use aes::cipher::BlockEncrypt;
-    use aes::cipher::KeyInit;
     use aes::cipher::generic_array::GenericArray;
+    use aes::cipher::{BlockEncrypt, KeyInit};
 
     fn keys() -> RecordKeys {
         RecordKeys {

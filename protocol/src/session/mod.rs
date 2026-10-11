@@ -4,19 +4,16 @@
 //! - 네이티브 계층은 완성된 접근 단위와 디코더 설정만 받습니다. 디코더 오류는 `request_keyframe`로 알려 주십시오.
 //! - 미디어가 시작되지 않으면 연결을 끊고 처음부터 다시 접속합니다. 접속 시도는 합쳐서 세 번까지입니다.
 use crate::error::{Error, Result};
-use crate::media::AccessUnit;
-use crate::media::DecoderConfig;
-use crate::message::client;
+use crate::media::{AccessUnit, DecoderConfig};
 use crate::message::gesture::Phase;
-use crate::message::{CursorImage, DisplayConfig, Layout};
+use crate::message::{CursorImage, DisplayConfig, Layout, client};
 use control::Control;
 use engine::Engine;
 use media::Sockets;
 use std::fmt;
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 mod control;

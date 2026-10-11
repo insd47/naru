@@ -1,8 +1,7 @@
 use super::zlib;
 use crate::error::{Error, Result};
 use flate2::Decompress;
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 // 서버가 매기는 캐시 번호는 세션 안에서만 의미가 있습니다. 오래된 모양부터 버립니다.
@@ -101,9 +100,7 @@ impl Default for Cursors {
 #[cfg(test)]
 mod tests {
     use super::Cursors;
-    use flate2::Compress;
-    use flate2::Compression;
-    use flate2::FlushCompress;
+    use flate2::{Compress, Compression, FlushCompress};
 
     fn compressed(compress: &mut Compress, raw: &[u8]) -> Vec<u8> {
         let mut output = Vec::with_capacity(raw.len() + 64);
