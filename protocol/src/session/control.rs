@@ -74,7 +74,7 @@ impl Control {
         let _ = events.send(Event::Authenticated { server_proof }).await;
 
         let _ = events.send(Event::Progress(Stage::KeyExchange)).await;
-        let control = within(prelude(stream, &wrap_key, config)).await;
+        let control = within(prelude(stream, &wrap_key, config, events)).await;
         control.map_err(|error| error.at(Stage::KeyExchange))
     }
 
@@ -153,9 +153,15 @@ async fn authenticate(stream: &mut TcpStream, key: &ServerKey, config: &Config) 
     Ok((proof.wrap_key, proof.verify(&block)))
 }
 
-async fn prelude(mut stream: TcpStream, wrap_key: &[u8; 16], config: &Config) -> Result<Control> {
+async fn prelude(
+    mut stream: TcpStream,
+    wrap_key: &[u8; 16],
+    config: &Config,
+    events: &mpsc::Sender<Event>,
+) -> Result<Control> {
     stream.write_all(&client::CLIENT_INIT).await?;
-    server_init(&mut stream).await?;
+    let name = server_init(&mut stream).await?;
+    let _ = events.send(Event::ServerName(name)).await;
 
     let mut messages = Messages::default();
     let pending = session_prompt(&mut stream).await?;
@@ -206,7 +212,8 @@ async fn prelude(mut stream: TcpStream, wrap_key: &[u8; 16], config: &Config) ->
     })
 }
 
-async fn server_init(stream: &mut TcpStream) -> Result<()> {
+// ServerInit을 읽어 Mac의 컴퓨터 이름을 반환합니다.
+async fn server_init(stream: &mut TcpStream) -> Result<String> {
     let mut fixed = [0; 24];
     stream.read_exact(&mut fixed).await?;
 
@@ -220,7 +227,7 @@ async fn server_init(stream: &mut TcpStream) -> Result<()> {
 
     let mut name = vec![0; len];
     stream.read_exact(&mut name).await?;
-    Ok(())
+    Ok(String::from_utf8_lossy(&name).into_owned())
 }
 
 // ServerInit 뒤의 세션 선택 프롬프트를 확인합니다. 프롬프트가 아니면 읽은 바이트를 돌려줍니다.

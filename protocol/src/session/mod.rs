@@ -110,6 +110,8 @@ pub enum Event {
     Frame(AccessUnit),
     /// 커서 모양. 포인터 아이콘으로 씁니다. 위치는 오지 않습니다.
     Cursor(Arc<CursorImage>),
+    /// Mac의 컴퓨터 이름. 인증 뒤에 한 번 옵니다.
+    ServerName(String),
     /// Mac의 현재 입력 소스 ID(예: `com.apple.keylayout.ABC`)
     InputSource(String),
     /// Mac의 클립보드 텍스트
