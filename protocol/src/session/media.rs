@@ -1,6 +1,6 @@
 use super::{Event, MediaStats};
 use crate::error::Result;
-use crate::media::{Assembled, Assembler, AudioFrame, Routed, RtpPacket, SrtpContext, Streams, rtcp};
+use crate::media::{Assembled, Assembler, AudioFrame, Priority, Routed, RtpPacket, SrtpContext, Streams, rtcp};
 use crate::offer::Offer;
 use socket2::{Domain, Socket, Type};
 use std::net::{IpAddr, SocketAddr};
@@ -64,6 +64,7 @@ impl Sockets {
 /// 비디오와 오디오 수신, RTCP 송신 상태입니다.
 pub struct Media {
     sockets: Sockets,
+    priority: Priority,
     video_ssrc: u32,
     audio_ssrc: u32,
     receive: SrtpContext,
@@ -92,9 +93,10 @@ pub struct Media {
 }
 
 impl Media {
-    pub fn new(sockets: Sockets, offer: &Offer) -> Self {
+    pub fn new(sockets: Sockets, offer: &Offer, priority: Priority) -> Self {
         Self {
             sockets,
+            priority,
             video_ssrc: offer.video_ssrc,
             audio_ssrc: offer.audio_ssrc,
             receive: SrtpContext::new(&offer.keys.video_receive),
@@ -149,7 +151,7 @@ impl Media {
             Routed::Switched { ssrc, packets } => {
                 // 새 SSRC는 새 디코더 세대입니다. 이전 세대의 참조와 섞이지 않도록 새 설정과 키프레임을 기다립니다.
                 self.filled += self.assembler.as_ref().map_or(0, Assembler::filled);
-                self.assembler = Some(Assembler::new(ssrc));
+                self.assembler = Some(Assembler::new(ssrc, self.priority));
                 self.configured = false;
                 packets
             }
@@ -297,11 +299,9 @@ impl Media {
     }
 
     /// 키프레임을 요청합니다. 최소 간격 안이거나, 서버가 조용하거나, 아직 스트림이 없으면 보내지 않습니다.
+    ///
+    /// - 키프레임이 올 때까지 프레임을 버릴지는 정하지 않습니다. 손실 뒤에는 조립기가, 디코더를 새로 만든 뒤에는 네이티브 계층이 정합니다.
     pub async fn request_keyframe(&mut self, now: Instant) {
-        if let Some(assembler) = self.assembler.as_mut() {
-            assembler.await_keyframe();
-        }
-
         let recent = self
             .last_keyframe_request
             .is_some_and(|last| now.duration_since(last) < KEYFRAME_INTERVAL);

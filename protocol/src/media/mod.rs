@@ -1,4 +1,4 @@
-pub use assembler::{Assembled, Assembler};
+pub use assembler::{Assembled, Assembler, Priority};
 pub use audio::AudioFrame;
 pub use h264::{AccessUnit, DecoderConfig};
 pub use rtp::RtpPacket;

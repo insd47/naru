@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Lan
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.ScreenShare
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.WifiFind
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonGroupDefaults
@@ -69,6 +71,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.OutlinedSecureTextField
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
@@ -94,6 +97,7 @@ import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -107,6 +111,7 @@ import dev.insd.naru.home.Keychain
 import dev.insd.naru.home.ServerKeys
 import dev.insd.naru.protocol.DisplayMode
 import dev.insd.naru.protocol.Failure
+import dev.insd.naru.protocol.Priority
 import dev.insd.naru.session.SessionService
 import java.time.Instant
 import java.time.LocalDate
@@ -116,7 +121,7 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * 저장한 Mac과 같은 네트워크에서 찾은 Mac을 보여 주는 첫 화면입니다.
+ * 저장한 Mac과 같은 네트워크에서 찾은 Mac, 그리고 모든 Mac에 함께 쓰는 설정을 보여 주는 첫 화면입니다.
  *
  * - 항목을 누르면 이 화면에서 사용자 이름과 비밀번호를 묻고 접속합니다. 저장한 비밀번호가 있으면 묻지 않습니다.
  * - Mac처럼 인증에 성공한 뒤에야 세션 화면([SessionActivity])을 엽니다. 실패는 이 화면이 알립니다.
@@ -129,6 +134,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var hosts: Hosts
     private lateinit var keychain: Keychain
     private lateinit var serverKeys: ServerKeys
+    private lateinit var preferences: Preferences
     private lateinit var discovery: Discovery
 
     private var tab by mutableStateOf(Tab.SAVED)
@@ -163,6 +169,7 @@ class MainActivity : ComponentActivity() {
         hosts = Hosts(this)
         keychain = Keychain(this)
         serverKeys = ServerKeys(this)
+        preferences = Preferences(this)
         discovery = Discovery(this)
 
         setContent {
@@ -213,13 +220,16 @@ class MainActivity : ComponentActivity() {
             },
             // 태블릿의 레일은 항목을 세로 가운데에 모으고, 새 연결 버튼은 위에 둡니다.
             navigationItemVerticalArrangement = Arrangement.Center,
+            // 레일(96dp) 머리는 내용을 왼쪽에 붙이므로 FAB(56dp)를 가운데에 오게 띄웁니다. 레일 안의 FAB는 그림자가 없습니다.
+            // 설정 탭에는 새 연결이 어울리지 않으므로 두지 않습니다.
             primaryActionContent = {
-                // 레일(96dp) 머리는 내용을 왼쪽에 붙이므로 FAB(56dp)를 가운데에 오게 띄웁니다. 레일 안의 FAB는 그림자가 없습니다.
-                FloatingActionButton(
-                    onClick = { if (!connecting()) adding = true },
-                    modifier = Modifier.padding(horizontal = 20.dp),
-                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp),
-                ) { Icon(Icons.Outlined.Add, contentDescription = "New Connection") }
+                if (tab != Tab.SETTINGS) {
+                    FloatingActionButton(
+                        onClick = { if (!connecting()) adding = true },
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                        elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp),
+                    ) { Icon(Icons.Outlined.Add, contentDescription = "New Connection") }
+                }
             },
         ) {
             Scaffold(topBar = { TopAppBar(title = { Text(tab.title) }) }) { padding ->
@@ -227,6 +237,7 @@ class MainActivity : ComponentActivity() {
                     when (tab) {
                         Tab.SAVED -> Saved()
                         Tab.NETWORK -> Network()
+                        Tab.SETTINGS -> Settings()
                     }
                 }
             }
@@ -298,6 +309,43 @@ class MainActivity : ComponentActivity() {
                         menu = listOf(listOf(Action("Connect", Icons.Outlined.ScreenShare) { connect(found) })),
                     )
                 }
+            }
+        }
+    }
+
+    // Screen Sharing 앱의 화질 설정처럼 두 가지 중 하나를 고릅니다.
+    @Composable
+    private fun Settings() {
+        val options = listOf(
+            Priority.LATENCY to ("Adapt to network conditions" to "Keeps the screen moving when packets are lost. Parts of it may look broken briefly."),
+            Priority.QUALITY to ("Show the screen at full quality" to "Pauses on the last clean picture until the Mac sends a fresh one."),
+        )
+
+        Group(Modifier.selectableGroup()) {
+            item {
+                Text(
+                    "Quality",
+                    Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+
+            itemsIndexed(options) { index, (priority, text) ->
+                val (title, detail) = text
+                val selected = preferences.priority == priority
+
+                SegmentedListItem(
+                    onClick = { preferences.select(priority) },
+                    shapes = ListItemDefaults.segmentedShapes(index, options.size),
+                    colors = ListItemDefaults.segmentedColors(),
+                    modifier = Modifier.semantics {
+                        role = Role.RadioButton
+                        this.selected = selected
+                    },
+                    leadingContent = { RadioButton(selected = selected, onClick = null) },
+                    supportingContent = { Text(detail) },
+                ) { Text(title) }
             }
         }
     }
@@ -402,9 +450,9 @@ class MainActivity : ComponentActivity() {
 
     // 항목을 모서리가 이어지는 한 묶음으로 보여 줍니다.
     @Composable
-    private fun Group(content: LazyListScope.() -> Unit) {
+    private fun Group(modifier: Modifier = Modifier, content: LazyListScope.() -> Unit) {
         LazyColumn(
-            Modifier.fillMaxSize(),
+            modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
             content = content,
@@ -747,5 +795,6 @@ class MainActivity : ComponentActivity() {
     private enum class Tab(val title: String, val icon: ImageVector) {
         SAVED("All Connections", Icons.Outlined.Devices),
         NETWORK("Network", Icons.Outlined.Lan),
+        SETTINGS("Settings", Icons.Outlined.Settings),
     }
 }

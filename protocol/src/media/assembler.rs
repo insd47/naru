@@ -22,12 +22,24 @@ pub enum Assembled {
     Lost,
 }
 
+/// 복구하지 못한 손실 뒤에 무엇을 우선할지입니다. Screen Sharing 앱의 화질 설정과 같은 선택입니다.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Enum)]
+pub enum Priority {
+    /// 잃은 단위만 버리고 다음 프레임을 계속 내보냅니다. 키프레임이 올 때까지 화면 일부가 깨질 수 있습니다.
+    Latency,
+    /// 키프레임이 올 때까지 내보내지 않습니다. 그동안 화면은 마지막 온전한 프레임에 멈춥니다.
+    #[default]
+    Quality,
+}
+
 /// SSRC 하나의 RTP 패킷을 순번대로 모아 접근 단위로 조립합니다.
 ///
 /// - I/O와 시계를 갖지 않습니다. 호출자가 패킷과 현재 시각을 넣고, `deadline()`에 다시 `next()`를 부릅니다.
-/// - 손실 뒤에는 키프레임이 올 때까지, 시작할 때는 디코더 설정과 키프레임이 올 때까지 접근 단위를 내보내지 않습니다. 불완전한 단위나 참조를 잃은 단위를 디코더에 넣지 않기 위함입니다.
+/// - 시작할 때는 디코더 설정과 키프레임이 올 때까지 접근 단위를 내보내지 않습니다. 불완전한 단위는 언제나 버립니다.
+/// - 단위 하나를 잃은 뒤 참조를 잃은 단위를 내보낼지는 [`Priority`]가 정합니다. 버퍼가 넘치면 언제나 키프레임을 기다립니다.
 pub struct Assembler {
     ssrc: u32,
+    priority: Priority,
     packets: BTreeMap<u64, RtpPacket>,
     // 다음에 조립할 확장 순번과, 지금까지 받은 가장 큰 확장 순번
     next: Option<u64>,
@@ -40,9 +52,10 @@ pub struct Assembler {
 }
 
 impl Assembler {
-    pub fn new(ssrc: u32) -> Self {
+    pub fn new(ssrc: u32, priority: Priority) -> Self {
         Self {
             ssrc,
+            priority,
             packets: BTreeMap::new(),
             next: None,
             highest: None,
@@ -131,11 +144,6 @@ impl Assembler {
         self.stalled_since.map(|since| since + HOLD)
     }
 
-    /// 다음 단위가 키프레임이 될 때까지 내보내지 않습니다. 디코더가 오류를 알렸을 때 씁니다.
-    pub fn await_keyframe(&mut self) {
-        self.awaiting_keyframe = true;
-    }
-
     // `start`에서 시작하는 단위의 마지막 순번을 찾습니다. 설정 패킷은 그 자체로 한 단위입니다.
     // 마커 비트가 있는 패킷이 끝이며, 마커 없이 타임스탬프가 바뀌어도 앞 패킷에서 끝난 것으로 봅니다.
     fn unit_end(&self, start: u64) -> Option<u64> {
@@ -173,8 +181,7 @@ impl Assembler {
         self.packets = self.packets.split_off(&(marker + 1));
         self.next = Some(marker + 1);
         self.stalled_since = None;
-        self.awaiting_keyframe = true;
-        Some(Assembled::Lost)
+        Some(self.lose())
     }
 
     fn reset(&mut self) -> Assembled {
@@ -182,6 +189,12 @@ impl Assembler {
         self.next = None;
         self.stalled_since = None;
         self.awaiting_keyframe = true;
+        Assembled::Lost
+    }
+
+    // 단위 하나를 잃었습니다. 화질을 우선하면 키프레임까지 기다립니다.
+    fn lose(&mut self) -> Assembled {
+        self.awaiting_keyframe |= self.priority == Priority::Quality;
         Assembled::Lost
     }
 
@@ -196,8 +209,7 @@ impl Assembler {
         let payloads = packets.iter().map(|packet| packet.payload.as_slice());
 
         let Some(unit) = AccessUnit::depacketize(self.ssrc, first.timestamp, payloads) else {
-            self.awaiting_keyframe = true;
-            return Some(Assembled::Lost);
+            return Some(self.lose());
         };
 
         if !(self.configured || unit.has_sps()) || (self.awaiting_keyframe && !unit.keyframe) {
@@ -225,7 +237,7 @@ impl Assembler {
 
 #[cfg(test)]
 mod tests {
-    use super::{Assembled, Assembler, HOLD};
+    use super::{Assembled, Assembler, HOLD, Priority};
     use crate::media::RtpPacket;
     use std::time::{Duration, Instant};
 
@@ -283,7 +295,7 @@ mod tests {
     #[test]
     fn ordered_stream_yields_config_then_frames() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC);
+        let mut assembler = Assembler::new(SSRC, Priority::Quality);
 
         for packet in stream(100) {
             assert!(assembler.push(packet).is_empty());
@@ -300,7 +312,7 @@ mod tests {
     #[test]
     fn sequence_wrap_and_reordering_are_absorbed() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC);
+        let mut assembler = Assembler::new(SSRC, Priority::Quality);
         let mut packets = stream(65_533);
         packets.swap(1, 2);
         packets.swap(3, 4);
@@ -318,7 +330,7 @@ mod tests {
     #[test]
     fn gap_is_reported_once_for_retransmission_and_filled_in_time() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC);
+        let mut assembler = Assembler::new(SSRC, Priority::Quality);
         let mut packets = stream(10);
         let late = packets.remove(2);
 
@@ -338,7 +350,7 @@ mod tests {
     #[test]
     fn unrecovered_gap_drops_the_unit_and_waits_for_a_keyframe() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC);
+        let mut assembler = Assembler::new(SSRC, Priority::Quality);
 
         for packet in stream(10) {
             assembler.push(packet);
@@ -360,9 +372,28 @@ mod tests {
     }
 
     #[test]
+    fn latency_priority_keeps_frames_flowing_after_a_loss() {
+        let now = Instant::now();
+        let mut assembler = Assembler::new(SSRC, Priority::Latency);
+
+        for packet in stream(10) {
+            assembler.push(packet);
+        }
+
+        drain(&mut assembler, now);
+        assembler.push(packet(16, 9000, true, P_SLICE));
+        assembler.push(packet(17, 12000, true, P_SLICE));
+        assert!(drain(&mut assembler, now).is_empty());
+
+        let outputs = drain(&mut assembler, now + HOLD);
+        assert_eq!(outputs[0], Assembled::Lost);
+        assert_eq!(frames(&outputs), [(12000, false)]);
+    }
+
+    #[test]
     fn frames_before_the_decoder_config_are_withheld() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC);
+        let mut assembler = Assembler::new(SSRC, Priority::Quality);
         assembler.push(packet(1, 0, true, IDR));
         assert!(drain(&mut assembler, now).is_empty());
     }
@@ -370,7 +401,7 @@ mod tests {
     #[test]
     fn late_duplicate_is_ignored() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC);
+        let mut assembler = Assembler::new(SSRC, Priority::Quality);
 
         for packet in stream(10) {
             assembler.push(packet);

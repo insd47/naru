@@ -4,7 +4,7 @@
 //! - 네이티브 계층은 완성된 접근 단위와 디코더 설정만 받습니다. 디코더 오류는 `request_keyframe`로 알려 주십시오.
 //! - 미디어가 시작되지 않으면 연결을 끊고 처음부터 다시 접속합니다. 접속 시도는 합쳐서 세 번까지입니다.
 use crate::error::{Error, Result};
-use crate::media::{AccessUnit, AudioFrame, DecoderConfig};
+use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority};
 use crate::message::gesture::Phase;
 use crate::message::{CursorImage, DisplayConfig, InputSource, Layout};
 use control::Control;
@@ -43,6 +43,8 @@ pub struct Config {
     pub display: Option<DisplayConfig>,
     /// 오디오 수신 여부. 디코더가 준비되기 전까지는 끕니다.
     pub audio: bool,
+    /// 패킷을 잃었을 때 지연과 화질 중 무엇을 우선할지
+    pub priority: Priority,
     /// 로컬 UDP 포트(오디오, 비디오). 기본값은 서버와 같은 번호입니다.
     pub local_ports: Option<(u16, u16)>,
 }
@@ -58,6 +60,7 @@ impl Config {
             known_key: None,
             display: None,
             audio: false,
+            priority: Priority::default(),
             local_ports: None,
         }
     }
@@ -118,7 +121,7 @@ pub enum Event {
     Cursor(Arc<CursorImage>),
     /// Mac의 컴퓨터 이름. 인증 뒤에 한 번 옵니다.
     ServerName(String),
-    /// Mac의 현재 입력 소스. 언어를 골랐을 때와 Mac이 스스로 바꿨을 때 모두 옵니다.
+    /// Mac의 현재 입력 소스. 글자 변환은 세션이 하므로 기록과 표시에만 씁니다.
     InputSource(InputSource),
     /// Mac의 클립보드 텍스트
     Clipboard(String),
@@ -260,7 +263,7 @@ impl Session {
         self.send(Command::Clipboard(text))
     }
 
-    /// 키프레임을 요청합니다. 디코더가 오류를 알렸을 때 부릅니다. 키프레임이 오기 전의 프레임은 버립니다.
+    /// 키프레임을 요청합니다. 디코더를 새로 만들었거나 프레임을 버렸을 때 부릅니다. 키프레임이 오기 전의 프레임은 호출자가 버립니다.
     pub fn request_keyframe(&self) -> Result<()> {
         self.send(Command::Keyframe)
     }

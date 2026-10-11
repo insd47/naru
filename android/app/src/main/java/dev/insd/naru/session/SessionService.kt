@@ -19,6 +19,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import dev.insd.naru.R
 import dev.insd.naru.SessionActivity
+import dev.insd.naru.Preferences
 import dev.insd.naru.audio.Player
 import dev.insd.naru.home.Host
 import dev.insd.naru.home.Hosts
@@ -96,6 +97,7 @@ class SessionService : Service() {
             knownKey = serverKeys.find(host),
             display = display,
             audio = Player.supported(),
+            priority = Preferences(this).priority,
         )
 
         val relay = Relay()

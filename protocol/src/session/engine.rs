@@ -74,7 +74,7 @@ impl Engine {
         let offer = Offer::new(config.audio);
 
         Self {
-            media: Media::new(sockets.clone(), &offer),
+            media: Media::new(sockets.clone(), &offer, config.priority),
             input: Input::new(control.keys().clone()),
             keyboard: Keyboard::new(),
             control,

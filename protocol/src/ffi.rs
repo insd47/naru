@@ -2,7 +2,9 @@
 //!
 //! - 네이티브 쪽은 [`Session::connect`]에 [`SessionListener`]를 넘겨 세션을 열고, 사건은 세션 전용 스레드에서 차례로 받습니다.
 //! - 코어 타입 가운데 튜플이나 내부 필드가 없는 것은 그대로 넘기고, 나머지는 여기서 네이티브 쪽에 맞는 모양으로 옮깁니다.
-use crate::{AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, Language, MediaStats, Mode, Phase, Stage};
+use crate::{
+    AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, Language, MediaStats, Mode, Phase, Priority, Stage,
+};
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, LazyLock};
 use tokio::runtime::Runtime;
@@ -31,6 +33,8 @@ pub struct Config {
     pub display: Option<DisplayMode>,
     /// 소리를 받을지 여부. AAC-ELD 디코더가 없는 기기에서는 끕니다.
     pub audio: bool,
+    /// 패킷을 잃었을 때 지연과 화질 중 무엇을 우선할지
+    pub priority: Priority,
 }
 
 impl From<Config> for crate::Config {
@@ -40,6 +44,7 @@ impl From<Config> for crate::Config {
         core.known_key = config.known_key;
         core.display = config.display.map(Into::into);
         core.audio = config.audio;
+        core.priority = config.priority;
         core
     }
 }
@@ -107,7 +112,7 @@ pub enum Event {
         hotspot_y: u16,
         rgba: Vec<u8>,
     },
-    /// Mac의 현재 입력 소스
+    /// Mac의 현재 입력 소스. 글자 변환은 세션이 하므로 기록과 표시에만 씁니다.
     Source {
         source: InputSource,
     },
@@ -285,7 +290,7 @@ impl Session {
         let _ = self.session.resize(&mode.into());
     }
 
-    /// 키보드 언어를 고릅니다. 태블릿의 입력 언어가 바뀌면 부릅니다. Mac이 바꾸면 `Source` 사건이 옵니다.
+    /// 키보드 언어를 고릅니다. 태블릿의 입력 언어가 바뀌면 부릅니다.
     pub fn language(&self, language: Language) {
         let _ = self.session.language(language);
     }
