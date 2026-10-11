@@ -4,6 +4,7 @@
 //! - 서버가 보낸 길이는 모두 상한을 확인한 뒤에 읽습니다. 형식이 맞지 않으면 패닉하지 않고 에러를 반환합니다.
 pub use cursor::{CursorImage, Cursors};
 pub use display::{DisplayConfig, Mode};
+pub use input_source::InputSource;
 pub use layout::{Area, Display, Layout};
 pub use server::{Messages, Rect, ServerMessage};
 
@@ -13,6 +14,7 @@ mod cursor;
 mod display;
 pub mod encoding;
 pub mod gesture;
+mod input_source;
 mod layout;
 mod server;
 mod zlib;

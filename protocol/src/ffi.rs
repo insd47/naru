@@ -299,7 +299,7 @@ fn convert(event: Event) -> Option<SessionEvent> {
         },
         Event::Cursor(image) => cursor_event(&image),
         Event::ServerName(name) => SessionEvent::ServerName { name },
-        Event::InputSource(id) => SessionEvent::InputSource { id },
+        Event::InputSource(source) => SessionEvent::InputSource { id: source.id },
         Event::Clipboard(text) => SessionEvent::Clipboard { text },
         Event::ResetDecoder => SessionEvent::ResetDecoder,
         Event::Stats(stats) => SessionEvent::Stats {

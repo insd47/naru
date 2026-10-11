@@ -6,7 +6,7 @@
 use crate::error::{Error, Result};
 use crate::media::{AccessUnit, DecoderConfig};
 use crate::message::gesture::Phase;
-use crate::message::{CursorImage, DisplayConfig, Layout, client};
+use crate::message::{CursorImage, DisplayConfig, InputSource, Layout};
 use control::Control;
 use engine::Engine;
 use media::Sockets;
@@ -112,8 +112,8 @@ pub enum Event {
     Cursor(Arc<CursorImage>),
     /// Mac의 컴퓨터 이름. 인증 뒤에 한 번 옵니다.
     ServerName(String),
-    /// Mac의 현재 입력 소스 ID(예: `com.apple.keylayout.ABC`)
-    InputSource(String),
+    /// Mac의 현재 입력 소스. 클라이언트가 지정했을 때와 Mac이 스스로 바꿨을 때 모두 옵니다.
+    InputSource(InputSource),
     /// Mac의 클립보드 텍스트
     Clipboard(String),
     /// 프레임이 오래 나오지 않아 디코더를 다시 만들어야 합니다. 키프레임은 세션이 요청합니다.
@@ -268,7 +268,7 @@ impl Session {
 
     /// Mac의 입력 소스를 지정합니다. 바뀌면 서버가 새 입력 소스를 `Event::InputSource`로 알립니다.
     pub fn input_source(&self, id: &str) -> Result<()> {
-        self.send(Command::Raw(client::input_source(id)))
+        self.send(Command::Raw(InputSource::request(id)))
     }
 
     /// 세션을 닫습니다. `Event::Closed(None)`이 마지막으로 옵니다.

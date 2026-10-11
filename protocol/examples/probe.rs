@@ -387,7 +387,7 @@ async fn session(args: Args) -> Result<(), String> {
                 "[{at:>6}] 커서: {}×{}, 핫스팟 {:?}",
                 image.width, image.height, image.hotspot
             ),
-            Event::InputSource(source) => println!("[{at:>6}] 입력 소스: {source}"),
+            Event::InputSource(source) => println!("[{at:>6}] 입력 소스: {} (보안 입력 {})", source.id, source.secure),
             Event::Clipboard(text) => println!("[{at:>6}] 클립보드: {}자", text.chars().count()),
             Event::ResetDecoder => println!("[{at:>6}] 디코더 재생성 요청"),
             Event::Stats(media) => {

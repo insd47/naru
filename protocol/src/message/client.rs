@@ -106,21 +106,6 @@ pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16, time_ms: u32) -> 
     message
 }
 
-/// Mac의 입력 소스를 지정합니다(예: `com.apple.inputmethod.Korean.2SetKorean`).
-///
-/// - `1a 00, u16 길이, u16 버전(1), u16 ID 길이, ID`. 길이는 길이 필드 뒤의 바이트 수입니다.
-/// - 받아들이면 서버가 새 입력 소스를 `0x455`로 알립니다. 유형 뒤의 패딩이 없으면 서버가 이후 메시지의 경계를 잃습니다.
-/// - 한국어 입력 소스에서는 글자 키를 호환 자모 keysym으로 보내야 Mac이 조합합니다.
-pub fn input_source(id: &str) -> Vec<u8> {
-    let id = &id.as_bytes()[..id.len().min(u16::MAX as usize - 16)];
-    let mut message = vec![0x1a, 0];
-    message.extend_from_slice(&((4 + id.len()) as u16).to_be_bytes());
-    message.extend_from_slice(&1u16.to_be_bytes());
-    message.extend_from_slice(&(id.len() as u16).to_be_bytes());
-    message.extend_from_slice(id);
-    message
-}
-
 /// 서버의 클립보드를 요청합니다. 정확히 8바이트여야 하며, 1바이트라도 더 보내면 이후 메시지의 경계가 어긋납니다.
 pub fn clipboard_request() -> [u8; 8] {
     [0x0b, 0, 0, 0, 0, 0, 0, 0]
@@ -185,13 +170,5 @@ mod tests {
             block.as_slice(),
             [0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 0xff, 2, 0x07, 0x7f, 0x04, 0x37]
         );
-    }
-
-    #[test]
-    fn input_source_has_padding_and_lengths() {
-        let message = super::input_source("com.apple.keylayout.ABC");
-        let mut expected = vec![0x1a, 0, 0, 27, 0, 1, 0, 23];
-        expected.extend_from_slice(b"com.apple.keylayout.ABC");
-        assert_eq!(message, expected);
     }
 }

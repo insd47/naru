@@ -3,9 +3,8 @@ use super::input::Input;
 use super::media::{Media, QUIET_AFTER, Sockets};
 use super::{Command, Config, Event, Events, Stage};
 use crate::error::{Error, Result};
-use crate::message::{Cursors, Layout, Messages, Rect, ServerMessage, client, clipboard};
+use crate::message::{Cursors, InputSource, Layout, Messages, Rect, ServerMessage, client, clipboard};
 use crate::offer::{Answer, Offer};
-use crate::reader::Reader;
 use socket2::SockRef;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
@@ -30,8 +29,6 @@ const MEDIA_START: Duration = Duration::from_secs(3);
 const STALL_KEYFRAME: Duration = Duration::from_secs(3);
 const STALL_KEYFRAME_REPEAT: Duration = Duration::from_millis(1500);
 const STALL_RESETS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(15)];
-
-const STATUS_CLIPBOARD_CHANGED: u16 = 2;
 
 /// 레코드 계층이 켜진 뒤의 세션 상태입니다. 한 task에서 제어 채널, UDP, 타이머, 명령을 모두 처리합니다.
 ///
@@ -199,9 +196,7 @@ impl Engine {
         while let Some(message) = self.messages.pop()? {
             match message {
                 ServerMessage::FramebufferUpdate(rects) => self.rects(rects, now, outgoing).await?,
-                ServerMessage::Status(STATUS_CLIPBOARD_CHANGED) => {
-                    self.control.send(&client::clipboard_request()).await?
-                }
+                ServerMessage::ClipboardChanged => self.control.send(&client::clipboard_request()).await?,
                 // 클립보드 내용의 형식 오류는 경계가 어긋난 것이 아니므로 세션을 끊지 않고 그 내용만 버립니다.
                 ServerMessage::Clipboard(message) => {
                     if let Ok(Some(text)) = clipboard::text(&message) {
@@ -265,7 +260,7 @@ impl Engine {
                 }
                 Rect::MediaStream(body) => self.answer(&body, now, outgoing),
                 Rect::InputSource(body) => {
-                    if let Some(source) = input_source(&body) {
+                    if let Some(source) = InputSource::parse(&body) {
                         outgoing.push(Event::InputSource(source));
                     }
                 }
@@ -405,13 +400,4 @@ async fn sleep_until(deadline: Option<Instant>) {
         Some(deadline) => tokio::time::sleep_until(deadline.into()).await,
         None => std::future::pending().await,
     }
-}
-
-// 입력 소스 사각형: `u16` 버전, `u32` 플래그(보안 입력 모드), `u16` 길이, 입력 소스 ID
-fn input_source(body: &[u8]) -> Option<String> {
-    let mut reader = Reader::new(body, "입력 소스");
-    reader.skip(6).ok()?;
-    let len = reader.u16().ok()? as usize;
-    let id = reader.bytes(len).ok()?;
-    Some(String::from_utf8_lossy(id).into_owned())
 }

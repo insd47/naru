@@ -9,12 +9,16 @@ const MAX_STATUS_BYTES: usize = 1 << 10;
 const MAX_CUT_TEXT_BYTES: usize = 1 << 20;
 const MAX_PENDING_BYTES: usize = MAX_CLIPBOARD_BYTES + (1 << 20);
 
+const STATUS_CLIPBOARD_CHANGED: u16 = 2;
+
 /// 서버가 제어 채널로 보내는 메시지입니다.
 #[derive(Debug, PartialEq)]
 pub enum ServerMessage {
     /// 프레임버퍼 갱신. High Performance에서는 화면 픽셀 대신 커서, 레이아웃, 미디어 응답 같은 사각형을 싣습니다.
     FramebufferUpdate(Vec<Rect>),
-    /// 상태 알림. 12는 약 2초 주기 심장박동, 2는 원격 클립보드 변경, 11은 사용자 세션 변경입니다.
+    /// Mac의 클립보드가 바뀌었다는 알림(상태 코드 2). `client::clipboard_request`로 내용을 요청합니다.
+    ClipboardChanged,
+    /// 그 밖의 상태 알림. 12는 약 2초 주기 심장박동, 11은 사용자 세션 변경입니다.
     Status(u16),
     /// 클립보드 전송 메시지 전체. `clipboard::text`로 텍스트를 꺼냅니다.
     Clipboard(Vec<u8>),
@@ -90,7 +94,10 @@ impl ServerMessage {
                     return Err(Error::Malformed("상태 알림"));
                 };
 
-                Self::Status(u16::from_be_bytes([high, low]))
+                match u16::from_be_bytes([high, low]) {
+                    STATUS_CLIPBOARD_CHANGED => Self::ClipboardChanged,
+                    code => Self::Status(code),
+                }
             }
             0x1f => {
                 let header = reader.bytes(15)?;

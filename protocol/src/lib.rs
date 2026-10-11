@@ -9,7 +9,7 @@
 pub use error::{Error, Result};
 pub use media::{AccessUnit, DecoderConfig, RtpPacket, SrtpContext};
 pub use message::gesture::Phase;
-pub use message::{Area, CursorImage, Display, DisplayConfig, Layout, Mode};
+pub use message::{Area, CursorImage, Display, DisplayConfig, InputSource, Layout, Mode};
 pub use session::{Config, Event, MediaStats, Session, Stage};
 
 pub mod auth;
