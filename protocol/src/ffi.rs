@@ -312,7 +312,6 @@ fn convert(event: Event) -> Option<SessionEvent> {
             failure: error.as_ref().map(failure),
             detail: error.as_ref().map(describe),
         },
-        _ => return None,
     })
 }
 

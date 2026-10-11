@@ -120,8 +120,6 @@ pub enum Event {
     ResetDecoder,
     /// 미디어 수신 통계. 미디어 협상이 끝난 뒤 0.5초마다 옵니다.
     Stats(MediaStats),
-    /// 해석하지 않은 프레임버퍼 사각형. 본문에 클립보드가 있을 수 있어 길이만 알립니다.
-    UnknownRect { encoding: i32, len: usize },
     /// 세션이 끝났습니다. `close()`로 닫았으면 `None`입니다.
     Closed(Option<Error>),
 }

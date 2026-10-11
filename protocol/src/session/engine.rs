@@ -251,14 +251,7 @@ impl Engine {
                         self.control.send(&self.offer.encode()).await?;
                     }
                 }
-                Rect::Unknown { encoding, rest } => {
-                    outgoing.push(Event::UnknownRect {
-                        encoding,
-                        len: rest.len(),
-                    });
-                    self.answer(&rest, now, outgoing);
-                }
-                Rect::MediaStream(body) => self.answer(&body, now, outgoing),
+                Rect::MediaStream(body) | Rect::Unknown { rest: body, .. } => self.answer(&body, now, outgoing),
                 Rect::InputSource(body) => {
                     if let Some(source) = InputSource::parse(&body) {
                         outgoing.push(Event::InputSource(source));
