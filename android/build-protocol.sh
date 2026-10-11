@@ -16,5 +16,5 @@ cargo ndk -t arm64-v8a -P 29 -o "$out/jniLibs" build --release
 
 # 바인딩은 방금 만든 라이브러리의 메타데이터에서 만듭니다.
 rm -rf "$out/uniffi"
-cargo run -q --features cli --bin uniffi-bindgen -- \
+cargo run -q --example uniffi-bindgen -- \
     generate "$out/jniLibs/arm64-v8a/libprotocol.so" -l kotlin -o "$out/uniffi" -n

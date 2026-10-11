@@ -7,16 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+# Android는 cdylib를 읽어 들입니다.
 [lib]
-crate-type = ["lib", "cdylib", "staticlib"]
-
-# 바인딩 생성기입니다. `--features cli`로만 빌드합니다.
-[[bin]]
-name = "uniffi-bindgen"
-required-features = ["cli"]
-
-[features]
-cli = ["uniffi/cli"]
+crate-type = ["lib", "cdylib"]
 
 [dependencies]
 aes.workspace = true
@@ -39,7 +32,9 @@ uniffi.workspace = true
 
 [dev-dependencies]
 rpassword.workspace = true
-tokio = { workspace = true, features = ["fs", "signal"] }
+tokio = { workspace = true, features = ["signal"] }
+# 바인딩 생성기(`examples/uniffi-bindgen.rs`)에만 쓰므로 라이브러리 빌드에는 들어가지 않습니다.
+uniffi = { workspace = true, features = ["cli"] }
 
 [lints]
 workspace = true
