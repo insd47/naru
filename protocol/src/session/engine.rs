@@ -1,5 +1,6 @@
 use super::control::Control;
 use super::input::Input;
+use super::keyboard::Keyboard;
 use super::media::{Media, Sockets};
 use super::{Command, Config, Event, Events, Stage};
 use crate::error::{Error, Result};
@@ -36,6 +37,7 @@ pub struct Engine {
     sockets: Sockets,
     media: Media,
     input: Input,
+    keyboard: Keyboard,
     offer: Offer,
     messages: Messages,
     cursors: Cursors,
@@ -63,6 +65,7 @@ enum Wake {
     Retry,
     Deadline,
     Momentum,
+    Confirm,
     Command(Option<Command>),
 }
 
@@ -73,6 +76,7 @@ impl Engine {
         Self {
             media: Media::new(sockets.clone(), &offer),
             input: Input::new(control.keys().clone()),
+            keyboard: Keyboard::new(),
             control,
             sockets,
             offer,
@@ -104,6 +108,7 @@ impl Engine {
         loop {
             let deadline = self.media.deadline();
             let momentum = self.input.deadline();
+            let confirm = self.keyboard.deadline();
             let retry = self
                 .answered
                 .is_none()
@@ -117,6 +122,7 @@ impl Engine {
                 _ = sleep_until(retry) => Wake::Retry,
                 _ = sleep_until(deadline) => Wake::Deadline,
                 _ = sleep_until(momentum) => Wake::Momentum,
+                _ = sleep_until(confirm) => Wake::Confirm,
                 command = commands.recv() => Wake::Command(command),
             };
 
@@ -140,6 +146,7 @@ impl Engine {
                         self.control.send(&message).await?;
                     }
                 }
+                Wake::Confirm => self.control.send_all(self.keyboard.expire(now)).await?,
                 Wake::Command(None | Some(Command::Close)) => return Ok(()),
                 Wake::Command(Some(command)) => self.command(command, now).await?,
             }
@@ -236,9 +243,12 @@ impl Engine {
                 }
                 Rect::MediaStream(body) | Rect::Unknown { rest: body, .. } => self.answer(&body, now, outgoing),
                 Rect::InputSource(body) => {
-                    if let Some(source) = InputSource::parse(&body) {
-                        outgoing.push(Event::InputSource(source));
-                    }
+                    let Some(source) = InputSource::parse(&body) else {
+                        continue;
+                    };
+
+                    outgoing.push(Event::InputSource(source.clone()));
+                    self.control.send_all(self.keyboard.observe(source, now)).await?;
                 }
                 Rect::Skipped(_) => {}
             }
@@ -320,14 +330,9 @@ impl Engine {
 
     async fn command(&mut self, command: Command, now: Instant) -> Result<()> {
         match command {
-            Command::Key { keysym, down } => self.control.send(&client::key(keysym, down)).await,
-            Command::Input(event, at) => {
-                for message in self.input.handle(event, at) {
-                    self.control.send(&message).await?;
-                }
-
-                Ok(())
-            }
+            Command::Key { keysym, down } => self.control.send_all(self.keyboard.key(keysym, down)).await,
+            Command::Language(language) => self.control.send_all(self.keyboard.select(language, now)).await,
+            Command::Input(event, at) => self.control.send_all(self.input.handle(event, at)).await,
             Command::Clipboard(text) => self.control.send(&clipboard::message(&text)).await,
             Command::Keyframe => {
                 self.media.request_keyframe(now).await;
@@ -339,7 +344,6 @@ impl Engine {
                     .send(&client::framebuffer_request(false, u16::MAX, u16::MAX))
                     .await
             }
-            Command::Raw(message) => self.control.send(&message).await,
             Command::Close => Ok(()),
         }
     }

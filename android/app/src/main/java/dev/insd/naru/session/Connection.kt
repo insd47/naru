@@ -6,6 +6,7 @@ import android.view.Surface
 import dev.insd.naru.audio.Player
 import dev.insd.naru.protocol.Config
 import dev.insd.naru.protocol.Event
+import dev.insd.naru.protocol.Language
 import dev.insd.naru.protocol.Phase
 import dev.insd.naru.protocol.Session
 import dev.insd.naru.video.Decoder
@@ -86,8 +87,8 @@ class Connection(config: Config, private val listener: Listener) {
         runCatching { session.clipboard(text) }
     }
 
-    fun inputSource(id: String) {
-        runCatching { session.inputSource(id) }
+    fun language(language: Language) {
+        runCatching { session.language(language) }
     }
 
     fun disconnect() {

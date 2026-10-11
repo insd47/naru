@@ -113,7 +113,7 @@ class SessionService : Service() {
         if (state is State.Failed) state = null
     }
 
-    /** 화면을 붙입니다. 마지막 단계, 레이아웃, 커서, 입력 소스를 곧바로 되감아 줍니다. */
+    /** 화면을 붙입니다. 마지막 레이아웃과 커서를 곧바로 되감아 줍니다. */
     fun attach(next: Connection.Listener) {
         listener = next
         val running = session ?: return
@@ -157,7 +157,7 @@ class SessionService : Service() {
             state = State.Connecting(running.host, event.stage)
         }
 
-        if (event is Event.Progress || event is Event.Layout || event is Event.Cursor || event is Event.Source) {
+        if (event is Event.Layout || event is Event.Cursor) {
             running.replay[event::class] = event
         }
 

@@ -3,7 +3,7 @@
 //! - 네이티브 쪽은 [`Session::connect`]로 세션을 열고, 한 스레드에서 [`Session::next_event`]를 되풀이해 사건을 꺼냅니다.
 //! - 꺼내는 쪽이 시간 제한을 두므로, 화면이 멈춰 프레임이 오지 않는 동안에도 디코더 출력을 꺼낼 수 있습니다.
 //! - 코어 타입 가운데 튜플이나 내부 필드가 없는 것은 그대로 넘기고, 나머지는 여기서 네이티브 쪽에 맞는 모양으로 옮깁니다.
-use crate::{AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, MediaStats, Mode, Phase, Stage};
+use crate::{AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, Language, MediaStats, Mode, Phase, Stage};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -241,7 +241,7 @@ impl Session {
         event.ok().flatten().map(Event::from)
     }
 
-    /// 키 입력. `keysym`은 X11 keysym입니다.
+    /// 키 입력. `keysym`은 X11 keysym이고, 글자 키는 물리 키의 라틴 문자로 보냅니다. 한국어 자모로는 세션이 바꿉니다.
     pub fn key(&self, keysym: u32, down: bool) {
         let _ = self.session.key(keysym, down);
     }
@@ -282,9 +282,9 @@ impl Session {
         let _ = self.session.resize(&mode.into());
     }
 
-    /// Mac의 입력 소스를 지정합니다. 바뀌면 `Source` 사건이 옵니다.
-    pub fn input_source(&self, id: String) {
-        let _ = self.session.input_source(&id);
+    /// 키보드 언어를 고릅니다. 태블릿의 입력 언어가 바뀌면 부릅니다. Mac이 바꾸면 `Source` 사건이 옵니다.
+    pub fn language(&self, language: Language) {
+        let _ = self.session.language(language);
     }
 
     /// 세션을 닫습니다. Kotlin 객체의 `close`(네이티브 자원 해제)와 이름이 겹치지 않게 따로 둡니다.

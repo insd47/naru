@@ -9,15 +9,12 @@ import android.view.KeyEvent
  * - 수식 키는 자리를 기준으로 옮깁니다. PC 배열에서 스페이스 옆의 Alt가 Mac 배열의 Command 자리이므로 Alt → Command,
  *   Meta → Option입니다. [swapCommandOption]이 `false`면 이름대로(Alt → Option, Meta → Command) 옮깁니다.
  * - Mac은 Super_L을 Command로, Meta_L을 Option으로 받습니다. Alt_L도 Command로 받으므로 Option에는 쓰지 않습니다.
- * - 글자 키는 물리 키의 라틴 문자를 보냅니다. Mac의 입력 소스가 한국어면 2벌식 호환 자모(`r` → `ㄱ`)를 보내고, 조합은 Mac이 합니다.
+ * - 글자 키는 물리 키의 라틴 문자를 보냅니다. Mac의 입력 소스가 한국어면 세션이 2벌식 자모로 바꿉니다.
  * - Control, Option, Command가 눌려 있지 않으면 Shift를 적용한 문자(`A`, `!`)를, 눌려 있으면 소문자(`c`)를 보냅니다.
  * - 뗄 때는 누를 때 보낸 keysym을 그대로 보냅니다. 그 사이 Shift가 바뀌어도 Mac에 눌린 키가 남지 않게 합니다.
  */
 class Keys(private val swapCommandOption: Boolean = true) {
     private val pressed = HashMap<Int, Int>()
-
-    /** Mac의 입력 소스가 한국어인지 여부. 켜져 있으면 글자 키를 2벌식 자모로 바꿔 보내고, 조합은 Mac이 합니다. */
-    var korean = false
 
     private val modifiers = if (swapCommandOption) {
         mapOf(
@@ -67,22 +64,11 @@ class Keys(private val swapCommandOption: Boolean = true) {
             return null
         }
 
-        if (korean && meta == event.metaState and KeyEvent.META_SHIFT_MASK) {
-            JAMO[char.toChar()]?.let { return 0x0100_0000 + it.code }
-        }
-
         // 라틴-1은 문자 코드 그대로, 그 밖은 유니코드 keysym입니다.
         return if (char in 0x20..0x7e || char in 0xa0..0xff) char else 0x0100_0000 + char
     }
 
     companion object {
-        // 2벌식 자판의 라틴 글자 → 호환 자모. Shift가 의미 있는 쌍자음과 ㅒ, ㅖ만 대문자를 따로 둡니다.
-        private val JAMO: Map<Char, Char> = run {
-            val lower = "qwertyuiopasdfghjklzxcvbnm".zip("ㅂㅈㄷㄱㅅㅛㅕㅑㅐㅔㅁㄴㅇㄹㅎㅗㅓㅏㅣㅋㅌㅊㅍㅠㅜㅡ").toMap()
-            val upper = lower.mapKeys { it.key.uppercaseChar() } + "QWERTOP".zip("ㅃㅉㄸㄲㅆㅒㅖ").toMap()
-            lower + upper
-        }
-
         // Super_L/R은 Command, Meta_L은 Option으로 확인했습니다. Meta_R은 Meta_L에 맞춘 것으로 아직 확인하지 않았습니다.
         private const val COMMAND_LEFT = 0xffeb
         private const val COMMAND_RIGHT = 0xffec

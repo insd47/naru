@@ -35,9 +35,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import dev.insd.naru.protocol.Event
-import dev.insd.naru.protocol.Stage
 import dev.insd.naru.session.Connection
-import dev.insd.naru.session.InputSource
+import dev.insd.naru.session.ImeLanguage
 import dev.insd.naru.session.Keys
 import dev.insd.naru.session.MetaKey
 import dev.insd.naru.session.ScreenView
@@ -56,7 +55,7 @@ class SessionActivity : ComponentActivity() {
     private var service: SessionService? = null
     private var connection by mutableStateOf<Connection?>(null)
     private val keys = Keys()
-    private var inputSource: InputSource? = null
+    private var language: ImeLanguage? = null
     private var touchpad: Touchpad? = null
 
     private val listener = object : Connection.Listener {
@@ -106,6 +105,7 @@ class SessionActivity : ComponentActivity() {
 
     // 화면만 사라집니다. 세션은 서비스에 남습니다.
     override fun onDestroy() {
+        language?.stop()
         service?.detach(listener)
         unbindService(binding)
         super.onDestroy()
@@ -137,7 +137,7 @@ class SessionActivity : ComponentActivity() {
         if (translated.isEmpty() && !KeyEvent.isModifierKey(event.keyCode)) {
             // 화면 뷰(IME 전)와 액티비티(IME 후)가 같은 키를 두 번 볼 수 있으므로 IME 뒤에서만 언어를 다시 읽습니다.
             if (event.keyCode == KeyEvent.KEYCODE_LANGUAGE_SWITCH && event.action == KeyEvent.ACTION_UP && afterIme) {
-                inputSource?.sync()
+                language?.sync()
             }
 
             return false
@@ -182,15 +182,14 @@ class SessionActivity : ComponentActivity() {
     private fun adopt(next: Connection) {
         connection = next
         screen?.connection = next
-        inputSource = InputSource(this, next) { korean -> keys.korean = korean }
+        language?.stop()
+        language = ImeLanguage(this, next).also { it.sync(delayMs = 0) }
         touchpad = Touchpad(next, resources.displayMetrics.density)
         immersive(true)
     }
 
     private fun handle(event: Event) {
         when (event) {
-            is Event.Progress -> if (event.stage == Stage.MEDIA) inputSource?.sync(delayMs = INPUT_SOURCE_DELAY_MS)
-            is Event.Source -> inputSource?.onServer(event.source.id)
             is Event.Layout -> layout = event
             is Event.Cursor -> screen?.setCursor(event)
             is Event.Closed -> closed()
@@ -201,8 +200,8 @@ class SessionActivity : ComponentActivity() {
     private fun closed() {
         Log.i(TAG, "세션 화면을 닫습니다")
         connection = null
-        inputSource?.stop()
-        inputSource = null
+        language?.stop()
+        language = null
         touchpad = null
         keys.releaseAll()
         screen?.connection = null
@@ -228,6 +227,5 @@ class SessionActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "Naru"
-        private const val INPUT_SOURCE_DELAY_MS = 1_000L
     }
 }

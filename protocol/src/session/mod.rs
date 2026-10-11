@@ -9,6 +9,7 @@ use crate::message::gesture::Phase;
 use crate::message::{CursorImage, DisplayConfig, InputSource, Layout};
 use control::Control;
 use engine::Engine;
+pub use keyboard::Language;
 use media::Sockets;
 use std::fmt;
 use std::net::IpAddr;
@@ -19,6 +20,7 @@ use tokio::sync::mpsc;
 mod control;
 mod engine;
 mod input;
+mod keyboard;
 mod media;
 
 const ATTEMPTS: u32 = 3;
@@ -116,7 +118,7 @@ pub enum Event {
     Cursor(Arc<CursorImage>),
     /// Mac의 컴퓨터 이름. 인증 뒤에 한 번 옵니다.
     ServerName(String),
-    /// Mac의 현재 입력 소스. 클라이언트가 지정했을 때와 Mac이 스스로 바꿨을 때 모두 옵니다.
+    /// Mac의 현재 입력 소스. 언어를 골랐을 때와 Mac이 스스로 바꿨을 때 모두 옵니다.
     InputSource(InputSource),
     /// Mac의 클립보드 텍스트
     Clipboard(String),
@@ -200,10 +202,10 @@ enum Command {
     },
     /// 입력과 그 입력이 일어난 시각. 관성 속도는 엔진이 처리한 시각이 아니라 이 시각으로 계산합니다.
     Input(input::Event, Instant),
+    Language(Language),
     Clipboard(String),
     Keyframe,
     Resize(Vec<u8>),
-    Raw(Vec<u8>),
     Close,
 }
 
@@ -224,6 +226,8 @@ impl Session {
     }
 
     /// 키를 누르거나 뗍니다. 키는 X11 키심이며, Command는 Super(`0xffeb`), Option은 Alt(`0xffe9`)입니다.
+    ///
+    /// - 글자 키는 물리 키의 라틴 문자로 보냅니다. Mac의 입력 소스가 한국어면 세션이 2벌식 자모로 바꿉니다.
     pub fn key(&self, keysym: u32, down: bool) -> Result<()> {
         self.send(Command::Key { keysym, down })
     }
@@ -268,9 +272,11 @@ impl Session {
         self.send(Command::Resize(display.encode()?))
     }
 
-    /// Mac의 입력 소스를 지정합니다. 바뀌면 서버가 새 입력 소스를 `Event::InputSource`로 알립니다.
-    pub fn input_source(&self, id: &str) -> Result<()> {
-        self.send(Command::Raw(InputSource::request(id)))
+    /// 키보드 언어를 고릅니다. 태블릿의 입력 언어가 바뀌면 부릅니다.
+    ///
+    /// - Mac이 새 입력 소스를 확인할 때까지 친 키는 세션이 붙잡아 두었다가 보냅니다.
+    pub fn language(&self, language: Language) -> Result<()> {
+        self.send(Command::Language(language))
     }
 
     /// 세션을 닫습니다. `Event::Closed(None)`이 마지막으로 옵니다.
