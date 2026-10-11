@@ -1,4 +1,5 @@
-pub use assembler::{AccessUnit, Assembled, Assembler};
+pub use assembler::{Assembled, Assembler};
+pub use h264::{AccessUnit, DecoderConfig};
 pub use rtp::RtpPacket;
 pub use srtp::SrtpContext;
 pub use streams::{Routed, Streams};

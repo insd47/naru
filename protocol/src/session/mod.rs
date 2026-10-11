@@ -5,7 +5,7 @@
 //! - 미디어가 시작되지 않으면 연결을 끊고 처음부터 다시 접속합니다. 접속 시도는 합쳐서 세 번까지입니다.
 use crate::error::{Error, Result};
 use crate::media::AccessUnit;
-use crate::media::h264::DecoderConfig;
+use crate::media::DecoderConfig;
 use crate::message::client;
 use crate::message::gesture::Phase;
 use crate::message::{CursorImage, DisplayConfig, Layout};

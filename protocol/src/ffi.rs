@@ -4,7 +4,7 @@
 //! - 꺼내는 쪽이 시간 제한을 두므로, 화면이 멈춰 프레임이 오지 않는 동안에도 디코더 출력을 꺼낼 수 있습니다.
 //! - 세션은 이 크레이트가 가진 tokio 런타임에서 돌아갑니다. 네이티브 쪽에 런타임이 따로 필요하지 않습니다.
 use crate::media::AccessUnit;
-use crate::media::h264::DecoderConfig;
+use crate::media::DecoderConfig;
 use crate::message::gesture;
 use crate::message::{CursorImage, DisplayConfig, Layout, Mode};
 use crate::{Config, Event, Session};

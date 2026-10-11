@@ -1,6 +1,5 @@
 use super::RtpPacket;
-use super::h264;
-use super::h264::DecoderConfig;
+use super::h264::{AccessUnit, CONFIG_MARKER, DecoderConfig};
 use std::collections::BTreeMap;
 use std::time::Duration;
 use std::time::Instant;
@@ -13,17 +12,6 @@ const MAX_BUFFERED: usize = 4096;
 
 // 한 번에 재전송을 요청하는 순번의 수입니다. 이보다 큰 구멍은 키프레임 요청으로 복구합니다.
 const MAX_NACK: u64 = 64;
-
-/// 디코더에 넣을 수 있는 완성된 접근 단위입니다.
-#[derive(Debug, Clone, PartialEq)]
-pub struct AccessUnit {
-    pub ssrc: u32,
-    /// RTP 타임스탬프(90 kHz)
-    pub timestamp: u32,
-    pub keyframe: bool,
-    /// 시작 코드 없는 NAL 목록
-    pub nals: Vec<Vec<u8>>,
-}
 
 /// 조립 결과입니다.
 #[derive(Debug, PartialEq)]
@@ -154,7 +142,7 @@ impl Assembler {
     fn unit_end(&self, start: u64) -> Option<u64> {
         let first = self.packets.get(&start)?;
 
-        if first.payload.first() == Some(&h264::CONFIG_MARKER) {
+        if first.payload.first() == Some(&CONFIG_MARKER) {
             return Some(start);
         }
 
@@ -206,28 +194,19 @@ impl Assembler {
             return Some(Assembled::Config(config));
         }
 
-        let timestamp = first.timestamp;
+        let payloads = packets.iter().map(|packet| packet.payload.as_slice());
 
-        let Some(nals) = h264::depacketize(packets.iter().map(|packet| packet.payload.as_slice())) else {
+        let Some(unit) = AccessUnit::depacketize(self.ssrc, first.timestamp, payloads) else {
             self.awaiting_keyframe = true;
             return Some(Assembled::Lost);
         };
 
-        let keyframe = h264::is_keyframe(&nals);
-        let ready = self.configured || h264::has_sps(&nals);
-
-        if !ready || (self.awaiting_keyframe && !keyframe) {
+        if !(self.configured || unit.has_sps()) || (self.awaiting_keyframe && !unit.keyframe) {
             return None;
         }
 
         self.awaiting_keyframe = false;
-
-        Some(Assembled::Frame(AccessUnit {
-            ssrc: self.ssrc,
-            timestamp,
-            keyframe,
-            nals,
-        }))
+        Some(Assembled::Frame(unit))
     }
 
     // 16비트 순번을 지금까지 받은 가장 큰 순번에 가장 가까운 확장 순번으로 바꿉니다.

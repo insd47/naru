@@ -14,8 +14,7 @@
 //! - `--unlock 3`은 3초 뒤 잠금 화면에 접속 비밀번호를 키 입력으로 칩니다. 가상 디스플레이로 붙으면 잠금 화면부터 나옵니다.
 //! - `--resize 30:1600x1000@2`는 30초 뒤 가상 디스플레이의 크기를 바꿉니다. 서버가 새 SSRC로 넘어가는 장면을 캡처에 담을 때 씁니다.
 use protocol::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey};
-use protocol::media::h264;
-use protocol::media::h264::DecoderConfig;
+use protocol::media::DecoderConfig;
 use protocol::message::{DisplayConfig, Mode};
 use protocol::{Config, Event, MediaStats, Session};
 use sha2::Digest;
@@ -377,14 +376,13 @@ async fn session(args: Args) -> Result<(), String> {
                 if let Some(out) = out.as_mut() {
                     // 디코더 설정은 스트림 밖으로 오므로, 키프레임 앞에 SPS와 PPS를 붙여야 파일만으로 재생됩니다.
                     if unit.keyframe
-                        && !h264::has_sps(&unit.nals)
+                        && !unit.has_sps()
                         && let Some(config) = &decoder
                     {
                         out.write_all(&config.annex_b()).map_err(|error| error.to_string())?;
                     }
 
-                    out.write_all(&h264::annex_b(&unit.nals))
-                        .map_err(|error| error.to_string())?;
+                    out.write_all(&unit.annex_b()).map_err(|error| error.to_string())?;
                 }
 
                 if let Some(line) = stats.report(started) {
