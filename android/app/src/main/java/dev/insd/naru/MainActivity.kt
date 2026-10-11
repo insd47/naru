@@ -467,12 +467,11 @@ class MainActivity : ComponentActivity() {
 
     private fun connect(host: Host) = startActivity(SessionActivity.intent(this, host))
 
-    // 찾은 Mac의 주소를 풀어 접속합니다. 같은 주소나 같은 이름으로 저장한 Mac이 있으면 그것으로 접속합니다.
-    // Mac은 주소가 여럿일 수 있어, 찾을 때 풀린 주소가 저장한 주소와 다를 수 있습니다.
+    // 찾은 Mac의 주소를 풀어 접속합니다. 같은 주소로 저장한 Mac이 있으면 그것으로 접속합니다.
     private fun connect(found: Found) {
         discovery.resolve(found) { address ->
             address ?: return@resolve
-            val saved = hosts.list.find { it.address == address || it.name == found.name }
+            val saved = hosts.list.find { it.address == address }
             connect(saved ?: Host(name = found.name, address = address))
         }
     }
