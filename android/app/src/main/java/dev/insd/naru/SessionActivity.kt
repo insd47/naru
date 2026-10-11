@@ -21,9 +21,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Key
@@ -56,10 +56,10 @@ import androidx.core.view.WindowInsetsControllerCompat
 import dev.insd.naru.home.Host
 import dev.insd.naru.home.Hosts
 import dev.insd.naru.home.Keychain
-import dev.insd.naru.protocol.ConnectConfig
+import dev.insd.naru.protocol.Config
 import dev.insd.naru.protocol.DisplayMode
+import dev.insd.naru.protocol.Event
 import dev.insd.naru.protocol.Failure
-import dev.insd.naru.protocol.SessionEvent
 import dev.insd.naru.protocol.Stage
 import dev.insd.naru.session.Clipboard
 import dev.insd.naru.session.Connection
@@ -94,9 +94,9 @@ class SessionActivity : ComponentActivity() {
     private var pending: Credentials? = null
 
     private var status by mutableStateOf<String?>(null)
-    private var failure by mutableStateOf<SessionEvent.Closed?>(null)
+    private var failure by mutableStateOf<Event.Closed?>(null)
     private var loginMessage by mutableStateOf<String?>(null)
-    private var layout by mutableStateOf<SessionEvent.Layout?>(null)
+    private var layout by mutableStateOf<Event.Layout?>(null)
     private var screen: ScreenView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -285,7 +285,7 @@ class SessionActivity : ComponentActivity() {
         pending = credentials
         status = stageName(Stage.WARMUP)
 
-        val config = ConnectConfig(
+        val config = Config(
             host = host.address,
             port = host.port.toUShort(),
             username = credentials.username,
@@ -295,7 +295,7 @@ class SessionActivity : ComponentActivity() {
         )
 
         connection = Connection(config, object : Connection.Listener {
-            override fun onEvent(event: SessionEvent) = runOnUiThread { handle(event) }
+            override fun onEvent(event: Event) = runOnUiThread { handle(event) }
             override fun onFirstFrame() = runOnUiThread { status = null }
         }).also { connection ->
             inputSource = InputSource(this, connection) { korean -> keys.korean = korean }
@@ -306,18 +306,18 @@ class SessionActivity : ComponentActivity() {
         immersive(true)
     }
 
-    private fun handle(event: SessionEvent) {
+    private fun handle(event: Event) {
         when (event) {
-            is SessionEvent.Progress -> {
+            is Event.Progress -> {
                 status = stageName(event.stage)
                 if (event.stage == Stage.MEDIA) {
                     inputSource?.sync(delayMs = INPUT_SOURCE_DELAY_MS)
                     clipboard?.sync()
                 }
             }
-            is SessionEvent.InputSource -> inputSource?.onServer(event.id)
-            is SessionEvent.Clipboard -> clipboard?.onServer(event.text)
-            is SessionEvent.ServerKey -> {
+            is Event.Source -> inputSource?.onServer(event.source.id)
+            is Event.Clipboard -> clipboard?.onServer(event.text)
+            is Event.ServerKey -> {
                 val file = keyFile()
 
                 if (!file.exists()) {
@@ -325,11 +325,11 @@ class SessionActivity : ComponentActivity() {
                     file.writeBytes(event.der)
                 }
             }
-            is SessionEvent.Authenticated -> remember()
-            is SessionEvent.ServerName -> rename(event.name)
-            is SessionEvent.Layout -> layout = event
-            is SessionEvent.Cursor -> screen?.setCursor(event)
-            is SessionEvent.Closed -> closed(event)
+            is Event.Authenticated -> remember()
+            is Event.ServerName -> rename(event.name)
+            is Event.Layout -> layout = event
+            is Event.Cursor -> screen?.setCursor(event)
+            is Event.Closed -> closed(event)
             else -> Unit
         }
     }
@@ -357,7 +357,7 @@ class SessionActivity : ComponentActivity() {
     }
 
     // 사용자가 닫은 세션은 목록으로 돌아갑니다. 비밀번호가 틀렸으면 저장한 비밀번호를 지우고 다시 묻습니다.
-    private fun closed(event: SessionEvent.Closed) {
+    private fun closed(event: Event.Closed) {
         disconnect()
         pending = null
 

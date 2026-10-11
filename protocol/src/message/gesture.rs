@@ -19,7 +19,7 @@ const MAGNIFY_VERSION: u16 = 2;
 const MAGNIFY_BYTES: usize = 36;
 
 /// 제스처의 단계입니다. 스크롤과 확대가 같은 값을 씁니다.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum Phase {
     Began = 1,
     Changed = 2,

@@ -3,11 +3,10 @@ package dev.insd.naru.session
 import android.media.MediaCodec
 import android.util.Log
 import android.view.Surface
-import dev.insd.naru.protocol.ConnectConfig
-import dev.insd.naru.protocol.NaruSession
+import dev.insd.naru.protocol.Config
+import dev.insd.naru.protocol.Event
 import dev.insd.naru.protocol.Phase
-import dev.insd.naru.protocol.SessionEvent
-import dev.insd.naru.video.AccessUnit
+import dev.insd.naru.protocol.Session
 import dev.insd.naru.video.Decoder
 import java.util.concurrent.atomic.AtomicReference
 
@@ -18,8 +17,8 @@ import java.util.concurrent.atomic.AtomicReference
  * - 사건을 짧은 시간 제한으로 꺼내므로, 화면이 멈춰 프레임이 오지 않아도 디코더의 남은 출력이 그려집니다.
  * - UI에 알릴 일은 [listener]로 부릅니다. 이 스레드에서 부르므로 UI 쪽에서 메인 스레드로 넘깁니다.
  */
-class Connection(config: ConnectConfig, private val listener: Listener) {
-    private val session = NaruSession.connect(config)
+class Connection(config: Config, private val listener: Listener) {
+    private val session = Session.connect(config)
     private val surface = AtomicReference<Surface?>()
     private val thread = Thread(::run, "naru-session")
 
@@ -34,7 +33,7 @@ class Connection(config: ConnectConfig, private val listener: Listener) {
     private var keyframes = 0
     private var dropped = 0
     private var rendered = 0
-    private var lastStats: SessionEvent.Stats? = null
+    private var lastStats: Event.Stats? = null
     private var reportedAt = System.nanoTime()
 
     private var shown = false
@@ -43,7 +42,7 @@ class Connection(config: ConnectConfig, private val listener: Listener) {
     private var awaitingKeyframe = true
 
     interface Listener {
-        fun onEvent(event: SessionEvent)
+        fun onEvent(event: Event)
 
         /** 첫 화면이 그려졌습니다. 접속 중 표시를 거둘 때 씁니다. */
         fun onFirstFrame()
@@ -108,23 +107,23 @@ class Connection(config: ConnectConfig, private val listener: Listener) {
                 event ?: continue
 
                 when (event) {
-                    is SessionEvent.DecoderConfig -> configure(event)
-                    is SessionEvent.Frame -> queue(event)
-                    is SessionEvent.ResetDecoder -> rebuild()
+                    is Event.Decoder -> configure(event)
+                    is Event.Frame -> queue(event)
+                    is Event.ResetDecoder -> rebuild()
                     else -> Unit
                 }
 
-                if (event is SessionEvent.Stats) {
+                if (event is Event.Stats) {
                     lastStats = event
                     continue
                 }
 
-                if (event !is SessionEvent.Frame) {
+                if (event !is Event.Frame) {
                     Log.i(TAG, describe(event))
                     listener.onEvent(event)
                 }
 
-                if (event is SessionEvent.Closed) {
+                if (event is Event.Closed) {
                     break
                 }
             }
@@ -137,9 +136,9 @@ class Connection(config: ConnectConfig, private val listener: Listener) {
 
     // 서버는 키프레임마다 같은 설정을 다시 보냅니다. 같은 설정이면 디코더를 그대로 두고, 바뀌었을 때만 새로 만듭니다.
     // 새로 만들 때는 뒤따르는 키프레임이 곧 오므로 따로 요청하지 않습니다.
-    private fun configure(config: SessionEvent.DecoderConfig) {
-        val nextSps = config.sps.firstOrNull() ?: return
-        val nextPps = config.pps.firstOrNull() ?: return
+    private fun configure(event: Event.Decoder) {
+        val nextSps = event.config.sps.firstOrNull() ?: return
+        val nextPps = event.config.pps.firstOrNull() ?: return
 
         if (decoder != null && sps.contentEquals(nextSps) && pps.contentEquals(nextPps)) {
             return
@@ -165,7 +164,7 @@ class Connection(config: ConnectConfig, private val listener: Listener) {
         }
 
         reportedAt = now
-        val stats = lastStats?.let {
+        val stats = lastStats?.stats?.let {
             "데이터그램 ${it.datagrams}, 인증 ${it.authenticated}, SSRC ${it.ssrc?.toString(16)}, 순번 ${it.highest}, 후보 ${it.candidates}, 오퍼 ${it.offers}, NACK ${it.nacked}, 메움 ${it.filled}, 손실 ${it.losses}"
         }
         Log.i(TAG, "1초: 프레임 $frames (키 $keyframes, 버림 $dropped), 출력 $rendered | $stats")
@@ -175,13 +174,13 @@ class Connection(config: ConnectConfig, private val listener: Listener) {
         rendered = 0
     }
 
-    private fun queue(frame: SessionEvent.Frame) {
+    private fun queue(frame: Event.Frame) {
         frames += 1
-        if (frame.keyframe) keyframes += 1
+        if (frame.unit.keyframe) keyframes += 1
 
         val current = decoder ?: run { dropped += 1; return }
 
-        if (awaitingKeyframe && !frame.keyframe) {
+        if (awaitingKeyframe && !frame.unit.keyframe) {
             dropped += 1
             return
         }
@@ -189,10 +188,10 @@ class Connection(config: ConnectConfig, private val listener: Listener) {
         awaitingKeyframe = false
 
         // RTP 타임스탬프는 90 kHz입니다. 출력 순서와 지연 측정에만 쓰므로 넘어감은 신경 쓰지 않습니다.
-        val ptsUs = frame.timestamp.toLong() * 1_000 / 90
+        val ptsUs = frame.unit.timestamp.toLong() * 1_000 / 90
 
         try {
-            if (!current.queue(AccessUnit(frame.nals), ptsUs, INPUT_TIMEOUT_US)) {
+            if (!current.queue(frame.unit, ptsUs, INPUT_TIMEOUT_US)) {
                 // 입력 버퍼가 없으면 이 프레임을 버리고 키프레임부터 다시 받습니다.
                 Log.w(TAG, "디코더 입력 버퍼가 없어 프레임을 버립니다")
                 awaitingKeyframe = true
@@ -236,20 +235,20 @@ class Connection(config: ConnectConfig, private val listener: Listener) {
     }
 
     // 로그에는 사건의 종류와 크기만 남깁니다. 클립보드 내용이나 키 바이트는 남기지 않습니다.
-    private fun describe(event: SessionEvent): String = when (event) {
-        is SessionEvent.Progress -> "단계: ${event.stage}"
-        is SessionEvent.ServerKey -> "서버 키 ${event.der.size}바이트"
-        is SessionEvent.Authenticated -> "인증 성공 (서버 증명 ${event.serverProof})"
-        is SessionEvent.Layout -> "레이아웃: 논리 ${event.logicalWidth}×${event.logicalHeight}, 픽셀 ${event.pixelWidth}×${event.pixelHeight}"
-        is SessionEvent.DecoderConfig -> "디코더 설정: SPS ${event.sps.size}개, PPS ${event.pps.size}개, 디코더 ${decoder?.info?.name ?: "없음(Surface 대기)"}"
-        is SessionEvent.Cursor -> "커서 ${event.width}×${event.height}"
-        is SessionEvent.ServerName -> "Mac 이름: ${event.name}"
-        is SessionEvent.InputSource -> "입력 소스: ${event.id}"
-        is SessionEvent.Clipboard -> "클립보드 ${event.text.length}자"
-        is SessionEvent.ResetDecoder -> "디코더 재생성 요청"
-        is SessionEvent.Closed -> "세션 종료: ${event.detail ?: "정상"}"
-        is SessionEvent.Stats -> "통계"
-        is SessionEvent.Frame -> "프레임"
+    private fun describe(event: Event): String = when (event) {
+        is Event.Progress -> "단계: ${event.stage}"
+        is Event.ServerKey -> "서버 키 ${event.der.size}바이트"
+        is Event.Authenticated -> "인증 성공 (서버 증명 ${event.serverProof})"
+        is Event.Layout -> "레이아웃: 논리 ${event.logicalWidth}×${event.logicalHeight}, 픽셀 ${event.pixelWidth}×${event.pixelHeight}"
+        is Event.Decoder -> "디코더 설정: SPS ${event.config.sps.size}개, PPS ${event.config.pps.size}개, 디코더 ${decoder?.info?.name ?: "없음(Surface 대기)"}"
+        is Event.Cursor -> "커서 ${event.width}×${event.height}"
+        is Event.ServerName -> "Mac 이름: ${event.name}"
+        is Event.Source -> "입력 소스: ${event.source.id} (보안 입력 ${event.source.secure})"
+        is Event.Clipboard -> "클립보드 ${event.text.length}자"
+        is Event.ResetDecoder -> "디코더 재생성 요청"
+        is Event.Closed -> "세션 종료: ${event.detail ?: "정상"}"
+        is Event.Stats -> "통계"
+        is Event.Frame -> "프레임"
     }
 
     companion object {

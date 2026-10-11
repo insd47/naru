@@ -62,7 +62,7 @@ impl Config {
 }
 
 /// 접속 단계입니다. 실패한 단계를 사용자에게 구분해 보여 주면 원인을 찾기 쉽습니다.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 #[non_exhaustive]
 pub enum Stage {
     /// 예열 TCP 연결
@@ -125,7 +125,7 @@ pub enum Event {
 }
 
 /// 미디어 수신 통계입니다. 화면이 멈췄을 때 서버가 보내지 않는 것인지, 받았는데 버린 것인지 가립니다.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
 pub struct MediaStats {
     /// 서버 주소에서 비디오 포트로 받은 데이터그램(RTCP 포함)
     pub datagrams: u64,
@@ -136,7 +136,7 @@ pub struct MediaStats {
     /// 그 SSRC에서 받은 확장 순번의 최댓값
     pub highest: Option<u32>,
     /// 넘어갈지 지켜보는 다른 SSRC의 수
-    pub candidates: usize,
+    pub candidates: u32,
     /// 응답을 받기까지 보낸 오퍼의 수
     pub offers: u32,
     /// 재전송을 요청한 순번의 수

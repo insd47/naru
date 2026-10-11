@@ -9,7 +9,7 @@ import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import dev.insd.naru.protocol.SessionEvent
+import dev.insd.naru.protocol.Event
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -67,7 +67,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
     }
 
     /** 커서 모양을 화면 배율에 맞춰 시스템 포인터 아이콘으로 씁니다. 이미지와 핫스팟은 Mac의 논리 좌표 크기입니다. */
-    fun setCursor(cursor: SessionEvent.Cursor) {
+    fun setCursor(cursor: Event.Cursor) {
         val width = cursor.width.toInt()
         val height = cursor.height.toInt()
         val pixels = IntArray(width * height) { index ->

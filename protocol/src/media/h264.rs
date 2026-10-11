@@ -18,7 +18,7 @@ const NAL_FU_A: u8 = 28;
 const NAL_FU_B: u8 = 29;
 
 /// `avcC`에서 꺼낸 디코더 설정입니다.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct DecoderConfig {
     pub profile: u8,
     pub compatibility: u8,
@@ -75,7 +75,7 @@ impl DecoderConfig {
 }
 
 /// 디코더에 넣을 수 있는 완성된 접근 단위입니다.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct AccessUnit {
     pub ssrc: u32,
     /// RTP 타임스탬프(90 kHz)

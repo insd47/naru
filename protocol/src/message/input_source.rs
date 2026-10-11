@@ -7,7 +7,7 @@ const SECURE: u32 = 1;
 ///
 /// - 클라이언트는 `0x1a`로 지정하고, 서버는 바뀔 때마다 `0x455` 사각형으로 알립니다. 서버가 스스로 바꿀 때도 알립니다.
 /// - 한국어 입력 소스에서는 글자 키를 호환 자모 keysym으로 보내야 Mac이 조합합니다.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct InputSource {
     /// 입력 소스 ID(예: `com.apple.inputmethod.Korean.2SetKorean`)
     pub id: String,

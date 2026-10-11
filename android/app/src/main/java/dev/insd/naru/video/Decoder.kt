@@ -6,6 +6,7 @@ import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
 import android.view.Surface
+import dev.insd.naru.protocol.AccessUnit
 
 /**
  * 하드웨어 H.264 디코더 하나를 감쌉니다. 접근 단위를 넣으면 Surface에 그립니다.
@@ -29,8 +30,8 @@ class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface) {
 
     init {
         val format = MediaFormat.createVideoFormat(MIME, config.width, config.height).apply {
-            setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(AccessUnit.START_CODE + sps))
-            setByteBuffer("csd-1", java.nio.ByteBuffer.wrap(AccessUnit.START_CODE + pps))
+            setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(START_CODE + sps))
+            setByteBuffer("csd-1", java.nio.ByteBuffer.wrap(START_CODE + pps))
             setInteger(MediaFormat.KEY_PRIORITY, 0)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && lowLatency) {
@@ -62,16 +63,16 @@ class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface) {
             return false
         }
 
-        val bytes = unit.annexB()
         val buffer = codec.getInputBuffer(index) ?: return false
         buffer.clear()
-        buffer.put(bytes)
 
-        val keyframe = unit.kind == AccessUnit.Kind.IDR || unit.kind == AccessUnit.Kind.INTRA
-        val flags = if (keyframe) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+        for (nal in unit.nals) {
+            buffer.put(START_CODE).put(nal)
+        }
 
+        val flags = if (unit.keyframe) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
         queuedAt[ptsUs] = System.nanoTime()
-        codec.queueInputBuffer(index, 0, bytes.size, ptsUs, flags)
+        codec.queueInputBuffer(index, 0, buffer.position(), ptsUs, flags)
         return true
     }
 
@@ -101,6 +102,8 @@ class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface) {
 
     companion object {
         const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
+
+        private val START_CODE = byteArrayOf(0, 0, 0, 1)
 
         private val QUALCOMM_PREFIXES = listOf("c2.qti.", "OMX.qcom.")
 

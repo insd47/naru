@@ -202,7 +202,7 @@ impl Media {
             authenticated: self.authenticated,
             ssrc,
             highest: ssrc.and_then(|ssrc| self.receive.highest_received(ssrc)),
-            candidates: self.streams.candidates(),
+            candidates: u32::try_from(self.streams.candidates()).unwrap_or(u32::MAX),
             offers,
             nacked: self.nacked,
             filled: self.filled + self.assembler.as_ref().map_or(0, Assembler::filled),
