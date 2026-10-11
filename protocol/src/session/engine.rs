@@ -1,4 +1,5 @@
 use super::control::Control;
+use super::input::Input;
 use super::media::{Media, QUIET_AFTER, Sockets};
 use super::{Command, Config, Event, Stage};
 use crate::error::{Error, Result};
@@ -18,7 +19,7 @@ use tokio::time::MissedTickBehavior;
 const TICK: Duration = Duration::from_millis(500);
 
 // 응답에 크기가 없으면 서버의 인코더가 아직 준비되지 않은 것이므로 같은 오퍼를 다시 보냅니다.
-// 응답이 오기 전에는 다시 보내지 않습니다. 서버는 오퍼마다 스트림을 만드므로, 성급히 보내면 스트림이 여럿 생겨 시작이 끊깁니다.
+// 응답이 오기 전에는 다시 보내지 않습니다. 서버는 오퍼마다 스트림을 만들므로, 성급히 보내면 스트림이 여럿 생겨 시작이 끊깁니다.
 const OFFER_RETRY: Duration = Duration::from_millis(200);
 const OFFER_ATTEMPTS: u32 = 16;
 
@@ -42,6 +43,7 @@ pub struct Engine {
     control: Control,
     sockets: Sockets,
     media: Media,
+    input: Input,
     offer: Offer,
     messages: Messages,
     cursors: Cursors,
@@ -51,8 +53,6 @@ pub struct Engine {
     offer_retry: Option<Instant>,
     answered: Option<Instant>,
     stall: Stall,
-    // 포인터 이벤트의 시각 기준
-    started: Instant,
 }
 
 // 프레임 정지 감시 상태입니다. 프레임이 나오면 초기화합니다.
@@ -70,6 +70,7 @@ enum Wake {
     Tick,
     Retry,
     Deadline,
+    Momentum,
     Command(Option<Command>),
 }
 
@@ -79,6 +80,7 @@ impl Engine {
 
         Self {
             media: Media::new(sockets.clone(), &offer),
+            input: Input::new(control.keys.clone()),
             control,
             sockets,
             offer,
@@ -89,7 +91,6 @@ impl Engine {
             offer_retry: None,
             answered: None,
             stall: Stall::default(),
-            started: Instant::now(),
         }
     }
 
@@ -114,6 +115,7 @@ impl Engine {
 
         loop {
             let deadline = self.media.deadline();
+            let momentum = self.input.deadline();
             let retry = self
                 .answered
                 .is_none()
@@ -126,6 +128,7 @@ impl Engine {
                 _ = ticker.tick() => Wake::Tick,
                 _ = sleep_until(retry) => Wake::Retry,
                 _ = sleep_until(deadline) => Wake::Deadline,
+                _ = sleep_until(momentum) => Wake::Momentum,
                 command = commands.recv() => Wake::Command(command),
             };
 
@@ -145,6 +148,11 @@ impl Engine {
                 Wake::Tick => self.tick(now, &mut outgoing).await?,
                 Wake::Retry => self.retry(now).await?,
                 Wake::Deadline => self.media.drain(now, &mut outgoing).await,
+                Wake::Momentum => {
+                    if let Some(message) = self.input.tick(now) {
+                        self.control.send(&message).await?;
+                    }
+                }
                 Wake::Command(None | Some(Command::Close)) => return Ok(()),
                 Wake::Command(Some(command)) => self.command(command, now).await?,
             }
@@ -242,6 +250,7 @@ impl Engine {
                         .layout
                         .as_ref()
                         .is_some_and(|previous| previous.pixels != layout.pixels);
+                    self.input.resize(layout.pixels);
                     self.layout = Some(layout.clone());
                     outgoing.push(Event::Layout(layout));
 
@@ -349,16 +358,12 @@ impl Engine {
     async fn command(&mut self, command: Command, now: Instant) -> Result<()> {
         match command {
             Command::Key { keysym, down } => self.control.send(&client::key(keysym, down)).await,
-            Command::Pointer { buttons, x, y } => {
-                let (width, height) = self
-                    .layout
-                    .as_ref()
-                    .map_or((u16::MAX, u16::MAX), |layout| layout.pixels);
-                let x = x.min(width.saturating_sub(1));
-                let y = y.min(height.saturating_sub(1));
-                let time_ms = u32::try_from(self.started.elapsed().as_millis()).unwrap_or(u32::MAX);
-                let message = client::pointer(&self.control.keys, buttons, x, y, time_ms);
-                self.control.send(&message).await
+            Command::Input(event, at) => {
+                for message in self.input.handle(event, at) {
+                    self.control.send(&message).await?;
+                }
+
+                Ok(())
             }
             Command::Clipboard(text) => self.control.send(&clipboard::message(&text)).await,
             Command::Keyframe => {

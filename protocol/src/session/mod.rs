@@ -7,6 +7,7 @@ use crate::error::{Error, Result};
 use crate::media::AccessUnit;
 use crate::media::h264::DecoderConfig;
 use crate::message::client;
+use crate::message::gesture::Phase;
 use crate::message::{CursorImage, DisplayConfig, Layout};
 use control::Control;
 use engine::Engine;
@@ -15,10 +16,12 @@ use std::fmt;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
 use tokio::sync::mpsc;
 
 mod control;
 mod engine;
+mod input;
 mod media;
 
 const ATTEMPTS: u32 = 3;
@@ -151,8 +154,12 @@ pub struct MediaStats {
 
 /// 네이티브 계층이 세션에 보내는 명령입니다.
 enum Command {
-    Key { keysym: u32, down: bool },
-    Pointer { buttons: u8, x: u16, y: u16 },
+    Key {
+        keysym: u32,
+        down: bool,
+    },
+    /// 입력과 그 입력이 일어난 시각. 관성 속도는 엔진이 처리한 시각이 아니라 이 시각으로 계산합니다.
+    Input(input::Event, Instant),
     Clipboard(String),
     Keyframe,
     Resize(Vec<u8>),
@@ -183,7 +190,25 @@ impl Session {
 
     /// 포인터 위치와 버튼 상태를 보냅니다. 좌표는 `Layout.pixels` 기준의 픽셀 좌표입니다.
     pub fn pointer(&self, buttons: u8, x: u16, y: u16) -> Result<()> {
-        self.send(Command::Pointer { buttons, x, y })
+        self.input(input::Event::Pointer { buttons, x, y })
+    }
+
+    /// 트랙패드 스크롤. 이동량은 포인트이고, 방향은 CGEvent를 따릅니다(양수가 위, 왼쪽).
+    ///
+    /// - 스크롤은 마지막 포인터 위치에서 일어납니다.
+    /// - `Ended`를 보내면 손을 떼기 직전의 속도로 관성을 이어 보냅니다. 끝낼 때의 이동량은 보통 0입니다.
+    pub fn scroll(&self, phase: Phase, delta: (f32, f32)) -> Result<()> {
+        self.input(input::Event::Scroll { phase, delta })
+    }
+
+    /// 마우스 휠. 칸 수이며 방향은 [`Self::scroll`]과 같습니다.
+    pub fn wheel(&self, lines: (f32, f32)) -> Result<()> {
+        self.input(input::Event::Wheel { lines })
+    }
+
+    /// 확대 제스처. 배율은 시작할 때 1.0이고 누적됩니다. 중심은 마지막 포인터 위치입니다.
+    pub fn magnify(&self, phase: Phase, scale: f32) -> Result<()> {
+        self.input(input::Event::Magnify { phase, scale })
     }
 
     /// Mac의 클립보드에 텍스트를 넣습니다.
@@ -211,6 +236,10 @@ impl Session {
     /// 세션을 닫습니다. `Event::Closed(None)`이 마지막으로 옵니다.
     pub fn close(&self) -> Result<()> {
         self.send(Command::Close)
+    }
+
+    fn input(&self, event: input::Event) -> Result<()> {
+        self.send(Command::Input(event, Instant::now()))
     }
 
     fn send(&self, command: Command) -> Result<()> {

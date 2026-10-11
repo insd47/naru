@@ -12,6 +12,7 @@ pub mod clipboard;
 mod cursor;
 mod display;
 pub mod encoding;
+pub mod gesture;
 mod layout;
 mod server;
 mod zlib;
