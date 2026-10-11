@@ -51,6 +51,8 @@ pub struct Engine {
     offer_retry: Option<Instant>,
     answered: Option<Instant>,
     stall: Stall,
+    // 포인터 이벤트의 시각 기준
+    started: Instant,
 }
 
 // 프레임 정지 감시 상태입니다. 프레임이 나오면 초기화합니다.
@@ -87,6 +89,7 @@ impl Engine {
             offer_retry: None,
             answered: None,
             stall: Stall::default(),
+            started: Instant::now(),
         }
     }
 
@@ -353,7 +356,8 @@ impl Engine {
                     .map_or((u16::MAX, u16::MAX), |layout| layout.pixels);
                 let x = x.min(width.saturating_sub(1));
                 let y = y.min(height.saturating_sub(1));
-                let message = client::pointer(&self.control.keys, buttons, x, y);
+                let time_ms = u32::try_from(self.started.elapsed().as_millis()).unwrap_or(u32::MAX);
+                let message = client::pointer(&self.control.keys, buttons, x, y, time_ms);
                 self.control.send(&message).await
             }
             Command::Clipboard(text) => self.control.send(&clipboard::message(&text)).await,

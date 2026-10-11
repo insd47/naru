@@ -96,8 +96,10 @@ pub fn key(keysym: u32, down: bool) -> [u8; 8] {
 ///
 /// - 좌표는 디코딩된 영상의 픽셀 좌표이며, 호출자가 영상 크기 안으로 자릅니다.
 /// - 버튼 마스크는 `BUTTON_*`의 비트를 씁니다. 표준 RFB와 오른쪽, 가운데 비트의 위치가 다릅니다.
-pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16) -> [u8; 18] {
+/// - `time_ms`는 이벤트 시각입니다. 같은 위치·버튼의 이벤트가 이어져도 서버가 중복으로 버리지 않게 합니다. 단위는 확인하지 않았습니다.
+pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16, time_ms: u32) -> [u8; 18] {
     let mut plain = [0; 16];
+    plain[6..10].copy_from_slice(&time_ms.to_be_bytes());
     plain[10] = 0xff;
     plain[11] = buttons;
     plain[12..14].copy_from_slice(&x.to_be_bytes());
@@ -177,20 +179,20 @@ mod tests {
     }
 
     #[test]
-    fn pointer_plaintext_has_the_marker_before_buttons_and_coordinates() {
+    fn pointer_plaintext_has_time_then_marker_buttons_and_coordinates() {
         let keys = RecordKeys {
             content_key: [5; 16],
             iv: [0; 16],
         };
 
-        let message = pointer(&keys, 0b10, 1919, 1079);
+        let message = pointer(&keys, 0b10, 1919, 1079, 0x0102_0304);
         assert_eq!(&message[..2], [0x10, 0]);
 
         let mut block = GenericArray::clone_from_slice(&message[2..]);
         Aes128::new(&keys.content_key.into()).decrypt_block(&mut block);
         assert_eq!(
             block.as_slice(),
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 2, 0x07, 0x7f, 0x04, 0x37]
+            [0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 0xff, 2, 0x07, 0x7f, 0x04, 0x37]
         );
     }
 
