@@ -9,6 +9,8 @@ import dev.insd.naru.video.Decoder
 import dev.insd.naru.video.Sps
 import dev.insd.naru.video.type
 import java.io.File
+import java.io.FileInputStream
+import java.nio.channels.FileChannel
 
 /**
  * 캡처한 H.264 파일을 하드웨어 디코더로 재생하며, 서버 스트림이 디코더에서 겪을 수 있는 문제를 기록합니다.
@@ -44,8 +46,9 @@ class DecodeTest(
     fun run() {
         log("파일: ${file.name} (${file.length() / 1024} KiB)")
 
-        val units = AccessUnit.split(file.readBytes())
-        log("접근 단위 ${units.size}개")
+        // 캡처는 수백 MB라 힙에 올리지 않고 메모리 매핑해 앞에서부터 읽습니다.
+        val mapped = FileInputStream(file).channel.use { it.map(FileChannel.MapMode.READ_ONLY, 0, it.size()) }
+        val units = AccessUnit.units(mapped)
 
         val hardware = Decoder.hardwareDecoder()
         log("하드웨어 디코더: ${hardware?.name ?: "없음"}")
