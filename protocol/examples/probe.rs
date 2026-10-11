@@ -12,11 +12,11 @@
 //! - 서버 공개키는 `~/.naru-probe/<호스트>.der`에 저장하고, 다음 접속에서 바뀌었으면 접속을 멈춥니다.
 //! - 저장한 파일은 `ffplay capture.h264`로 재생할 수 있습니다.
 //! - `--resize 30:1600x1000@2`는 30초 뒤 가상 디스플레이의 크기를 바꿉니다. 서버가 새 SSRC로 넘어가는 장면을 캡처에 담을 때 씁니다.
-use naru_core::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey};
-use naru_core::media::h264;
-use naru_core::media::h264::DecoderConfig;
-use naru_core::message::{DisplayConfig, Mode};
-use naru_core::{Config, Event, Session};
+use protocol::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey};
+use protocol::media::h264;
+use protocol::media::h264::DecoderConfig;
+use protocol::message::{DisplayConfig, Mode};
+use protocol::{Config, Event, Session};
 use sha2::Digest;
 use sha2::Sha256;
 use std::error::Error as _;

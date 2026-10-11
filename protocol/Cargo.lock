@@ -311,29 +311,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "naru-core"
-version = "0.1.0"
-dependencies = [
- "aes",
- "cbc",
- "ctr",
- "flate2",
- "hmac",
- "num-bigint-dig",
- "pbkdf2",
- "plist",
- "prost",
- "rand",
- "rpassword",
- "rsa",
- "sha1",
- "sha2",
- "socket2",
- "thiserror",
- "tokio",
-]
-
-[[package]]
 name = "num-bigint-dig"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -489,6 +466,29 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "protocol"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "cbc",
+ "ctr",
+ "flate2",
+ "hmac",
+ "num-bigint-dig",
+ "pbkdf2",
+ "plist",
+ "prost",
+ "rand",
+ "rpassword",
+ "rsa",
+ "sha1",
+ "sha2",
+ "socket2",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]

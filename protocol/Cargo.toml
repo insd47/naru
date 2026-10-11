@@ -1,6 +1,6 @@
 [package]
-name = "naru-core"
-description = "macOS 화면 공유 High Performance 모드 클라이언트의 공통 코어"
+name = "protocol"
+description = "macOS 화면 공유 High Performance 모드 클라이언트의 프로토콜 코어"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
