@@ -25,10 +25,5 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation" />
-        <!-- 캡처 파일로 디코더를 시험하는 화면입니다. adb로만 엽니다. -->
-        <activity
-            android:name=".DecodeTestActivity"
-            android:exported="true"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden" />
     </application>
 </manifest>

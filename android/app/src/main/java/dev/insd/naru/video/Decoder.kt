@@ -14,12 +14,12 @@ import android.view.Surface
  * - 동기 모드이며, 한 스레드에서만 부르십시오.
  * - 새 SPS(해상도 변경, 새 SSRC)가 오면 [release] 후 새로 만듭니다. 이전 세대의 참조와 섞으면 깨지기 때문입니다.
  */
-class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface, vendorKeys: Boolean = true) {
+class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface) {
     val info: MediaCodecInfo = hardwareDecoder() ?: error("하드웨어 H.264 디코더가 없습니다")
     val config: Sps = Sps.parse(sps)
 
     /** Qualcomm 제조사 저지연 키를 넣었는지 여부 */
-    val vendorLowLatency: Boolean = vendorKeys && QUALCOMM_PREFIXES.any { info.name.startsWith(it) }
+    val vendorLowLatency: Boolean = QUALCOMM_PREFIXES.any { info.name.startsWith(it) }
 
     private val codec = MediaCodec.createByCodecName(info.name)
     private val output = MediaCodec.BufferInfo()
@@ -105,7 +105,7 @@ class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface, vendorKeys: Bool
         private val QUALCOMM_PREFIXES = listOf("c2.qti.", "OMX.qcom.")
 
         // 하드웨어 가속이고 소프트웨어 전용이 아닌 AVC 디코더를 고릅니다. 앱에 소프트웨어 디코더를 넣지 않습니다.
-        fun hardwareDecoder(): MediaCodecInfo? = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull {
+        private fun hardwareDecoder(): MediaCodecInfo? = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull {
             !it.isEncoder && it.isHardwareAccelerated && !it.isSoftwareOnly &&
                 it.supportedTypes.any { type -> type.equals(MIME, ignoreCase = true) }
         }
