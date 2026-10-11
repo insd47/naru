@@ -6,13 +6,6 @@ use aes::cipher::BlockEncrypt;
 use aes::cipher::KeyInit;
 use aes::cipher::generic_array::GenericArray;
 
-// 포인터 이벤트의 버튼 비트입니다. 스크롤은 비트를 켠 이벤트와 끈 이벤트 한 쌍이 한 칸입니다.
-pub const BUTTON_LEFT: u8 = 1 << 0;
-pub const BUTTON_RIGHT: u8 = 1 << 1;
-pub const BUTTON_MIDDLE: u8 = 1 << 2;
-pub const SCROLL_UP: u8 = 1 << 3;
-pub const SCROLL_DOWN: u8 = 1 << 4;
-
 /// ClientInit. 1바이트이며 공유 플래그 대신 서버가 정한 값을 보냅니다.
 pub const CLIENT_INIT: [u8; 1] = [0xc1];
 
@@ -95,7 +88,7 @@ pub fn key(keysym: u32, down: bool) -> [u8; 8] {
 /// 암호화된 포인터 이벤트를 만듭니다. 이 메시지도 다시 레코드로 감싸 보냅니다.
 ///
 /// - 좌표는 디코딩된 영상의 픽셀 좌표이며, 호출자가 영상 크기 안으로 자릅니다.
-/// - 버튼 마스크는 `BUTTON_*`의 비트를 씁니다. 표준 RFB와 오른쪽, 가운데 비트의 위치가 다릅니다.
+/// - 버튼 마스크는 왼쪽 1, 오른쪽 2, 가운데 4입니다. 표준 RFB와 오른쪽, 가운데 비트의 위치가 다릅니다.
 /// - `time_ms`는 이벤트 시각입니다. 같은 위치·버튼의 이벤트가 이어져도 서버가 중복으로 버리지 않게 합니다. 단위는 확인하지 않았습니다.
 pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16, time_ms: u32) -> [u8; 18] {
     let mut plain = [0; 16];

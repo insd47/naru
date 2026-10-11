@@ -14,9 +14,7 @@
 //! - `--unlock 3`은 3초 뒤 잠금 화면에 접속 비밀번호를 키 입력으로 칩니다. 가상 디스플레이로 붙으면 잠금 화면부터 나옵니다.
 //! - `--resize 30:1600x1000@2`는 30초 뒤 가상 디스플레이의 크기를 바꿉니다. 서버가 새 SSRC로 넘어가는 장면을 캡처에 담을 때 씁니다.
 use protocol::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey};
-use protocol::media::DecoderConfig;
-use protocol::message::{DisplayConfig, Mode};
-use protocol::{Config, Event, MediaStats, Session};
+use protocol::{Config, DecoderConfig, DisplayConfig, Event, MediaStats, Mode, Session};
 use sha2::Digest;
 use sha2::Sha256;
 use std::error::Error as _;
