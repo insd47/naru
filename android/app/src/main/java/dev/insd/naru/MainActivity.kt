@@ -24,7 +24,7 @@ import java.io.File
 /**
  * M3 디코딩 시험 화면입니다. 앱 전용 외부 저장소의 캡처를 하드웨어 디코더로 재생합니다.
  *
- * - 파일은 인텐트의 `file`(기본값 `capture.h264`)로 고르고, `realtime`이 `false`면 60fps로 맞추지 않고 최대한 빨리 넣습니다.
+ * - 파일은 인텐트의 `file`(기본값 `capture.h264`)로 고르고, `realtime`이 `false`면 60fps로 맞추지 않고 최대한 빨리 넣습니다. `vendor`가 `false`면 제조사 저지연 키를 끕니다.
  * - 앱 전용 외부 저장소(`adb push`)를 먼저 찾고, 없으면 내부 저장소(`adb shell run-as`로 복사)를 찾습니다.
  */
 class MainActivity : ComponentActivity() {
@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
 
         val name = intent.getStringExtra("file") ?: "capture.h264"
         val realtime = intent.getBooleanExtra("realtime", true)
+        val vendor = intent.getBooleanExtra("vendor", true)
         val file = listOfNotNull(getExternalFilesDir(null), filesDir).map { File(it, name) }.firstOrNull { it.exists() }
             ?: File(getExternalFilesDir(null), name)
 
@@ -47,7 +48,7 @@ class MainActivity : ComponentActivity() {
                     factory = { context ->
                         SurfaceView(context).apply {
                             holder.addCallback(object : SurfaceHolder.Callback {
-                                override fun surfaceCreated(holder: SurfaceHolder) = start(file, holder, realtime)
+                                override fun surfaceCreated(holder: SurfaceHolder) = start(file, holder, realtime, vendor)
                                 override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
                                 override fun surfaceDestroyed(holder: SurfaceHolder) = stop()
                             })
@@ -64,13 +65,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun start(file: File, holder: SurfaceHolder, realtime: Boolean) {
+    private fun start(file: File, holder: SurfaceHolder, realtime: Boolean, vendor: Boolean) {
         if (!file.exists()) {
             lines += "캡처가 없습니다: ${file.absolutePath}"
             return
         }
 
-        val test = DecodeTest(file, holder.surface, realtime) { line -> runOnUiThread { lines += line } }
+        val test = DecodeTest(file, holder.surface, realtime, vendor) { line -> runOnUiThread { lines += line } }
         worker = Thread({ test.run() }, "decode-test").apply { start() }
     }
 

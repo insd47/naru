@@ -14,9 +14,12 @@ import android.view.Surface
  * - 동기 모드이며, 한 스레드에서만 부르십시오.
  * - 새 SPS(해상도 변경, 새 SSRC)가 오면 [release] 후 새로 만듭니다. 이전 세대의 참조와 섞으면 깨지기 때문입니다.
  */
-class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface) {
+class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface, vendorKeys: Boolean = true) {
     val info: MediaCodecInfo = hardwareDecoder() ?: error("하드웨어 H.264 디코더가 없습니다")
     val config: Sps = Sps.parse(sps)
+
+    /** Qualcomm 제조사 저지연 키를 넣었는지 여부 */
+    val vendorLowLatency: Boolean = vendorKeys && QUALCOMM_PREFIXES.any { info.name.startsWith(it) }
 
     private val codec = MediaCodec.createByCodecName(info.name)
     private val output = MediaCodec.BufferInfo()
@@ -32,6 +35,13 @@ class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface) {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && lowLatency) {
                 setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            }
+
+            // Qualcomm 디코더는 표준 저지연 기능을 알리지 않지만, 제조사 키로 출력 지연(재정렬 대기)을 없앨 수 있습니다.
+            // 서버 스트림에는 B 프레임이 없으므로 디코딩 순서대로 내보내도 화면에는 차이가 없습니다.
+            if (vendorLowLatency) {
+                setInteger("vendor.qti-ext-dec-low-latency.enable", 1)
+                setInteger("vendor.qti-ext-dec-picture-order.enable", 1)
             }
         }
 
@@ -91,6 +101,8 @@ class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface) {
 
     companion object {
         const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
+
+        private val QUALCOMM_PREFIXES = listOf("c2.qti.", "OMX.qcom.")
 
         // 하드웨어 가속이고 소프트웨어 전용이 아닌 AVC 디코더를 고릅니다. 앱에 소프트웨어 디코더를 넣지 않습니다.
         fun hardwareDecoder(): MediaCodecInfo? = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull {

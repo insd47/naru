@@ -26,6 +26,7 @@ class DecodeTest(
     private val file: File,
     private val surface: Surface,
     private val realtime: Boolean,
+    private val vendorLowLatency: Boolean,
     private val onLine: (String) -> Unit,
 ) {
     private val report = StringBuilder()
@@ -89,10 +90,14 @@ class DecodeTest(
 
             val ptsUs = index * FRAME_US
 
+            // 다음 프레임을 넣을 때까지 1ms마다 출력을 꺼냅니다. 넣을 때만 꺼내면 지연이 프레임 간격 단위로 잡힙니다.
             if (realtime) {
                 val dueNs = startedNs + ptsUs * 1_000
-                val waitMs = (dueNs - System.nanoTime()) / 1_000_000
-                if (waitMs > 0) Thread.sleep(waitMs)
+
+                while (System.nanoTime() < dueNs) {
+                    drain(current)
+                    Thread.sleep(1)
+                }
             }
 
             try {
@@ -131,7 +136,7 @@ class DecodeTest(
     private fun rebuild(sps: ByteArray, pps: ByteArray) {
         decoder?.release()
 
-        val next = Decoder(sps, pps, surface)
+        val next = Decoder(sps, pps, surface, vendorLowLatency)
         val config = next.config
         decoder = next
         awaitingKeyframe = true
@@ -140,7 +145,7 @@ class DecodeTest(
 
         log(
             "디코더 생성(${rebuilds}번째): ${config.width}×${config.height}, 프로파일 ${config.profile}, 레벨 ${config.level}, " +
-                "참조 ${config.maxRefFrames}장, POC 하위 비트 주기 ${config.maxPocLsb ?: "없음"}, 저지연 ${next.lowLatency}",
+                "참조 ${config.maxRefFrames}장, POC 하위 비트 주기 ${config.maxPocLsb ?: "없음"}, 저지연 ${next.lowLatency}, 제조사 저지연 키 ${next.vendorLowLatency}",
         )
     }
 
