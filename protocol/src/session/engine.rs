@@ -367,6 +367,7 @@ impl Engine {
                     .send(&client::framebuffer_request(false, u16::MAX, u16::MAX))
                     .await
             }
+            Command::Raw(message) => self.control.send(&message).await,
             Command::Close => Ok(()),
         }
     }

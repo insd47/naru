@@ -6,6 +6,7 @@
 use crate::error::{Error, Result};
 use crate::media::AccessUnit;
 use crate::media::h264::DecoderConfig;
+use crate::message::client;
 use crate::message::{CursorImage, DisplayConfig, Layout};
 use control::Control;
 use engine::Engine;
@@ -153,6 +154,7 @@ enum Command {
     Clipboard(String),
     Keyframe,
     Resize(Vec<u8>),
+    Raw(Vec<u8>),
     Close,
 }
 
@@ -197,6 +199,11 @@ impl Session {
     /// - 모드가 없거나 픽셀 크기가 서버의 한도를 넘으면 보내지 않고 `Invalid`를 반환합니다.
     pub fn resize(&self, display: &DisplayConfig) -> Result<()> {
         self.send(Command::Resize(display.encode()?))
+    }
+
+    /// Mac의 입력 소스를 지정합니다. 바뀌면 서버가 새 입력 소스를 `Event::InputSource`로 알립니다.
+    pub fn input_source(&self, id: &str) -> Result<()> {
+        self.send(Command::Raw(client::input_source(id)))
     }
 
     /// 세션을 닫습니다. `Event::Closed(None)`이 마지막으로 옵니다.
