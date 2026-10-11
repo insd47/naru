@@ -83,6 +83,17 @@ impl DisplayConfig {
     }
 }
 
+// 이 앱의 가상 디스플레이입니다. 이름과 실제 크기는 Mac의 디스플레이 설정 화면에만 쓰입니다.
+impl From<Mode> for DisplayConfig {
+    fn from(mode: Mode) -> Self {
+        Self {
+            name: "Naru".into(),
+            physical_mm: (369.45, 207.82),
+            modes: vec![mode],
+        }
+    }
+}
+
 impl Mode {
     /// 논리 크기와 배율로 60Hz SDR 모드를 만듭니다. 배율 2는 Retina입니다.
     pub fn new(logical: (u32, u32), scale: f64) -> Self {

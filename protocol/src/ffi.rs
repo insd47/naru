@@ -4,7 +4,7 @@
 //! - 꺼내는 쪽이 시간 제한을 두므로, 화면이 멈춰 프레임이 오지 않는 동안에도 디코더 출력을 꺼낼 수 있습니다.
 //! - 세션은 이 크레이트가 가진 tokio 런타임에서 돌아갑니다. 네이티브 쪽에 런타임이 따로 필요하지 않습니다.
 use crate::media::{AccessUnit, DecoderConfig};
-use crate::message::{CursorImage, DisplayConfig, Layout, Mode, gesture};
+use crate::message::{CursorImage, Layout, Mode, gesture};
 use crate::{Config, Event, Session};
 use std::error::Error as _;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -169,7 +169,9 @@ impl NaruSession {
         let mut core = Config::new(config.host, config.username, config.password);
         core.port = config.port;
         core.known_key = config.known_key;
-        core.display = config.display.map(display_config);
+        core.display = config
+            .display
+            .map(|mode| Mode::new((mode.width, mode.height), mode.scale).into());
 
         let _runtime = RUNTIME.enter();
         let (session, events) = Session::start(core);
@@ -239,7 +241,9 @@ impl NaruSession {
 
     /// 가상 디스플레이의 크기를 바꿉니다. 새 레이아웃과 디코더 설정이 뒤따릅니다.
     pub fn resize(&self, mode: DisplayMode) {
-        let _ = self.session.resize(&display_config(mode));
+        let _ = self
+            .session
+            .resize(&Mode::new((mode.width, mode.height), mode.scale).into());
     }
 
     /// Mac의 입력 소스를 지정합니다. 바뀌면 `InputSource` 사건이 옵니다.
@@ -250,15 +254,6 @@ impl NaruSession {
     /// 세션을 닫습니다. Kotlin 객체의 `close`(네이티브 자원 해제)와 이름이 겹치지 않게 따로 둡니다.
     pub fn disconnect(&self) {
         let _ = self.session.close();
-    }
-}
-
-// 기기 이름과 실제 크기는 서버의 디스플레이 설정 화면에만 쓰입니다.
-fn display_config(mode: DisplayMode) -> DisplayConfig {
-    DisplayConfig {
-        name: "Naru".into(),
-        physical_mm: (369.45, 207.82),
-        modes: vec![Mode::new((mode.width, mode.height), mode.scale)],
     }
 }
 

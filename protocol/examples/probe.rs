@@ -247,7 +247,7 @@ async fn session(args: Args) -> Result<(), String> {
     config.audio = args.audio;
     config.known_key = std::fs::read(&key_path).ok();
 
-    config.display = args.display.map(display_config);
+    config.display = args.display.map(DisplayConfig::from);
 
     let mut out = match &args.out {
         Some(path) => Some(BufWriter::new(File::create(path).map_err(|error| error.to_string())?)),
@@ -292,7 +292,7 @@ async fn session(args: Args) -> Result<(), String> {
                 if let Some((_, mode)) = args.resize {
                     println!("[{:>6}] 해상도 변경 요청: 논리 {:?}, 픽셀 {:?}", elapsed(started), mode.logical, mode.pixels);
 
-                    if let Err(error) = session.resize(&display_config(mode)) {
+                    if let Err(error) = session.resize(&mode.into()) {
                         println!("[{:>6}] 해상도 변경 실패: {error}", elapsed(started));
                     }
                 }
@@ -524,14 +524,6 @@ async fn type_text(session: Session, text: String) {
 
             tokio::time::sleep(PAUSE).await;
         }
-    }
-}
-
-fn display_config(mode: Mode) -> DisplayConfig {
-    DisplayConfig {
-        name: "Naru".into(),
-        physical_mm: (369.45, 207.82),
-        modes: vec![mode],
     }
 }
 
