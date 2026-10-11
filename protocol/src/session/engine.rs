@@ -1,14 +1,12 @@
 use super::control::Control;
 use super::input::Input;
-use super::media::{Media, QUIET_AFTER, Sockets};
+use super::media::{Media, Sockets};
 use super::{Command, Config, Event, Events, Stage};
 use crate::error::{Error, Result};
 use crate::message::{Cursors, InputSource, Layout, Messages, Rect, ServerMessage, client, clipboard};
 use crate::offer::{Answer, Offer};
-use socket2::SockRef;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
-use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
 
@@ -58,7 +56,7 @@ struct Stall {
 
 // 대기하던 일 가운데 먼저 끝난 것
 enum Wake {
-    Tcp(std::io::Result<usize>),
+    Tcp(Result<Vec<Vec<u8>>>),
     Video(std::io::Result<(usize, SocketAddr)>),
     Audio,
     Tick,
@@ -74,7 +72,7 @@ impl Engine {
 
         Self {
             media: Media::new(sockets.clone(), &offer),
-            input: Input::new(control.keys.clone()),
+            input: Input::new(control.keys().clone()),
             control,
             sockets,
             offer,
@@ -112,7 +110,7 @@ impl Engine {
                 .then(|| self.offer_retry.unwrap_or(self.offer_sent.0 + OFFER_TIMEOUT));
 
             let wake = tokio::select! {
-                read = self.control.stream.read(&mut tcp_buffer) => Wake::Tcp(read),
+                opened = self.control.receive(&mut tcp_buffer) => Wake::Tcp(opened),
                 received = video.recv_from(&mut video_buffer) => Wake::Video(received),
                 _ = audio.recv_from(&mut audio_buffer) => Wake::Audio,
                 _ = ticker.tick() => Wake::Tick,
@@ -125,10 +123,7 @@ impl Engine {
             let now = Instant::now();
 
             match wake {
-                Wake::Tcp(read) => match read? {
-                    0 => return Err(Error::Closed),
-                    read => self.receive_control(&tcp_buffer[..read], now, &mut outgoing).await?,
-                },
+                Wake::Tcp(opened) => self.receive(opened?, now, &mut outgoing).await?,
                 Wake::Video(received) => {
                     let (len, from) = received?;
                     self.media.receive(&video_buffer[..len], from, now, &mut outgoing).await;
@@ -164,27 +159,13 @@ impl Engine {
             .send(&client::framebuffer_request(false, u16::MAX, u16::MAX))
             .await?;
 
-        let early = std::mem::take(&mut self.control.early);
+        let (early, opened) = self.control.backlog()?;
         self.rects(early, Instant::now(), outgoing).await?;
-
-        let mut opened = Vec::new();
-
-        while let Some(body) = self.control.opener.pop()? {
-            opened.push(body);
-        }
-
-        for body in opened {
-            self.messages.push(&body);
-            self.dispatch(Instant::now(), outgoing).await?;
-        }
-
-        Ok(())
+        self.receive(opened, Instant::now(), outgoing).await
     }
 
-    async fn receive_control(&mut self, bytes: &[u8], now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
-        self.control.opener.push(bytes);
-
-        while let Some(body) = self.control.opener.pop()? {
+    async fn receive(&mut self, bodies: Vec<Vec<u8>>, now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
+        for body in bodies {
             self.messages.push(&body);
             self.dispatch(now, outgoing).await?;
         }
@@ -289,7 +270,7 @@ impl Engine {
 
         outgoing.push(Event::Stats(self.media.stats(self.offer_sent.1)));
 
-        if !self.media.configured && self.media.last_frame.is_none() {
+        if !self.media.started() {
             if now.duration_since(answered) > MEDIA_START {
                 return Err(self.abort());
             }
@@ -298,7 +279,7 @@ impl Engine {
         }
 
         // 첫 키프레임이 오는 동안에는 프레임버퍼를 요청하지 않습니다. 파라미터 세트가 빠진 갱신으로 시작이 꼬입니다.
-        if self.media.last_frame.is_some() {
+        if self.media.last_frame().is_some() {
             self.control.send(&client::framebuffer_request(true, 1, 1)).await?;
         }
 
@@ -307,13 +288,12 @@ impl Engine {
     }
 
     async fn watch_stall(&mut self, now: Instant, outgoing: &mut Vec<Event>) {
-        let active = self
-            .media
-            .last_packet
-            .is_some_and(|last| now.duration_since(last) <= QUIET_AFTER);
-        let since = self.media.last_frame.or(self.answered);
+        let since = self.media.last_frame().or(self.answered);
 
-        let Some(stalled) = since.map(|since| now.duration_since(since)).filter(|_| active) else {
+        let Some(stalled) = since
+            .map(|since| now.duration_since(since))
+            .filter(|_| self.media.active(now))
+        else {
             return;
         };
 
@@ -379,11 +359,12 @@ impl Engine {
 
     // 미디어가 시작되지 않으면 연결을 즉시 끊습니다(RST). 서버 쪽 세션이 남지 않게 해야 다시 접속할 수 있습니다.
     fn abort(&self) -> Error {
-        let _ = SockRef::from(&self.control.stream).set_linger(Some(Duration::ZERO));
+        self.control.abort();
+        let stats = self.media.stats(self.offer_sent.1);
 
         Error::NoMedia {
-            datagrams: self.media.datagrams,
-            authenticated: self.media.authenticated,
+            datagrams: stats.datagrams,
+            authenticated: stats.authenticated,
         }
     }
 }

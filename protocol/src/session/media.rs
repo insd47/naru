@@ -21,7 +21,7 @@ const SENDER_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 
 // 키프레임 요청의 최소 간격입니다. 서버가 이보다 오래 조용하면 화면이 멈춰 인코딩을 쉬는 중이므로 요청하지 않습니다.
 const KEYFRAME_INTERVAL: Duration = Duration::from_millis(250);
-pub const QUIET_AFTER: Duration = Duration::from_millis(1500);
+const QUIET_AFTER: Duration = Duration::from_millis(1500);
 
 /// 오디오(P)와 비디오(P+1) UDP 소켓입니다. 인증보다 먼저 열어 둡니다.
 #[derive(Clone)]
@@ -77,15 +77,15 @@ pub struct Media {
     last_keyframe_request: Option<Instant>,
     fir_sequence: u8,
     // 미디어가 시작되지 않았을 때 원인을 가리기 위한 수입니다.
-    pub datagrams: u64,
-    pub authenticated: u64,
+    datagrams: u64,
+    authenticated: u64,
     // 재전송을 요청한 순번 수, 이전 조립기들이 메운 패킷 수, 복구하지 못한 손실 수
     nacked: u64,
     filled: u64,
     losses: u64,
-    pub last_packet: Option<Instant>,
-    pub last_frame: Option<Instant>,
-    pub configured: bool,
+    last_packet: Option<Instant>,
+    last_frame: Option<Instant>,
+    configured: bool,
 }
 
 impl Media {
@@ -194,6 +194,22 @@ impl Media {
         }
     }
 
+    /// 디코더 설정이나 프레임이 한 번이라도 왔는지 여부
+    pub fn started(&self) -> bool {
+        self.configured || self.last_frame.is_some()
+    }
+
+    /// 마지막으로 프레임을 내보낸 시각
+    pub fn last_frame(&self) -> Option<Instant> {
+        self.last_frame
+    }
+
+    /// 서버가 지금 패킷을 보내고 있는지 여부. 화면이 정지하면 서버는 보내지 않습니다.
+    pub fn active(&self, now: Instant) -> bool {
+        self.last_packet
+            .is_some_and(|last| now.duration_since(last) <= QUIET_AFTER)
+    }
+
     pub fn stats(&self, offers: u32) -> MediaStats {
         let ssrc = self.streams.current();
 
@@ -262,11 +278,7 @@ impl Media {
         let recent = self
             .last_keyframe_request
             .is_some_and(|last| now.duration_since(last) < KEYFRAME_INTERVAL);
-        let quiet = self
-            .last_packet
-            .is_none_or(|last| now.duration_since(last) > QUIET_AFTER);
-
-        let Some(target) = self.streams.current().filter(|_| !recent && !quiet) else {
+        let Some(target) = self.streams.current().filter(|_| !recent && self.active(now)) else {
             return;
         };
 

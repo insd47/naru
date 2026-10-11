@@ -3,6 +3,7 @@ use crate::auth::{Challenge, KEY_REQUEST, MAX_MESSAGE_BYTES, SECURITY_TYPE, Serv
 use crate::error::{Error, Result};
 use crate::message::{Messages, Rect, ServerMessage, client};
 use crate::record::{Opener, RecordKeys, Sealer};
+use socket2::SockRef;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -29,12 +30,12 @@ const READ_BYTES: usize = 64 << 10;
 
 /// 레코드 계층까지 활성화된 제어 채널입니다.
 pub struct Control {
-    pub stream: TcpStream,
-    pub keys: RecordKeys,
-    pub sealer: Sealer,
-    pub opener: Opener,
-    /// 평문 구간에서 키 교체와 함께 온 사각형. 커서나 레이아웃일 수 있습니다.
-    pub early: Vec<Rect>,
+    stream: TcpStream,
+    keys: RecordKeys,
+    sealer: Sealer,
+    opener: Opener,
+    // 평문 구간에서 키 교체와 함께 온 사각형. 커서나 레이아웃일 수 있습니다.
+    early: Vec<Rect>,
 }
 
 impl Control {
@@ -64,6 +65,37 @@ impl Control {
 
         events.send(Event::Progress(Stage::KeyExchange)).await?;
         within(prelude(stream, &wrap_key, config, events)).await
+    }
+
+    /// 레코드 계층의 키. 포인터 이벤트의 암호화에도 씁니다.
+    pub fn keys(&self) -> &RecordKeys {
+        &self.keys
+    }
+
+    /// 접속 과정에서 이미 받은 것: 평문 구간의 사각형과, 키 교체 직후 같은 읽기에 붙어 온 레코드의 본문
+    pub fn backlog(&mut self) -> Result<(Vec<Rect>, Vec<Vec<u8>>)> {
+        Ok((std::mem::take(&mut self.early), self.opened()?))
+    }
+
+    /// 다음으로 읽은 바이트에서 완성된 레코드의 본문을 꺼냅니다. 서버가 연결을 닫았으면 `Closed`입니다.
+    pub async fn receive(&mut self, buffer: &mut [u8]) -> Result<Vec<Vec<u8>>> {
+        let read = self.stream.read(buffer).await?;
+
+        if read == 0 {
+            return Err(Error::Closed);
+        }
+
+        self.opener.push(&buffer[..read]);
+        self.opened()
+    }
+
+    /// 닫을 때 연결을 곧바로 끊게 합니다(RST). 서버 쪽 세션이 남지 않아야 다시 접속할 수 있습니다.
+    pub fn abort(&self) {
+        let _ = SockRef::from(&self.stream).set_linger(Some(Duration::ZERO));
+    }
+
+    fn opened(&mut self) -> Result<Vec<Vec<u8>>> {
+        std::iter::from_fn(|| self.opener.pop().transpose()).collect()
     }
 
     /// 메시지를 레코드로 감싸 보냅니다.
