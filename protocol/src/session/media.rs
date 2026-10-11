@@ -1,6 +1,6 @@
 use super::{Event, MediaStats};
 use crate::error::Result;
-use crate::media::{Assembled, Assembler, Routed, RtpPacket, SrtpContext, Streams, rtcp};
+use crate::media::{Assembled, Assembler, AudioFrame, Routed, RtpPacket, SrtpContext, Streams, rtcp};
 use crate::offer::Offer;
 use socket2::{Domain, Socket, Type};
 use std::net::{IpAddr, SocketAddr};
@@ -61,12 +61,15 @@ impl Sockets {
     }
 }
 
-/// 비디오 수신과 RTCP 송신 상태입니다.
+/// 비디오와 오디오 수신, RTCP 송신 상태입니다.
 pub struct Media {
     sockets: Sockets,
     video_ssrc: u32,
     audio_ssrc: u32,
     receive: SrtpContext,
+    audio: SrtpContext,
+    // 첫 오디오 앞에 디코더 설정을 알렸는지 여부
+    audio_started: bool,
     rtcp: SrtpContext,
     keepalive: SrtpContext,
     streams: Streams,
@@ -95,6 +98,8 @@ impl Media {
             video_ssrc: offer.video_ssrc,
             audio_ssrc: offer.audio_ssrc,
             receive: SrtpContext::new(&offer.keys.video_receive),
+            audio: SrtpContext::new(&offer.keys.audio_receive),
+            audio_started: false,
             rtcp: SrtpContext::new(&offer.keys.video_send),
             keepalive: SrtpContext::new(&offer.keys.audio_send),
             streams: Streams::default(),
@@ -165,6 +170,28 @@ impl Media {
         }
 
         self.drain(now, events).await;
+    }
+
+    /// 오디오 포트로 받은 데이터그램을 처리합니다. 같은 포트로 오는 서버 RTCP는 건너뜁니다.
+    pub fn receive_audio(&mut self, datagram: &[u8], from: SocketAddr, events: &mut Vec<Event>) {
+        if from.ip() != self.sockets.server || RtpPacket::is_rtcp(datagram) {
+            return;
+        }
+
+        let packet = self.audio.unprotect_rtp(datagram);
+        let Some(frame) = packet
+            .as_deref()
+            .and_then(RtpPacket::parse)
+            .and_then(AudioFrame::depacketize)
+        else {
+            return;
+        };
+
+        if !std::mem::replace(&mut self.audio_started, true) {
+            events.push(Event::AudioConfig(AudioFrame::CONFIG.to_vec()));
+        }
+
+        events.push(Event::Audio(frame));
     }
 
     /// 조립기에서 꺼낼 수 있는 결과를 모두 꺼냅니다. 재전송 대기 기한이 지났을 때도 부릅니다.

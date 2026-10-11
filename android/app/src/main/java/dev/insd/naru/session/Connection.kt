@@ -3,6 +3,7 @@ package dev.insd.naru.session
 import android.media.MediaCodec
 import android.util.Log
 import android.view.Surface
+import dev.insd.naru.audio.Player
 import dev.insd.naru.protocol.Config
 import dev.insd.naru.protocol.Event
 import dev.insd.naru.protocol.Phase
@@ -25,6 +26,7 @@ class Connection(config: Config, private val listener: Listener) {
     @Volatile private var surfaceChanged = false
 
     private var decoder: Decoder? = null
+    private var audio: Player? = null
     private var sps: ByteArray? = null
     private var pps: ByteArray? = null
 
@@ -110,6 +112,8 @@ class Connection(config: Config, private val listener: Listener) {
                     is Event.Decoder -> configure(event)
                     is Event.Frame -> queue(event)
                     is Event.ResetDecoder -> rebuild()
+                    is Event.AudioConfig -> startAudio(event.config)
+                    is Event.Audio -> audio?.play(event.frame)
                     else -> Unit
                 }
 
@@ -118,7 +122,8 @@ class Connection(config: Config, private val listener: Listener) {
                     continue
                 }
 
-                if (event !is Event.Frame) {
+                // 영상과 소리는 초당 수십 번 오므로 기록하지 않고 화면 쪽에도 넘기지 않습니다.
+                if (event !is Event.Frame && event !is Event.Audio) {
                     Log.i(TAG, describe(event))
                     listener.onEvent(event)
                 }
@@ -130,6 +135,8 @@ class Connection(config: Config, private val listener: Listener) {
         } finally {
             decoder?.release()
             decoder = null
+            audio?.release()
+            audio = null
             session.close()
         }
     }
@@ -154,6 +161,14 @@ class Connection(config: Config, private val listener: Listener) {
             shown = true
             listener.onFirstFrame()
         }
+    }
+
+    // 소리를 낼 수 없으면 영상만으로 계속합니다.
+    private fun startAudio(config: ByteArray) {
+        audio?.release()
+        audio = runCatching { Player(config) }
+            .onFailure { Log.e(TAG, "오디오 디코더를 만들 수 없습니다", it) }
+            .getOrNull()
     }
 
     private fun report() {
@@ -248,6 +263,8 @@ class Connection(config: Config, private val listener: Listener) {
         is Event.ResetDecoder -> "디코더 재생성 요청"
         is Event.Closed -> "세션 종료: ${event.detail ?: "정상"}"
         is Event.Stats -> "통계"
+        is Event.AudioConfig -> "오디오 설정 ${event.config.size}바이트, 디코더 ${if (audio != null) "있음" else "없음"}"
+        is Event.Audio -> "오디오"
         is Event.Frame -> "프레임"
     }
 

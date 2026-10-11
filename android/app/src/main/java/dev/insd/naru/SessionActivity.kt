@@ -53,6 +53,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import dev.insd.naru.audio.Player
 import dev.insd.naru.home.Host
 import dev.insd.naru.home.Hosts
 import dev.insd.naru.home.Keychain
@@ -292,6 +293,7 @@ class SessionActivity : ComponentActivity() {
             password = credentials.password,
             knownKey = keyFile().takeIf { it.exists() }?.readBytes(),
             display = if (host.virtualDisplay) displayMode() else null,
+            audio = Player.supported(),
         )
 
         connection = Connection(config, object : Connection.Listener {

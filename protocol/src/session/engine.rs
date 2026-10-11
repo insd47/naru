@@ -58,7 +58,7 @@ struct Stall {
 enum Wake {
     Tcp(Result<Vec<Vec<u8>>>),
     Video(std::io::Result<(usize, SocketAddr)>),
-    Audio,
+    Audio(std::io::Result<(usize, SocketAddr)>),
     Tick,
     Retry,
     Deadline,
@@ -112,7 +112,7 @@ impl Engine {
             let wake = tokio::select! {
                 opened = self.control.receive(&mut tcp_buffer) => Wake::Tcp(opened),
                 received = video.recv_from(&mut video_buffer) => Wake::Video(received),
-                _ = audio.recv_from(&mut audio_buffer) => Wake::Audio,
+                received = audio.recv_from(&mut audio_buffer) => Wake::Audio(received),
                 _ = ticker.tick() => Wake::Tick,
                 _ = sleep_until(retry) => Wake::Retry,
                 _ = sleep_until(deadline) => Wake::Deadline,
@@ -128,8 +128,10 @@ impl Engine {
                     let (len, from) = received?;
                     self.media.receive(&video_buffer[..len], from, now, &mut outgoing).await;
                 }
-                // 오디오 포트로 오는 서버 RTCP와 오디오는 아직 쓰지 않습니다. 읽지 않으면 수신 버퍼만 찹니다.
-                Wake::Audio => {}
+                Wake::Audio(received) => {
+                    let (len, from) = received?;
+                    self.media.receive_audio(&audio_buffer[..len], from, &mut outgoing);
+                }
                 Wake::Tick => self.tick(now, &mut outgoing).await?,
                 Wake::Retry => self.retry(now).await?,
                 Wake::Deadline => self.media.drain(now, &mut outgoing).await,

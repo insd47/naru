@@ -4,7 +4,7 @@
 //! - 네이티브 계층은 완성된 접근 단위와 디코더 설정만 받습니다. 디코더 오류는 `request_keyframe`로 알려 주십시오.
 //! - 미디어가 시작되지 않으면 연결을 끊고 처음부터 다시 접속합니다. 접속 시도는 합쳐서 세 번까지입니다.
 use crate::error::{Error, Result};
-use crate::media::{AccessUnit, DecoderConfig};
+use crate::media::{AccessUnit, AudioFrame, DecoderConfig};
 use crate::message::gesture::Phase;
 use crate::message::{CursorImage, DisplayConfig, InputSource, Layout};
 use control::Control;
@@ -106,6 +106,10 @@ pub enum Event {
     Layout(Layout),
     /// 새 디코더 설정. 디코더를 이 설정으로 다시 만듭니다.
     DecoderConfig(DecoderConfig),
+    /// 오디오 디코더 설정(AudioSpecificConfig). 첫 오디오 앞에 한 번 옵니다.
+    AudioConfig(Vec<u8>),
+    /// 오디오 접근 단위
+    Audio(AudioFrame),
     /// 디코더에 넣을 접근 단위. 디코더 설정 뒤에만 오며, 손실 뒤에는 키프레임부터 옵니다.
     Frame(AccessUnit),
     /// 커서 모양. 포인터 아이콘으로 씁니다. 위치는 오지 않습니다.

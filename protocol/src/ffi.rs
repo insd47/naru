@@ -3,7 +3,7 @@
 //! - 네이티브 쪽은 [`Session::connect`]로 세션을 열고, 한 스레드에서 [`Session::next_event`]를 되풀이해 사건을 꺼냅니다.
 //! - 꺼내는 쪽이 시간 제한을 두므로, 화면이 멈춰 프레임이 오지 않는 동안에도 디코더 출력을 꺼낼 수 있습니다.
 //! - 코어 타입 가운데 튜플이나 내부 필드가 없는 것은 그대로 넘기고, 나머지는 여기서 네이티브 쪽에 맞는 모양으로 옮깁니다.
-use crate::{AccessUnit, DecoderConfig, Error, InputSource, MediaStats, Mode, Phase, Stage};
+use crate::{AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, MediaStats, Mode, Phase, Stage};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -31,6 +31,8 @@ pub struct Config {
     pub known_key: Option<Vec<u8>>,
     /// 가상 디스플레이. 없으면 Mac의 실제 화면을 받습니다.
     pub display: Option<DisplayMode>,
+    /// 소리를 받을지 여부. AAC-ELD 디코더가 없는 기기에서는 끕니다.
+    pub audio: bool,
 }
 
 impl From<Config> for crate::Config {
@@ -39,6 +41,7 @@ impl From<Config> for crate::Config {
         core.port = config.port;
         core.known_key = config.known_key;
         core.display = config.display.map(Into::into);
+        core.audio = config.audio;
         core
     }
 }
@@ -85,6 +88,14 @@ pub enum Event {
     /// 새 디코더 설정. 디코더를 이 설정으로 다시 만듭니다.
     Decoder {
         config: DecoderConfig,
+    },
+    /// 오디오 디코더 설정(AudioSpecificConfig). 첫 오디오 앞에 한 번 옵니다.
+    AudioConfig {
+        config: Vec<u8>,
+    },
+    /// 오디오 접근 단위
+    Audio {
+        frame: AudioFrame,
     },
     /// 디코더에 넣을 접근 단위
     Frame {
@@ -133,6 +144,8 @@ impl From<crate::Event> for Event {
                 pixel_height: layout.pixels.1,
             },
             crate::Event::DecoderConfig(config) => Self::Decoder { config },
+            crate::Event::AudioConfig(config) => Self::AudioConfig { config },
+            crate::Event::Audio(frame) => Self::Audio { frame },
             crate::Event::Frame(unit) => Self::Frame { unit },
             crate::Event::Cursor(image) => Self::Cursor {
                 width: image.width,
