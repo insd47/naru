@@ -1,13 +1,11 @@
 //! 세션을 Kotlin과 Swift에 노출하는 UniFFI 경계입니다.
 //!
-//! - 네이티브 쪽은 [`Session::connect`]로 세션을 열고, 한 스레드에서 [`Session::next_event`]를 되풀이해 사건을 꺼냅니다.
-//! - 꺼내는 쪽이 시간 제한을 두므로, 화면이 멈춰 프레임이 오지 않는 동안에도 디코더 출력을 꺼낼 수 있습니다.
+//! - 네이티브 쪽은 [`Session::connect`]에 [`SessionListener`]를 넘겨 세션을 열고, 사건은 세션 전용 스레드에서 차례로 받습니다.
 //! - 코어 타입 가운데 튜플이나 내부 필드가 없는 것은 그대로 넘기고, 나머지는 여기서 네이티브 쪽에 맞는 모양으로 옮깁니다.
 use crate::{AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, Language, MediaStats, Mode, Phase, Stage};
-use std::sync::{Arc, LazyLock, Mutex};
-use std::time::Duration;
+use std::panic::AssertUnwindSafe;
+use std::sync::{Arc, LazyLock};
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc;
 
 // 세션은 이 크레이트의 tokio 런타임에서 돌아가므로 네이티브 쪽에 런타임이 따로 필요하지 않습니다.
 // 세션 하나는 task 하나로 돌므로 작업 스레드는 둘이면 충분합니다.
@@ -209,36 +207,41 @@ impl From<&Error> for Failure {
     }
 }
 
-/// 실행 중인 세션
+/// 세션의 사건을 받는 쪽입니다.
+#[uniffi::export(with_foreign)]
+pub trait SessionListener: Send + Sync {
+    /// 사건 하나. 세션 전용 스레드에서 차례로 부르며, 마지막 사건은 항상 `Closed`입니다.
+    ///
+    /// - 반환할 때까지 다음 사건이 기다리고, 밀리면 세션도 기다립니다. 오래 걸리는 일은 다른 스레드로 넘기십시오.
+    fn on_event(&self, event: Event);
+}
+
+/// 실행 중인 세션. 끝난 뒤에 부른 메서드는 아무 일도 하지 않습니다.
 #[derive(uniffi::Object)]
 pub struct Session {
     session: crate::Session,
-    events: Mutex<mpsc::Receiver<crate::Event>>,
 }
 
 #[uniffi::export]
 impl Session {
-    /// 접속을 시작하고 곧바로 반환합니다. 진행 상황은 [`Self::next_event`]로 받습니다.
+    /// 접속을 시작하고 곧바로 반환합니다. 진행 상황은 `listener`로 옵니다.
     #[uniffi::constructor]
-    pub fn connect(config: Config) -> Arc<Self> {
+    pub fn connect(config: Config, listener: Arc<dyn SessionListener>) -> Arc<Self> {
         let _runtime = RUNTIME.enter();
-        let (session, events) = crate::Session::start(config.into());
+        let (session, mut events) = crate::Session::start(config.into());
 
-        Arc::new(Self {
-            session,
-            events: Mutex::new(events),
-        })
-    }
+        // 사건마다 네이티브 코드를 부르므로 tokio 작업 스레드를 붙잡지 않게 전용 스레드에서 넘깁니다.
+        std::thread::Builder::new()
+            .name("naru-events".into())
+            .spawn(move || {
+                // 네이티브 쪽이 예외를 던지면 UniFFI가 패닉으로 바꿉니다. 그 사건만 버리고 계속 넘겨야 마지막 `Closed`가 닿습니다.
+                while let Some(event) = events.blocking_recv() {
+                    let _ = std::panic::catch_unwind(AssertUnwindSafe(|| listener.on_event(event.into())));
+                }
+            })
+            .expect("사건 스레드를 만들 수 없습니다");
 
-    /// 다음 사건을 기다립니다. `timeout_ms` 안에 오지 않았거나 세션이 이미 끝났으면 `None`입니다.
-    ///
-    /// - 한 스레드에서만 부르십시오. 마지막 사건은 항상 `Closed`입니다.
-    pub fn next_event(&self, timeout_ms: u32) -> Option<Event> {
-        let mut events = self.events.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let timeout = Duration::from_millis(timeout_ms.into());
-        // 시간 제한 타이머는 런타임 안에서 만들어야 하므로 async 블록 안에서 엽니다.
-        let event = RUNTIME.block_on(async { tokio::time::timeout(timeout, events.recv()).await });
-        event.ok().flatten().map(Event::from)
+        Arc::new(Self { session })
     }
 
     /// 키 입력. `keysym`은 X11 keysym이고, 글자 키는 물리 키의 라틴 문자로 보냅니다. 한국어 자모로는 세션이 바꿉니다.
@@ -272,7 +275,7 @@ impl Session {
         let _ = self.session.clipboard(text);
     }
 
-    /// 디코더 오류 뒤 키프레임을 요청합니다.
+    /// 키프레임을 요청합니다. 디코더를 새로 만들었거나 입력이 밀려 프레임을 버렸을 때 부릅니다.
     pub fn request_keyframe(&self) {
         let _ = self.session.request_keyframe();
     }

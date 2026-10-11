@@ -250,7 +250,7 @@ class SessionService : Service() {
         var firstFrame = false
     }
 
-    // 세션 스레드의 사건을 메인 스레드로 넘깁니다. 새 세션으로 바뀐 뒤 늦게 도착한 이전 세션의 사건은 버립니다.
+    // 세션의 사건과 첫 화면 알림을 메인 스레드로 넘깁니다. 새 세션으로 바뀐 뒤 늦게 도착한 이전 세션의 사건은 버립니다.
     private inner class Relay : Connection.Listener {
         var owner: Running? = null
 
