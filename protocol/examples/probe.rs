@@ -11,6 +11,7 @@
 //! - 비밀번호는 `NARU_PASSWORD`에서 읽고, 없으면 터미널에서 묻습니다. 비밀번호, 키, 클립보드 내용은 출력하지 않습니다.
 //! - 서버 공개키는 `~/.naru-probe/<호스트>.der`에 저장하고, 다음 접속에서 바뀌었으면 접속을 멈춥니다.
 //! - 저장한 파일은 `ffplay capture.h264`로 재생할 수 있습니다.
+//! - `--unlock 3`은 3초 뒤 잠금 화면에 접속 비밀번호를 키 입력으로 칩니다. 가상 디스플레이로 붙으면 잠금 화면부터 나옵니다.
 //! - `--resize 30:1600x1000@2`는 30초 뒤 가상 디스플레이의 크기를 바꿉니다. 서버가 새 SSRC로 넘어가는 장면을 캡처에 담을 때 씁니다.
 use protocol::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey};
 use protocol::media::h264;
@@ -30,7 +31,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
-const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--local-ports A,B] [--display 1280x800@2] [--resize 30:1600x1000@2] [--audio] [--out 파일] [--seconds N] [--handshake-only]";
+const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--local-ports A,B] [--display 1280x800@2] [--resize 30:1600x1000@2] [--unlock N] [--audio] [--out 파일] [--seconds N] [--handshake-only]";
 
 #[tokio::main]
 async fn main() {
@@ -61,6 +62,7 @@ struct Args {
     local_ports: Option<(u16, u16)>,
     display: Option<Mode>,
     resize: Option<(u64, Mode)>,
+    unlock: Option<u64>,
     audio: bool,
     out: Option<PathBuf>,
     seconds: u64,
@@ -76,6 +78,7 @@ impl Args {
             local_ports: None,
             display: None,
             resize: None,
+            unlock: None,
             audio: false,
             out: None,
             seconds: 10,
@@ -98,6 +101,7 @@ impl Args {
                         .and_then(|(at, mode)| Some((at.parse().ok()?, display(mode)?)));
                     parsed.resize = Some(parsed_resize.ok_or("--resize 30:1600x1000@2")?);
                 }
+                "--unlock" => parsed.unlock = Some(value()?.parse().map_err(|_| "--unlock N")?),
                 "--audio" => parsed.audio = true,
                 "--out" => parsed.out = Some(value()?.into()),
                 "--seconds" => parsed.seconds = value()?.parse().map_err(|_| "--seconds N")?,
@@ -242,6 +246,8 @@ async fn session(args: Args) -> Result<(), String> {
         .join(".naru-probe")
         .join(format!("{}.der", args.host));
 
+    // 잠금 화면에 칠 비밀번호입니다. 화면에 찍지 않고 키 입력으로만 보냅니다.
+    let unlock_text = args.unlock.map(|_| password.clone());
     let mut config = Config::new(&args.host, username, password);
     config.port = args.port;
     config.local_ports = args.local_ports;
@@ -270,6 +276,10 @@ async fn session(args: Args) -> Result<(), String> {
     tokio::pin!(resize);
     let mut resized = args.resize.is_none();
 
+    let unlock = tokio::time::sleep(Duration::from_secs(args.unlock.unwrap_or(u32::MAX.into())));
+    tokio::pin!(unlock);
+    let mut unlocked = args.unlock.is_none();
+
     let mut stats = Stats::default();
     let mut decoder: Option<DecoderConfig> = None;
     let mut closing = false;
@@ -292,6 +302,16 @@ async fn session(args: Args) -> Result<(), String> {
                     if let Err(error) = session.resize(&display_config(mode)) {
                         println!("[{:>6}] 해상도 변경 실패: {error}", elapsed(started));
                     }
+                }
+
+                continue;
+            }
+            _ = &mut unlock, if !unlocked => {
+                unlocked = true;
+
+                if let Some(text) = unlock_text.clone() {
+                    println!("[{:>6}] 잠금 화면에 비밀번호 입력({}자)", elapsed(started), text.chars().count());
+                    tokio::spawn(type_text(session.clone(), text));
                 }
 
                 continue;
@@ -438,6 +458,30 @@ impl Stats {
         self.reported = Some((now, self.frames));
         let rate = (self.frames - frames) as f64 / elapsed.as_secs_f64();
         Some(format!("{rate:.1} fps, 누적 {}프레임", self.frames))
+    }
+}
+
+// 글자마다 키를 눌렀다 떼고 마지막에 Return을 누릅니다. 라틴-1 밖의 글자는 유니코드 keysym(0x0100_0000 + 코드 포인트)으로 보냅니다.
+async fn type_text(session: Session, text: String) {
+    const RETURN: u32 = 0xff0d;
+    const PAUSE: Duration = Duration::from_millis(40);
+
+    let keysyms = text
+        .chars()
+        .map(|char| match u32::from(char) {
+            code @ (0x20..=0x7e | 0xa0..=0xff) => code,
+            code => 0x0100_0000 + code,
+        })
+        .chain([RETURN]);
+
+    for keysym in keysyms {
+        for down in [true, false] {
+            if session.key(keysym, down).is_err() {
+                return;
+            }
+
+            tokio::time::sleep(PAUSE).await;
+        }
     }
 }
 
