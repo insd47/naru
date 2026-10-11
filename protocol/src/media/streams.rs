@@ -77,6 +77,11 @@ impl Streams {
     pub fn current(&self) -> Option<u32> {
         self.current
     }
+
+    /// 넘어갈지 지켜보는 다른 SSRC의 수
+    pub fn candidates(&self) -> usize {
+        self.held.len()
+    }
 }
 
 #[cfg(test)]

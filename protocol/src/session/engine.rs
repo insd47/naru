@@ -251,7 +251,14 @@ impl Engine {
                         self.control.send(&self.offer.encode()).await?;
                     }
                 }
-                Rect::MediaStream(body) | Rect::Unknown { rest: body, .. } => self.answer(&body, now, outgoing),
+                Rect::Unknown { encoding, rest } => {
+                    outgoing.push(Event::UnknownRect {
+                        encoding,
+                        len: rest.len(),
+                    });
+                    self.answer(&rest, now, outgoing);
+                }
+                Rect::MediaStream(body) => self.answer(&body, now, outgoing),
                 Rect::InputSource(body) => {
                     if let Some(source) = input_source(&body) {
                         outgoing.push(Event::InputSource(source));
@@ -286,6 +293,8 @@ impl Engine {
         let Some(answered) = self.answered else {
             return Ok(());
         };
+
+        outgoing.push(Event::Stats(self.media.stats(self.offer_sent.1)));
 
         if !self.media.configured && self.media.last_frame.is_none() {
             if now.duration_since(answered) > MEDIA_START {

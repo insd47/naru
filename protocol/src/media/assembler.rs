@@ -48,6 +48,8 @@ pub struct Assembler {
     stalled_since: Option<Instant>,
     configured: bool,
     awaiting_keyframe: bool,
+    // 구멍을 메운 패킷 수(재전송이나 순서 바뀜)
+    filled: u64,
 }
 
 impl Assembler {
@@ -60,7 +62,13 @@ impl Assembler {
             stalled_since: None,
             configured: false,
             awaiting_keyframe: true,
+            filled: 0,
         }
+    }
+
+    /// 지금까지 구멍을 메운 패킷 수. 재전송이 실제로 오는지 볼 때 씁니다.
+    pub fn filled(&self) -> u64 {
+        self.filled
     }
 
     /// 패킷 하나를 넣고, 새로 구멍이 생긴 순번을 반환합니다. 반환한 순번은 재전송을 요청합니다.
@@ -69,6 +77,10 @@ impl Assembler {
 
         if self.next.is_some_and(|next| sequence < next) || self.packets.contains_key(&sequence) {
             return Vec::new();
+        }
+
+        if self.highest.is_some_and(|highest| sequence < highest) {
+            self.filled += 1;
         }
 
         let missing = match self.highest {

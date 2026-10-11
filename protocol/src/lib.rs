@@ -5,7 +5,7 @@
 #![forbid(unsafe_code)]
 
 pub use error::{Error, Result};
-pub use session::{Config, Event, Session, Stage};
+pub use session::{Config, Event, MediaStats, Session, Stage};
 
 pub mod auth;
 mod error;

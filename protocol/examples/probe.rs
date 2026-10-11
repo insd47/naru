@@ -17,7 +17,7 @@ use protocol::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey};
 use protocol::media::h264;
 use protocol::media::h264::DecoderConfig;
 use protocol::message::{DisplayConfig, Mode};
-use protocol::{Config, Event, Session};
+use protocol::{Config, Event, MediaStats, Session};
 use sha2::Digest;
 use sha2::Sha256;
 use std::error::Error as _;
@@ -398,6 +398,14 @@ async fn session(args: Args) -> Result<(), String> {
             Event::InputSource(source) => println!("[{at:>6}] 입력 소스: {source}"),
             Event::Clipboard(text) => println!("[{at:>6}] 클립보드: {}자", text.chars().count()),
             Event::ResetDecoder => println!("[{at:>6}] 디코더 재생성 요청"),
+            Event::Stats(media) => {
+                if let Some(line) = stats.media(media) {
+                    println!("[{at:>6}] {line}");
+                }
+            }
+            Event::UnknownRect { encoding, len } => {
+                println!("[{at:>6}] 모르는 사각형: 인코딩 {encoding:#x}, {len}바이트")
+            }
             Event::Closed(None) => {
                 println!("[{at:>6}] 세션 종료");
                 break;
@@ -436,6 +444,9 @@ struct Stats {
     keyframes: u64,
     bytes: usize,
     reported: Option<(Instant, u64)>,
+    last_frame: Option<Instant>,
+    media_reported: Option<Instant>,
+    offers_reported: bool,
 }
 
 impl Stats {
@@ -443,6 +454,45 @@ impl Stats {
         self.frames += 1;
         self.keyframes += u64::from(keyframe);
         self.bytes += bytes;
+        self.last_frame = Some(Instant::now());
+    }
+
+    // 프레임이 1초 넘게 멈추면 0.5초마다, 아니면 5초마다 수신 통계를 보고합니다.
+    fn media(&mut self, media: MediaStats) -> Option<String> {
+        let now = Instant::now();
+        let stalled = self
+            .last_frame
+            .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(1));
+        let due = self
+            .media_reported
+            .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(5));
+
+        if !stalled && !due {
+            return None;
+        }
+
+        self.media_reported = Some(now);
+
+        let offers = if self.offers_reported {
+            String::new()
+        } else {
+            self.offers_reported = true;
+            format!(", 보낸 오퍼 {}개", media.offers)
+        };
+
+        Some(format!(
+            "수신{}: 데이터그램 {}, 인증 통과 {}, SSRC {}, 최고 순번 {}, 후보 SSRC {}개{offers}",
+            if stalled { "(프레임 멈춤)" } else { "" },
+            media.datagrams,
+            media.authenticated,
+            media.ssrc.map_or("없음".into(), |ssrc| format!("{ssrc:#x}")),
+            media.highest.map_or("없음".into(), |highest| format!(
+                "{}:{}",
+                highest >> 16,
+                highest & 0xffff
+            )),
+            media.candidates,
+        ))
     }
 
     // 1초마다 초당 프레임 수를 보고합니다.

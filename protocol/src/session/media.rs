@@ -1,4 +1,4 @@
-use super::Event;
+use super::{Event, MediaStats};
 use crate::error::Result;
 use crate::media::rtcp;
 use crate::media::{Assembled, Assembler, Routed, RtpPacket, SrtpContext, Streams};
@@ -84,6 +84,10 @@ pub struct Media {
     // 미디어가 시작되지 않았을 때 원인을 가리기 위한 수입니다.
     pub datagrams: u64,
     pub authenticated: u64,
+    // 재전송을 요청한 순번 수, 이전 조립기들이 메운 패킷 수, 복구하지 못한 손실 수
+    nacked: u64,
+    filled: u64,
+    losses: u64,
     pub last_packet: Option<Instant>,
     pub last_frame: Option<Instant>,
     pub configured: bool,
@@ -107,6 +111,9 @@ impl Media {
             fir_sequence: 0,
             datagrams: 0,
             authenticated: 0,
+            nacked: 0,
+            filled: 0,
+            losses: 0,
             last_packet: None,
             last_frame: None,
             configured: false,
@@ -115,7 +122,13 @@ impl Media {
 
     /// 비디오 포트로 받은 데이터그램을 처리하고, 내보낼 이벤트를 `events`에 더합니다.
     pub async fn receive(&mut self, datagram: &[u8], from: SocketAddr, now: Instant, events: &mut Vec<Event>) {
-        if from.ip() != self.sockets.server || RtpPacket::is_rtcp(datagram) {
+        if from.ip() != self.sockets.server {
+            return;
+        }
+
+        self.datagrams += 1;
+
+        if RtpPacket::is_rtcp(datagram) {
             return;
         }
 
@@ -128,12 +141,14 @@ impl Media {
             return;
         };
 
+        self.authenticated += 1;
         self.last_packet = Some(now);
 
         let packets = match self.streams.route(packet, now) {
             Routed::Current(packet) => vec![packet],
             Routed::Switched { ssrc, packets } => {
                 // 새 SSRC는 새 디코더 세대입니다. 이전 세대의 참조와 섞이지 않도록 새 설정과 키프레임을 기다립니다.
+                self.filled += self.assembler.as_ref().map_or(0, Assembler::filled);
                 self.assembler = Some(Assembler::new(ssrc));
                 self.configured = false;
                 packets
@@ -150,6 +165,7 @@ impl Media {
         let lost: Vec<u16> = packets.into_iter().flat_map(|packet| assembler.push(packet)).collect();
 
         if !lost.is_empty() {
+            self.nacked += lost.len() as u64;
             self.send_rtcp(&rtcp::nack(self.video_ssrc, target, &lost)).await;
         }
 
@@ -171,12 +187,31 @@ impl Media {
                     self.streams.mark_frame(now);
                     events.push(Event::Frame(unit));
                 }
-                Assembled::Lost => lost = true,
+                Assembled::Lost => {
+                    self.losses += 1;
+                    lost = true;
+                }
             }
         }
 
         if lost {
             self.request_keyframe(now).await;
+        }
+    }
+
+    pub fn stats(&self, offers: u32) -> MediaStats {
+        let ssrc = self.streams.current();
+
+        MediaStats {
+            datagrams: self.datagrams,
+            authenticated: self.authenticated,
+            ssrc,
+            highest: ssrc.and_then(|ssrc| self.receive.highest_received(ssrc)),
+            candidates: self.streams.candidates(),
+            offers,
+            nacked: self.nacked,
+            filled: self.filled + self.assembler.as_ref().map_or(0, Assembler::filled),
+            losses: self.losses,
         }
     }
 

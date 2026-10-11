@@ -115,8 +115,35 @@ pub enum Event {
     Clipboard(String),
     /// 프레임이 오래 나오지 않아 디코더를 다시 만들어야 합니다. 키프레임은 세션이 요청합니다.
     ResetDecoder,
+    /// 미디어 수신 통계. 미디어 협상이 끝난 뒤 0.5초마다 옵니다.
+    Stats(MediaStats),
+    /// 해석하지 않은 프레임버퍼 사각형. 본문에 클립보드가 있을 수 있어 길이만 알립니다.
+    UnknownRect { encoding: i32, len: usize },
     /// 세션이 끝났습니다. `close()`로 닫았으면 `None`입니다.
     Closed(Option<Error>),
+}
+
+/// 미디어 수신 통계입니다. 화면이 멈췄을 때 서버가 보내지 않는 것인지, 받았는데 버린 것인지 가립니다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MediaStats {
+    /// 서버 주소에서 비디오 포트로 받은 데이터그램(RTCP 포함)
+    pub datagrams: u64,
+    /// 그중 SRTP 인증을 통과한 RTP 패킷
+    pub authenticated: u64,
+    /// 지금 디코딩하는 SSRC
+    pub ssrc: Option<u32>,
+    /// 그 SSRC에서 받은 확장 순번의 최댓값
+    pub highest: Option<u32>,
+    /// 넘어갈지 지켜보는 다른 SSRC의 수
+    pub candidates: usize,
+    /// 응답을 받기까지 보낸 오퍼의 수
+    pub offers: u32,
+    /// 재전송을 요청한 순번의 수
+    pub nacked: u64,
+    /// 구멍을 메운 패킷의 수. 재전송이 오면 늘어납니다.
+    pub filled: u64,
+    /// 복구하지 못해 키프레임을 기다리게 된 손실의 수
+    pub losses: u64,
 }
 
 /// 네이티브 계층이 세션에 보내는 명령입니다.
