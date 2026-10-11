@@ -12,6 +12,9 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import dev.insd.naru.R
@@ -25,11 +28,13 @@ import dev.insd.naru.protocol.Config
 import dev.insd.naru.protocol.DisplayMode
 import dev.insd.naru.protocol.Event
 import dev.insd.naru.protocol.Failure
+import dev.insd.naru.protocol.Stage
 
 /**
  * Mac 한 대와의 세션을 화면 밖에서도 이어 갑니다.
  *
  * - 세션이 살아 있는 동안만 알림과 함께 포그라운드 서비스로 돌고, 세션이 끝나면 곧바로 멈춥니다.
+ * - 목록 화면은 [state]로 접속 단계와 실패를 봅니다. 인증에 성공하면 목록 화면이 세션 화면을 엽니다.
  * - 세션 화면은 바인드해서 Surface와 입력을 넘깁니다. 화면이 떠나도 세션과 소리는 이어지고, 다시 붙으면 마지막 상태를 되감아 줍니다.
  * - 접속 결과를 저장하는 일(Mac 목록, 비밀번호, 서버 키)과 클립보드는 화면이 없어도 일어나므로 여기서 합니다.
  */
@@ -41,8 +46,9 @@ class SessionService : Service() {
 
     private var session: Running? = null
 
-    // 화면이 없을 때 끝난 세션. 화면이 다시 붙으면 실패 이유를 보여 줍니다.
-    private var ended: Pair<Host, Event.Closed>? = null
+    /** 지금 세션의 상태. 세션이 없으면 `null`이고, 실패는 [dismiss]할 때까지 남습니다. */
+    var state by mutableStateOf<State?>(null)
+        private set
 
     private var listener: Connection.Listener? = null
 
@@ -80,7 +86,7 @@ class SessionService : Service() {
     /** 이 Mac과의 세션을 엽니다. 이미 열린 세션이 있으면 닫고 새로 엽니다. */
     fun open(host: Host, credentials: Credentials, display: DisplayMode?): Connection {
         session?.connection?.disconnect()
-        ended = null
+        state = State.Connecting(host, Stage.WARMUP)
 
         val config = Config(
             host = host.address,
@@ -99,11 +105,13 @@ class SessionService : Service() {
         return connection
     }
 
-    /** 이 Mac과 살아 있는 세션의 연결. 없으면 `null`입니다. */
-    fun connection(host: Host): Connection? = session?.takeIf { it.host.id == host.id }?.connection
+    /** 살아 있는 세션의 연결. 없으면 `null`입니다. */
+    val connection: Connection? get() = session?.connection
 
-    /** 화면이 없는 동안 이 Mac과의 세션이 끝났다면 그 사건을 한 번 돌려줍니다. */
-    fun takeEnded(host: Host): Event.Closed? = ended?.takeIf { it.first.id == host.id }?.second.also { ended = null }
+    /** 실패를 보여 준 뒤 지웁니다. */
+    fun dismiss() {
+        if (state is State.Failed) state = null
+    }
 
     /** 화면을 붙입니다. 마지막 단계, 레이아웃, 커서, 입력 소스를 곧바로 되감아 줍니다. */
     fun attach(next: Connection.Listener) {
@@ -135,12 +143,22 @@ class SessionService : Service() {
     private fun handle(running: Running, event: Event) {
         when (event) {
             is Event.ServerKey -> serverKeys.remember(running.host, event.der)
-            is Event.Authenticated -> remember(running)
+            is Event.Authenticated -> {
+                remember(running)
+                state = State.Connected(running.host)
+            }
             is Event.ServerName -> rename(running, event.name)
             is Event.Clipboard -> running.clipboard.onServer(event.text)
             is Event.Closed -> end(running, event)
-            is Event.Progress, is Event.Layout, is Event.Cursor, is Event.Source -> running.replay[event::class] = event
             else -> Unit
+        }
+
+        if (event is Event.Progress && state is State.Connecting) {
+            state = State.Connecting(running.host, event.stage)
+        }
+
+        if (event is Event.Progress || event is Event.Layout || event is Event.Cursor || event is Event.Source) {
+            running.replay[event::class] = event
         }
 
         listener?.onEvent(event)
@@ -167,19 +185,17 @@ class SessionService : Service() {
         running.host = running.host.copy(name = name)
         hosts.reload()
         hosts.save(running.host)
+        if (state is State.Connected) state = State.Connected(running.host)
     }
 
-    // 비밀번호가 틀렸으면 저장한 비밀번호를 지웁니다. 화면이 없으면 다시 붙을 때 보여 줄 수 있게 남겨 둡니다.
+    // 비밀번호가 틀렸으면 저장한 비밀번호를 지웁니다. 실패는 목록 화면이 보여 줄 때까지 [state]에 남깁니다.
     private fun end(running: Running, event: Event.Closed) {
         Log.i(TAG, "세션이 끝났습니다")
         session = null
+        state = event.failure?.let { State.Failed(running.host, it) }
 
         if (event.failure is Failure.Rejected) {
             keychain.remove(running.host.id)
-        }
-
-        if (listener == null && event.failure != null) {
-            ended = running.host to event
         }
 
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -193,7 +209,7 @@ class SessionService : Service() {
         val open = PendingIntent.getActivity(
             this,
             0,
-            SessionActivity.intent(this, host).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            Intent(this, SessionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val disconnect = PendingIntent.getService(
@@ -211,6 +227,18 @@ class SessionService : Service() {
             .addAction(Notification.Action.Builder(null, "Disconnect", disconnect).build())
             .setOngoing(true)
             .build()
+    }
+
+    /** 세션의 단계. 모두 어느 Mac과의 세션인지 [host]로 알려 줍니다. */
+    sealed interface State {
+        val host: Host
+
+        data class Connecting(override val host: Host, val stage: Stage) : State
+
+        /** 인증에 성공했습니다. 화면은 아직 준비 중일 수 있습니다. */
+        data class Connected(override val host: Host) : State
+
+        data class Failed(override val host: Host, val failure: Failure) : State
     }
 
     /** 접속에 쓸 사용자 이름과 비밀번호. 인증에 성공하면 [remember]가 `true`일 때 비밀번호를 저장합니다. */
