@@ -1,11 +1,22 @@
 [package]
 name = "protocol"
-description = "macOS 화면 공유 High Performance 모드 클라이언트의 프로토콜 코어"
+description = "macOS 화면 공유 High Performance 모드 클라이언트의 프로토콜 코어와 UniFFI 경계"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+
+# 바인딩 생성기입니다. `--features cli`로만 빌드합니다.
+[[bin]]
+name = "uniffi-bindgen"
+required-features = ["cli"]
+
+[features]
+cli = ["uniffi/cli"]
 
 [dependencies]
 aes.workspace = true
@@ -23,11 +34,12 @@ sha1.workspace = true
 sha2.workspace = true
 socket2.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+uniffi.workspace = true
 
 [dev-dependencies]
 rpassword.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "fs", "signal"] }
+tokio = { workspace = true, features = ["fs", "signal"] }
 
 [lints]
 workspace = true
@@ -60,6 +72,8 @@ sha2 = "0.10.9"
 socket2 = "0.6.5"
 thiserror = "2.0.21"
 tokio = { version = "1.53.2", features = ["macros", "net", "io-util", "rt", "sync", "time"] }
+# 생성 코드와 런타임이 같은 버전이어야 하므로 고정합니다. 올릴 때 변경 내역을 확인합니다.
+uniffi = "=0.32.2"
 
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "warn"

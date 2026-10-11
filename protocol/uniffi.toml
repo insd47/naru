@@ -1,0 +1,3 @@
+[bindings.kotlin]
+package_name = "dev.insd.naru.protocol"
+cdylib_name = "protocol"
