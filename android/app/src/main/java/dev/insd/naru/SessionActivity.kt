@@ -196,12 +196,14 @@ class SessionActivity : ComponentActivity() {
             title = { Text("Sign In to “${host.name.ifEmpty { host.address }}”") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(loginMessage ?: "Enter your name and password to share this Mac's screen.")
+                    Text("Enter your name and password to share this Mac's screen.")
                     OutlinedTextField(username, { username = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true)
                     OutlinedSecureTextField(
                         password,
                         Modifier.fillMaxWidth(),
                         label = { Text("Password") },
+                        isError = loginMessage != null,
+                        supportingText = loginMessage?.let { { Text(it) } },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                         onKeyboardAction = { submit() },
                     )
@@ -425,7 +427,7 @@ class SessionActivity : ComponentActivity() {
 
     private fun message(failure: Failure?): String = when (failure) {
         null -> ""
-        is Failure.Rejected -> "The name or password is incorrect. Try again."
+        is Failure.Rejected -> "Incorrect name or password"
         is Failure.KeyChanged -> "This Mac's identity is different from the last time you connected. Reconnect only if you trust this Mac."
         is Failure.OtherUser -> "${failure.name} is logged in to this Mac."
         is Failure.Unreachable -> "Can't reach ${host.address}. Check the address and that Screen Sharing is turned on."
