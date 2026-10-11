@@ -223,7 +223,8 @@ impl Session {
     pub fn next_event(&self, timeout_ms: u32) -> Option<Event> {
         let mut events = self.events.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let timeout = Duration::from_millis(timeout_ms.into());
-        let event = RUNTIME.block_on(tokio::time::timeout(timeout, events.recv()));
+        // 시간 제한 타이머는 런타임 안에서 만들어야 하므로 async 블록 안에서 엽니다.
+        let event = RUNTIME.block_on(async { tokio::time::timeout(timeout, events.recv()).await });
         event.ok().flatten().map(Event::from)
     }
 
