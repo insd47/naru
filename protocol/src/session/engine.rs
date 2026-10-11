@@ -1,7 +1,7 @@
 use super::control::Control;
 use super::input::Input;
 use super::media::{Media, QUIET_AFTER, Sockets};
-use super::{Command, Config, Event, Stage};
+use super::{Command, Config, Event, Events, Stage};
 use crate::error::{Error, Result};
 use crate::message::{Cursors, Layout, Messages, Rect, ServerMessage, client, clipboard};
 use crate::offer::{Answer, Offer};
@@ -91,16 +91,12 @@ impl Engine {
         }
     }
 
-    pub async fn run(
-        mut self,
-        commands: &mut mpsc::UnboundedReceiver<Command>,
-        events: &mpsc::Sender<Event>,
-    ) -> Result<()> {
-        let _ = events.send(Event::Progress(Stage::Offer)).await;
+    pub async fn run(mut self, commands: &mut mpsc::UnboundedReceiver<Command>, events: &mut Events) -> Result<()> {
+        events.send(Event::Progress(Stage::Offer)).await?;
 
         let mut outgoing = Vec::new();
         self.start(&mut outgoing).await?;
-        publish(events, &mut outgoing).await?;
+        events.publish(&mut outgoing).await?;
 
         let mut ticker = tokio::time::interval(TICK);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -158,7 +154,7 @@ impl Engine {
                 self.stall = Stall::default();
             }
 
-            publish(events, &mut outgoing).await?;
+            events.publish(&mut outgoing).await?;
         }
     }
 
@@ -307,7 +303,7 @@ impl Engine {
 
         if !self.media.configured && self.media.last_frame.is_none() {
             if now.duration_since(answered) > MEDIA_START {
-                return Err(self.abort(Stage::Media));
+                return Err(self.abort());
             }
 
             return Ok(());
@@ -381,7 +377,7 @@ impl Engine {
     // 크기가 있는 응답을 받을 때까지 같은 오퍼를 다시 보냅니다.
     async fn retry(&mut self, now: Instant) -> Result<()> {
         if self.offer_sent.1 >= OFFER_ATTEMPTS {
-            return Err(self.abort(Stage::Offer));
+            return Err(self.abort());
         }
 
         self.send_offer(now).await
@@ -394,24 +390,14 @@ impl Engine {
     }
 
     // 미디어가 시작되지 않으면 연결을 즉시 끊습니다(RST). 서버 쪽 세션이 남지 않게 해야 다시 접속할 수 있습니다.
-    fn abort(&self, stage: Stage) -> Error {
+    fn abort(&self) -> Error {
         let _ = SockRef::from(&self.control.stream).set_linger(Some(Duration::ZERO));
 
-        let error = Error::NoMedia {
+        Error::NoMedia {
             datagrams: self.media.datagrams,
             authenticated: self.media.authenticated,
-        };
-
-        error.at(stage)
+        }
     }
-}
-
-async fn publish(events: &mpsc::Sender<Event>, outgoing: &mut Vec<Event>) -> Result<()> {
-    for event in outgoing.drain(..) {
-        events.send(event).await.map_err(|_| Error::Closed)?;
-    }
-
-    Ok(())
 }
 
 async fn sleep_until(deadline: Option<Instant>) {

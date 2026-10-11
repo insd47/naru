@@ -149,6 +149,47 @@ pub struct MediaStats {
     pub losses: u64,
 }
 
+/// 세션이 사건을 보내는 통로입니다. 마지막으로 알린 단계를 기억해, 실패를 그 단계의 실패로 알립니다.
+struct Events {
+    sender: mpsc::Sender<Event>,
+    stage: Stage,
+}
+
+impl Events {
+    fn new(sender: mpsc::Sender<Event>) -> Self {
+        Self {
+            sender,
+            stage: Stage::Warmup,
+        }
+    }
+
+    /// 사건을 보냅니다. 받는 쪽이 사라졌으면 `Closed`입니다.
+    async fn send(&mut self, event: Event) -> Result<()> {
+        if let Event::Progress(stage) = event {
+            self.stage = stage;
+        }
+
+        self.sender.send(event).await.map_err(|_| Error::Closed)
+    }
+
+    /// 쌓인 사건을 순서대로 모두 보냅니다.
+    async fn publish(&mut self, outgoing: &mut Vec<Event>) -> Result<()> {
+        for event in outgoing.drain(..) {
+            self.send(event).await?;
+        }
+
+        Ok(())
+    }
+
+    /// 실패를 마지막으로 알린 단계의 실패로 감쌉니다.
+    fn failed(&self, source: Error) -> Error {
+        Error::Failed {
+            stage: self.stage,
+            source: Box::new(source),
+        }
+    }
+}
+
 /// 네이티브 계층이 세션에 보내는 명령입니다.
 enum Command {
     Key {
@@ -245,36 +286,32 @@ impl Session {
 }
 
 async fn run(config: Config, mut commands: mpsc::UnboundedReceiver<Command>, events: mpsc::Sender<Event>) {
+    let mut events = Events::new(events);
     let mut result = Ok(());
 
     for attempt in 1..=ATTEMPTS {
-        result = attempt_session(&config, &mut commands, &events).await;
+        result = attempt_session(&config, &mut commands, &mut events).await;
 
-        let retry = matches!(&result, Err(Error::Failed { source, .. }) if matches!(**source, Error::NoMedia { .. }));
-
-        if !retry || attempt == ATTEMPTS {
+        if !matches!(result, Err(Error::NoMedia { .. })) || attempt == ATTEMPTS {
             break;
         }
 
         tokio::time::sleep(RETRY_DELAY).await;
     }
 
-    let _ = events.send(Event::Closed(result.err())).await;
+    let error = result.err().map(|error| events.failed(error));
+    let _ = events.send(Event::Closed(error)).await;
 }
 
 async fn attempt_session(
     config: &Config,
     commands: &mut mpsc::UnboundedReceiver<Command>,
-    events: &mpsc::Sender<Event>,
+    events: &mut Events,
 ) -> Result<()> {
-    let progress = |stage| events.send(Event::Progress(stage));
-
-    progress(Stage::Warmup).await.map_err(|_| Error::Closed)?;
-    let server = resolve(&config.host, config.port)
-        .await
-        .map_err(|error| error.at(Stage::Warmup))?;
+    events.send(Event::Progress(Stage::Warmup)).await?;
+    let server = resolve(&config.host, config.port).await?;
     let local_ports = config.local_ports.unwrap_or((config.port, config.port + 1));
-    let sockets = Sockets::bind(server, config.port, local_ports).map_err(|error| error.at(Stage::Warmup))?;
+    let sockets = Sockets::bind(server, config.port, local_ports)?;
 
     // 핸드셰이크 동안 로컬 방화벽이 서버의 미디어를 응답으로 받아들이도록 UDP를 보냅니다. 레코드 계층이 켜지면 멈춥니다.
     let punch = tokio::spawn(sockets.clone().punch());
@@ -291,4 +328,27 @@ async fn resolve(host: &str, port: u16) -> Result<IpAddr> {
     address
         .map(|address| address.ip())
         .ok_or_else(|| Error::Resolve(host.into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Event, Events, Stage};
+    use crate::error::Error;
+    use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn failure_is_reported_at_the_last_announced_stage() {
+        let (sender, mut receiver) = mpsc::channel(4);
+        let mut events = Events::new(sender);
+
+        events.send(Event::Progress(Stage::Handshake)).await.unwrap();
+        events.send(Event::Progress(Stage::Auth)).await.unwrap();
+        events.send(Event::Authenticated { server_proof: true }).await.unwrap();
+
+        let error = events.failed(Error::Rejected);
+        assert!(
+            matches!(error, Error::Failed { stage: Stage::Auth, ref source } if matches!(**source, Error::Rejected))
+        );
+        assert!(matches!(receiver.recv().await, Some(Event::Progress(Stage::Handshake))));
+    }
 }

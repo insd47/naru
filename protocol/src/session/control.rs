@@ -1,4 +1,4 @@
-use super::{Config, Event, Stage};
+use super::{Config, Event, Events, Stage};
 use crate::auth::{Challenge, KEY_REQUEST, MAX_MESSAGE_BYTES, SECURITY_TYPE, ServerKey};
 use crate::error::{Error, Result};
 use crate::message::{Messages, Rect, ServerMessage, client};
@@ -7,7 +7,6 @@ use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 const VERSION: &[u8; 12] = b"RFB 003.889\n";
@@ -42,37 +41,29 @@ impl Control {
     /// 예열 연결, 핸드셰이크, 인증, 평문 프렐류드를 거쳐 레코드 계층을 활성화합니다.
     ///
     /// - TCP는 UDP와 같은 IPv4 주소로 연결합니다. 호스트 이름으로 연결하면 TCP만 IPv6로 붙어 미디어가 오지 않을 수 있습니다.
-    pub async fn connect(config: &Config, server: IpAddr, events: &mpsc::Sender<Event>) -> Result<Self> {
+    pub async fn connect(config: &Config, server: IpAddr, events: &mut Events) -> Result<Self> {
         let address = SocketAddr::from((server, config.port));
 
-        warmup(address).await.map_err(|error| error.at(Stage::Warmup))?;
+        warmup(address).await?;
 
-        let _ = events.send(Event::Progress(Stage::Handshake)).await;
-        let mut stream = within(TcpStream::connect(address))
-            .await
-            .map_err(|error| error.at(Stage::Handshake))?;
+        events.send(Event::Progress(Stage::Handshake)).await?;
+        let mut stream = within(TcpStream::connect(address)).await?;
         stream.set_nodelay(true)?;
-        handshake(&mut stream)
-            .await
-            .map_err(|error| error.at(Stage::Handshake))?;
+        handshake(&mut stream).await?;
 
-        let _ = events.send(Event::Progress(Stage::Auth)).await;
-        let key = within(server_key(&mut stream))
-            .await
-            .map_err(|error| error.at(Stage::Auth))?;
-        let _ = events.send(Event::ServerKey(key.der().to_vec())).await;
+        events.send(Event::Progress(Stage::Auth)).await?;
+        let key = within(server_key(&mut stream)).await?;
+        events.send(Event::ServerKey(key.der().to_vec())).await?;
 
         if config.known_key.as_deref().is_some_and(|known| known != key.der()) {
-            return Err(Error::KeyChanged.at(Stage::Auth));
+            return Err(Error::KeyChanged);
         }
 
-        let authenticated = within(authenticate(&mut stream, &key, config)).await;
-        let (wrap_key, server_proof) = authenticated.map_err(|error| error.at(Stage::Auth))?;
-        let _ = events.send(Event::Authenticated { server_proof }).await;
+        let (wrap_key, server_proof) = within(authenticate(&mut stream, &key, config)).await?;
+        events.send(Event::Authenticated { server_proof }).await?;
 
-        let _ = events.send(Event::Progress(Stage::KeyExchange)).await;
-        let control = within(prelude(stream, &wrap_key, config, events)).await;
-        control.map_err(|error| error.at(Stage::KeyExchange))
+        events.send(Event::Progress(Stage::KeyExchange)).await?;
+        within(prelude(stream, &wrap_key, config, events)).await
     }
 
     /// 메시지를 레코드로 감싸 보냅니다.
@@ -150,15 +141,10 @@ async fn authenticate(stream: &mut TcpStream, key: &ServerKey, config: &Config) 
     Ok((proof.wrap_key, proof.verify(&block)))
 }
 
-async fn prelude(
-    mut stream: TcpStream,
-    wrap_key: &[u8; 16],
-    config: &Config,
-    events: &mpsc::Sender<Event>,
-) -> Result<Control> {
+async fn prelude(mut stream: TcpStream, wrap_key: &[u8; 16], config: &Config, events: &mut Events) -> Result<Control> {
     stream.write_all(&client::CLIENT_INIT).await?;
     let name = server_init(&mut stream).await?;
-    let _ = events.send(Event::ServerName(name)).await;
+    events.send(Event::ServerName(name)).await?;
 
     let mut messages = Messages::default();
     let pending = session_prompt(&mut stream).await?;

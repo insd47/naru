@@ -48,17 +48,5 @@ pub enum Error {
     },
 }
 
-impl Error {
-    pub(crate) fn at(self, stage: crate::Stage) -> Self {
-        match self {
-            Self::Failed { .. } => self,
-            source => Self::Failed {
-                stage,
-                source: Box::new(source),
-            },
-        }
-    }
-}
-
 /// 코어의 오류를 기본값으로 하는 `Result`입니다.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
