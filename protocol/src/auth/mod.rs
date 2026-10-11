@@ -12,6 +12,9 @@ pub use srp::{Challenge, Proof};
 
 mod srp;
 
+/// 클라이언트가 보내는 RFB 버전입니다.
+pub const VERSION: &[u8; 12] = b"RFB 003.889\n";
+
 /// 보안 유형 목록에서 고르는 RSA-SRP 유형
 pub const SECURITY_TYPE: u8 = 33;
 

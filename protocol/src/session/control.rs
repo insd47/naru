@@ -1,5 +1,5 @@
 use super::{Config, Event, Events, Stage};
-use crate::auth::{Challenge, KEY_REQUEST, MAX_MESSAGE_BYTES, SECURITY_TYPE, ServerKey};
+use crate::auth::{Challenge, KEY_REQUEST, MAX_MESSAGE_BYTES, SECURITY_TYPE, ServerKey, VERSION};
 use crate::error::{Error, Result};
 use crate::message::{Messages, Rect, ServerMessage, client};
 use crate::record::{Opener, RecordKeys, Sealer};
@@ -9,8 +9,6 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-
-const VERSION: &[u8; 12] = b"RFB 003.889\n";
 
 // 예열 연결을 닫은 뒤 기다리는 시간입니다. 예열해 두면 잠금 화면에서 데스크톱으로 넘어갈 때 서버가 TCP를 끊지 않습니다.
 const WARMUP_DELAY: Duration = Duration::from_millis(1400);

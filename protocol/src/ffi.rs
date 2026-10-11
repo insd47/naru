@@ -81,6 +81,7 @@ pub enum Event {
         pixel_width: u16,
         pixel_height: u16,
     },
+    // 변형 이름이 실어 나르는 타입과 같으면 생성된 Kotlin에서 중첩 클래스가 그 타입을 가리므로, 이 둘은 이름을 다르게 둡니다.
     /// 새 디코더 설정. 디코더를 이 설정으로 다시 만듭니다.
     Decoder {
         config: DecoderConfig,
