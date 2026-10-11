@@ -18,8 +18,12 @@ use tokio::time::MissedTickBehavior;
 const TICK: Duration = Duration::from_millis(500);
 
 // 응답에 크기가 없으면 서버의 인코더가 아직 준비되지 않은 것이므로 같은 오퍼를 다시 보냅니다.
+// 응답이 오기 전에는 다시 보내지 않습니다. 서버는 오퍼마다 스트림을 만드므로, 성급히 보내면 스트림이 여럿 생겨 시작이 끊깁니다.
 const OFFER_RETRY: Duration = Duration::from_millis(200);
 const OFFER_ATTEMPTS: u32 = 16;
+
+// 응답이 아예 없을 때 같은 오퍼를 다시 보내기까지 기다리는 시간입니다. 실측한 응답 시간은 1.5초 안팎입니다.
+const OFFER_TIMEOUT: Duration = Duration::from_secs(4);
 
 // 응답을 받은 뒤 이 시간 안에 디코더 설정이 오지 않으면 서버의 인코더가 멈춘 것으로 보고 다시 접속합니다.
 const MEDIA_START: Duration = Duration::from_secs(3);
@@ -43,6 +47,8 @@ pub struct Engine {
     cursors: Cursors,
     layout: Option<Layout>,
     offer_sent: (Instant, u32),
+    // 크기 없는 응답을 받아 다시 보내기로 한 시각
+    offer_retry: Option<Instant>,
     answered: Option<Instant>,
     stall: Stall,
 }
@@ -78,6 +84,7 @@ impl Engine {
             cursors: Cursors::default(),
             layout: None,
             offer_sent: (Instant::now(), 0),
+            offer_retry: None,
             answered: None,
             stall: Stall::default(),
         }
@@ -104,7 +111,10 @@ impl Engine {
 
         loop {
             let deadline = self.media.deadline();
-            let retry = self.answered.is_none().then(|| self.offer_sent.0 + OFFER_RETRY);
+            let retry = self
+                .answered
+                .is_none()
+                .then(|| self.offer_retry.unwrap_or(self.offer_sent.0 + OFFER_TIMEOUT));
 
             let wake = tokio::select! {
                 read = self.control.stream.read(&mut tcp_buffer) => Wake::Tcp(read),
@@ -241,14 +251,7 @@ impl Engine {
                         self.control.send(&self.offer.encode()).await?;
                     }
                 }
-                Rect::MediaStream(body) | Rect::Unknown { rest: body, .. } => {
-                    let answer = Answer::find(&body);
-
-                    if self.answered.is_none() && answer.is_some_and(|answer| answer.size.is_some()) {
-                        self.answered = Some(now);
-                        outgoing.push(Event::Progress(Stage::Media));
-                    }
-                }
+                Rect::MediaStream(body) | Rect::Unknown { rest: body, .. } => self.answer(&body, now, outgoing),
                 Rect::InputSource(body) => {
                     if let Some(source) = input_source(&body) {
                         outgoing.push(Event::InputSource(source));
@@ -259,6 +262,22 @@ impl Engine {
         }
 
         Ok(())
+    }
+
+    // 크기가 있는 미디어 응답이 오면 미디어 수신 단계로 넘어갑니다.
+    fn answer(&mut self, body: &[u8], now: Instant, outgoing: &mut Vec<Event>) {
+        let answer = Answer::find(body);
+
+        let Some(answer) = answer.filter(|_| self.answered.is_none()) else {
+            return;
+        };
+
+        if answer.size.is_some() {
+            self.answered = Some(now);
+            outgoing.push(Event::Progress(Stage::Media));
+        } else if self.offer_retry.is_none() {
+            self.offer_retry = Some(now + OFFER_RETRY);
+        }
     }
 
     async fn tick(&mut self, now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
@@ -354,6 +373,7 @@ impl Engine {
 
     async fn send_offer(&mut self, now: Instant) -> Result<()> {
         self.offer_sent = (now, self.offer_sent.1 + 1);
+        self.offer_retry = None;
         self.control.send(&self.offer.encode()).await
     }
 
