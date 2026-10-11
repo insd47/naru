@@ -1,15 +1,21 @@
 package dev.insd.naru
 
+import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,46 +59,66 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import dev.insd.naru.audio.Player
 import dev.insd.naru.home.Host
-import dev.insd.naru.home.Hosts
 import dev.insd.naru.home.Keychain
-import dev.insd.naru.protocol.Config
+import dev.insd.naru.home.ServerKeys
 import dev.insd.naru.protocol.DisplayMode
 import dev.insd.naru.protocol.Event
 import dev.insd.naru.protocol.Failure
 import dev.insd.naru.protocol.Stage
-import dev.insd.naru.session.Clipboard
 import dev.insd.naru.session.Connection
 import dev.insd.naru.session.InputSource
 import dev.insd.naru.session.Keys
 import dev.insd.naru.session.MetaKey
 import dev.insd.naru.session.ScreenView
+import dev.insd.naru.session.SessionService
 import dev.insd.naru.session.Touchpad
-import java.io.File
 
 /**
  * Mac 한 대와의 세션 화면입니다. 비밀번호를 물은 뒤 접속하고, 화면과 입력을 처리합니다.
  *
+ * - 세션은 [SessionService]가 소유합니다. 이 화면은 서비스에 붙어 Surface와 입력을 넘기므로, 화면을 떠나도 세션은 이어지고 돌아오면 다시 붙습니다.
  * - 몰입 모드, 키 가로채기, Meta 키 요청, 화면 켜짐 유지는 이 창에만 걸리므로 화면을 떠나면 함께 풀립니다.
  * - 저장한 비밀번호가 있으면 묻지 않고 접속합니다. 없거나 틀리면 사용자 이름과 비밀번호를 묻습니다.
- * - 인증에 성공하면 Mac을 목록에 저장하고, 원하면 비밀번호를 [Keychain]에 저장합니다.
- * - 서버 공개키는 처음 접속할 때 저장하고, 다음 접속부터 바뀌었는지 확인합니다.
  * - 세션 중에는 하드웨어 키보드의 키를 모두 Mac으로 보냅니다. 뒤로 가기만 세션을 닫습니다.
  */
 class SessionActivity : ComponentActivity() {
     private lateinit var host: Host
-    private lateinit var hosts: Hosts
     private lateinit var keychain: Keychain
+    private lateinit var serverKeys: ServerKeys
 
+    private var service: SessionService? = null
     private var connection by mutableStateOf<Connection?>(null)
     private val keys = Keys()
     private var inputSource: InputSource? = null
     private var touchpad: Touchpad? = null
-    private var clipboard: Clipboard? = null
 
-    // 인증 결과를 기다리는 사용자 이름과 비밀번호. 인증에 성공하면 저장하고 지웁니다.
-    private var pending: Credentials? = null
+    // 알림을 못 띄우면 세션은 이어지지만 알림의 연결 끊기 버튼이 보이지 않습니다. 거절해도 접속은 그대로 합니다.
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) service?.notifyAgain()
+    }
+
+    private val listener = object : Connection.Listener {
+        override fun onEvent(event: Event) = handle(event)
+        override fun onFirstFrame() {
+            status = null
+        }
+    }
+
+    private val binding = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+            val bound = (binder as SessionService.Local).service
+            service = bound
+            bound.attach(listener)
+
+            // 이 Mac과의 세션이 살아 있으면 다시 붙고, 화면이 없는 동안 끝났으면 그 이유를 보여 줍니다.
+            bound.connection(host)?.let(::adopt) ?: bound.takeEnded(host)?.let(::closed) ?: start()
+        }
+
+        override fun onServiceDisconnected(name: ComponentName) {
+            service = null
+        }
+    }
 
     private var status by mutableStateOf<String?>(null)
     private var failure by mutableStateOf<Event.Closed?>(null)
@@ -111,8 +137,8 @@ class SessionActivity : ComponentActivity() {
             port = intent.getIntExtra(EXTRA_PORT, Host.DEFAULT_PORT),
             virtualDisplay = intent.getBooleanExtra(EXTRA_VIRTUAL_DISPLAY, true),
         )
-        hosts = Hosts(this)
         keychain = Keychain(this)
+        serverKeys = ServerKeys(this)
 
         setContent {
             NaruTheme(dark = true) {
@@ -127,11 +153,19 @@ class SessionActivity : ComponentActivity() {
             }
         }
 
-        start()
+        bindService(Intent(this, SessionService::class.java), binding, BIND_AUTO_CREATE)
     }
 
+    // 화면을 떠날 때 Mac에 눌린 채 남는 키가 없게 합니다.
+    override fun onStop() {
+        connection?.let { current -> keys.releaseAll().forEach { (keysym, down) -> current.key(keysym, down) } }
+        super.onStop()
+    }
+
+    // 화면만 사라집니다. 세션은 서비스에 남습니다.
     override fun onDestroy() {
-        disconnect()
+        service?.detach(listener)
+        unbindService(binding)
         super.onDestroy()
     }
 
@@ -145,7 +179,7 @@ class SessionActivity : ComponentActivity() {
     // 다른 앱에서 복사하고 돌아오면 그 텍스트를 Mac에 보냅니다.
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) clipboard?.sync()
+        if (hasFocus) service?.syncClipboard()
     }
 
     // 세션 중이면 키를 Mac으로 보내고 `true`를 반환합니다. 화면 뷰가 IME보다 먼저 부르고, 포커스가 다른 곳이면 액티비티가 부릅니다.
@@ -153,7 +187,7 @@ class SessionActivity : ComponentActivity() {
         val current = connection ?: return false
 
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
-            if (event.action == KeyEvent.ACTION_UP) finish()
+            if (event.action == KeyEvent.ACTION_UP) service?.close()
             return true
         }
 
@@ -185,7 +219,7 @@ class SessionActivity : ComponentActivity() {
 
         val submit = {
             if (ready) {
-                connect(Credentials(username, password.text.toString(), rememberPassword))
+                connect(SessionService.Credentials(username, password.text.toString(), rememberPassword))
                 password.clearText()
             }
         }
@@ -235,7 +269,7 @@ class SessionActivity : ComponentActivity() {
             text = { Text(message(closed.failure)) },
             confirmButton = {
                 if (keyChanged) {
-                    TextButton(onClick = { keyFile().delete(); failure = null; start() }) { Text("Trust and Reconnect") }
+                    TextButton(onClick = { serverKeys.forget(host); failure = null; start() }) { Text("Trust and Reconnect") }
                 } else {
                     TextButton(onClick = { failure = null; start() }) { Text("Reconnect") }
                 }
@@ -279,34 +313,29 @@ class SessionActivity : ComponentActivity() {
     // 저장한 비밀번호가 있으면 곧바로 접속하고, 없으면 로그인 창이 뜬 채로 둡니다.
     private fun start() {
         val password = keychain.find(host.id)?.takeIf { host.username.isNotEmpty() } ?: return
-        connect(Credentials(host.username, password, remember = false))
+        connect(SessionService.Credentials(host.username, password, remember = false))
     }
 
-    private fun connect(credentials: Credentials) {
-        layout = null
-        loginMessage = null
-        pending = credentials
-        status = stageName(Stage.WARMUP)
+    private fun connect(credentials: SessionService.Credentials) {
+        val bound = service ?: return
 
-        val config = Config(
-            host = host.address,
-            port = host.port.toUShort(),
-            username = credentials.username,
-            password = credentials.password,
-            knownKey = keyFile().takeIf { it.exists() }?.readBytes(),
-            display = if (host.virtualDisplay) displayMode() else null,
-            audio = Player.supported(),
-        )
-
-        connection = Connection(config, object : Connection.Listener {
-            override fun onEvent(event: Event) = runOnUiThread { handle(event) }
-            override fun onFirstFrame() = runOnUiThread { status = null }
-        }).also { connection ->
-            inputSource = InputSource(this, connection) { korean -> keys.korean = korean }
-            touchpad = Touchpad(connection, resources.displayMetrics.density)
-            clipboard = Clipboard(this, connection)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
+        loginMessage = null
+        status = stageName(Stage.WARMUP)
+        adopt(bound.open(host, credentials, if (host.virtualDisplay) displayMode() else null))
+    }
+
+    // 세션의 연결에 이 화면의 입력을 붙입니다. 새로 연 세션과 다시 붙는 세션이 같은 길을 씁니다.
+    private fun adopt(next: Connection) {
+        connection = next
+        screen?.connection = next
+        inputSource = InputSource(this, next) { korean -> keys.korean = korean }
+        touchpad = Touchpad(next, resources.displayMetrics.density)
         immersive(true)
     }
 
@@ -314,23 +343,9 @@ class SessionActivity : ComponentActivity() {
         when (event) {
             is Event.Progress -> {
                 status = stageName(event.stage)
-                if (event.stage == Stage.MEDIA) {
-                    inputSource?.sync(delayMs = INPUT_SOURCE_DELAY_MS)
-                    clipboard?.sync()
-                }
+                if (event.stage == Stage.MEDIA) inputSource?.sync(delayMs = INPUT_SOURCE_DELAY_MS)
             }
             is Event.Source -> inputSource?.onServer(event.source.id)
-            is Event.Clipboard -> clipboard?.onServer(event.text)
-            is Event.ServerKey -> {
-                val file = keyFile()
-
-                if (!file.exists()) {
-                    file.parentFile?.mkdirs()
-                    file.writeBytes(event.der)
-                }
-            }
-            is Event.Authenticated -> remember()
-            is Event.ServerName -> rename(event.name)
             is Event.Layout -> layout = event
             is Event.Cursor -> screen?.setCursor(event)
             is Event.Closed -> closed(event)
@@ -338,63 +353,26 @@ class SessionActivity : ComponentActivity() {
         }
     }
 
-    // 인증에 성공한 Mac을 목록에 저장하고, 원하면 비밀번호도 저장합니다.
-    private fun remember() {
-        val credentials = pending ?: return
-        pending = null
-        host = host.copy(username = credentials.username, lastConnected = System.currentTimeMillis())
-        hosts.save(host)
-
-        if (credentials.remember) {
-            keychain.save(host.id, credentials.password)
-        }
-    }
-
-    // 주소로만 추가한 Mac은 Mac이 알려 준 컴퓨터 이름으로 바꿉니다. 사용자가 붙인 이름은 그대로 둡니다.
-    private fun rename(name: String) {
-        if (name.isEmpty() || host.name != host.address) {
-            return
-        }
-
-        host = host.copy(name = name)
-        hosts.save(host)
-    }
-
-    // 사용자가 닫은 세션은 목록으로 돌아갑니다. 비밀번호가 틀렸으면 저장한 비밀번호를 지우고 다시 묻습니다.
+    // 사용자가 닫은 세션은 목록으로 돌아갑니다. 비밀번호가 틀렸으면 다시 묻습니다.
     private fun closed(event: Event.Closed) {
-        disconnect()
-        pending = null
-
-        when (event.failure) {
-            null -> finish()
-            is Failure.Rejected -> {
-                keychain.remove(host.id)
-                loginMessage = message(event.failure)
-            }
-            else -> failure = event
-        }
-    }
-
-    private fun disconnect() {
-        val current = connection ?: return
-        Log.i(TAG, "세션을 닫습니다")
+        Log.i(TAG, "세션 화면을 닫습니다")
         connection = null
         inputSource?.stop()
         inputSource = null
         touchpad = null
-        clipboard = null
         keys.korean = false
+        keys.releaseAll()
         screen?.connection = null
         screen = null
-
-        for ((keysym, down) in keys.releaseAll()) {
-            current.key(keysym, down)
-        }
-
-        current.disconnect()
         status = null
         layout = null
         immersive(false)
+
+        when (event.failure) {
+            null -> finish()
+            is Failure.Rejected -> loginMessage = message(event.failure)
+            else -> failure = event
+        }
     }
 
     // 가상 디스플레이를 이 창의 픽셀 크기에 맞춥니다. 배율 2로 두어 Mac이 Retina로 그리게 합니다.
@@ -423,8 +401,6 @@ class SessionActivity : ComponentActivity() {
         }
     }
 
-    private fun keyFile() = File(filesDir, "server-keys/${host.address.replace(Regex("[^A-Za-z0-9.:-]"), "_")}.der")
-
     private fun message(failure: Failure?): String = when (failure) {
         null -> ""
         is Failure.Rejected -> "Incorrect name or password"
@@ -441,8 +417,6 @@ class SessionActivity : ComponentActivity() {
         Stage.AUTH -> "Signing in…"
         Stage.KEY_EXCHANGE, Stage.OFFER, Stage.MEDIA -> "Preparing screen…"
     }
-
-    private data class Credentials(val username: String, val password: String, val remember: Boolean)
 
     companion object {
         private const val TAG = "Naru"

@@ -3,6 +3,7 @@ package dev.insd.naru.session
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.util.Log
 
 /**
  * Mac과 태블릿의 클립보드 텍스트를 맞춥니다.
@@ -23,7 +24,10 @@ class Clipboard(private val context: Context, private val connection: Connection
 
     /** 태블릿 클립보드의 텍스트가 Mac과 다르면 보냅니다. */
     fun sync() {
-        val clip = manager.primaryClip?.takeIf { it.itemCount > 0 } ?: return
+        val clip = manager.primaryClip?.takeIf { it.itemCount > 0 } ?: run {
+            Log.i(TAG, "클립보드를 읽지 못했습니다")
+            return
+        }
         val text = clip.getItemAt(0).coerceToText(context).toString()
 
         if (text.isEmpty() || text == last) {
@@ -31,10 +35,12 @@ class Clipboard(private val context: Context, private val connection: Connection
         }
 
         last = text
+        Log.i(TAG, "클립보드 ${text.length}자를 Mac에 보냅니다")
         connection.clipboard(text)
     }
 
     companion object {
+        private const val TAG = "Naru"
         private const val LABEL = "Mac"
     }
 }
