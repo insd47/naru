@@ -5,9 +5,7 @@
 use super::zlib;
 use crate::error::{Error, Result};
 use crate::reader::Reader;
-use flate2::write::ZlibEncoder;
-use flate2::{Compression, Decompress};
-use std::io::Write;
+use flate2::{Compress, Compression, Decompress, FlushCompress};
 
 const TEXT: &str = "public.utf8-plain-text";
 
@@ -76,9 +74,20 @@ pub fn message(text: &str) -> Vec<u8> {
     content.extend_from_slice(&(text.len() as u32).to_be_bytes());
     content.extend_from_slice(text.as_bytes());
 
-    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-    encoder.write_all(&content).expect("Vec에 쓰는 압축은 실패하지 않는다");
-    let compressed = encoder.finish().expect("Vec에 쓰는 압축은 실패하지 않는다");
+    // Apple 클라이언트처럼 sync flush로 끝내고 스트림 종료 블록은 붙이지 않습니다. 종료 블록이 있으면 Mac이 내용을 버리고 클립보드만 비웁니다.
+    let mut compressor = Compress::new(Compression::default(), true);
+    let mut compressed = Vec::with_capacity(content.len() + 64);
+
+    while (compressor.total_in() as usize) < content.len() || compressed.len() == compressed.capacity() {
+        compressed.reserve(64);
+        compressor
+            .compress_vec(
+                &content[compressor.total_in() as usize..],
+                &mut compressed,
+                FlushCompress::Sync,
+            )
+            .expect("메모리 안의 압축은 실패하지 않는다");
+    }
 
     let mut message = vec![0x1f, 0, 0, 0, 0, 0, 0, 0];
     message.extend_from_slice(&(content.len() as u32).to_be_bytes());
@@ -99,6 +108,12 @@ mod tests {
     #[test]
     fn text_round_trips_through_a_message() {
         assert_eq!(text(&message("안녕, Mac")).unwrap().as_deref(), Some("안녕, Mac"));
+    }
+
+    // 2026-10-11 캡처의 Apple 클라이언트도 압축 본문을 sync flush(`00 00 ff ff`)로 끝냈습니다.
+    #[test]
+    fn content_ends_with_a_sync_flush() {
+        assert!(message("안녕, Mac").ends_with(&[0, 0, 0xff, 0xff]));
     }
 
     #[test]
