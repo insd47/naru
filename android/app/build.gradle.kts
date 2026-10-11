@@ -5,10 +5,9 @@ plugins {
 
 android {
     namespace = "dev.insd.naru"
+    // Material 3 Expressive(material3 1.5)가 API 37 이상으로 컴파일할 것을 요구합니다.
     compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
+        version = release(37)
     }
 
     defaultConfig {
