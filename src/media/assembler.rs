@@ -213,7 +213,7 @@ impl Assembler {
         let first = packets.first()?;
 
         if self.codec == VideoCodec::H264
-            && let Some(config) = DecoderConfig::parse(&first.payload)
+            && let Some(config) = DecoderConfig::from_h264(&first.payload)
         {
             self.configured = true;
             return Some(Assembled::Config(config));

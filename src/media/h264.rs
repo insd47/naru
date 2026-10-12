@@ -18,8 +18,8 @@ const NAL_FU_A: u8 = 28;
 const NAL_FU_B: u8 = 29;
 
 impl DecoderConfig {
-    /// 설정 패킷의 페이로드에서 `avcC` 상자를 찾아 해석합니다. 설정 패킷이 아니거나 형식이 맞지 않으면 `None`입니다.
-    pub fn parse(payload: &[u8]) -> Option<Self> {
+    /// H.264 설정 패킷의 페이로드에서 `avcC` 상자를 찾아 디코더 설정을 만듭니다. 설정 패킷이 아니거나 형식이 맞지 않으면 `None`입니다.
+    pub fn from_h264(payload: &[u8]) -> Option<Self> {
         if payload.first() != Some(&CONFIG_MARKER) {
             return None;
         }
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn config_packet_yields_sps_and_pps_for_the_decoder() {
-        let config = DecoderConfig::parse(&config_packet()).unwrap();
+        let config = DecoderConfig::from_h264(&config_packet()).unwrap();
         assert_eq!((config.profile, config.level), (0x64, 0x34));
         assert_eq!(config.sps, [SPS]);
         assert_eq!(config.pps, [PPS]);
@@ -241,7 +241,7 @@ mod tests {
         let end = packet.len() - b"trailing box".len();
 
         for cut in 0..end {
-            assert_eq!(DecoderConfig::parse(&packet[..cut]), None, "cut at {cut}");
+            assert_eq!(DecoderConfig::from_h264(&packet[..cut]), None, "cut at {cut}");
         }
     }
 
