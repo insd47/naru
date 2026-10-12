@@ -107,12 +107,10 @@ impl Mode {
         }
     }
 
-    /// 서버가 받아 주는 모드를 만듭니다. 세로 크기는 가로로 돌리고, 픽셀 크기가 한도(3840×2160)를 넘으면 비율을 유지한 채 줄입니다.
+    /// 픽셀 크기가 서버 한도(3840×2160)에 들어가도록, 비율을 유지한 채 논리 크기를 줄인 모드를 만듭니다.
     ///
-    /// - 서버는 세로 크기를 받지 않고 그 가상 디스플레이의 이전 크기로 되돌립니다. 한도 안의 540×960@2도 그랬습니다(2026-10-12 macOS 27 실측).
-    ///   그래서 세로로 세운 태블릿은 가로로 돌렸을 때의 크기를 요청하고, 화면에는 위아래 여백을 두고 보입니다.
+    /// - 한도는 가로와 세로가 정해져 있어서, 세로로 세운 태블릿은 높이가 한도를 넘습니다. 예: 834×1210@2 → 744×1080@2.
     pub fn fitting(logical: (u32, u32), scale: f64) -> Self {
-        let logical = (logical.0.max(logical.1), logical.0.min(logical.1));
         let (max_width, max_height) = MAX_PIXELS;
         let ratio = (f64::from(max_width) / (f64::from(logical.0) * scale))
             .min(f64::from(max_height) / (f64::from(logical.1) * scale))
@@ -161,11 +159,12 @@ mod tests {
 
     // 세로로 세운 iPad Pro 11형(834×1210@2)이 높이 한도를 넘어 접속에 실패했습니다(2026-10-12 TestFlight).
     #[test]
-    fn fitting_turns_portrait_into_landscape_within_the_limit() {
+    fn fitting_shrinks_a_portrait_tablet_into_the_server_limit() {
         let portrait = Mode::fitting((834, 1210), 2.0);
-        assert_eq!((portrait.logical, portrait.pixels), ((1210, 834), (2420, 1668)));
+        assert_eq!((portrait.logical, portrait.pixels), ((744, 1080), (1488, 2160)));
         assert!(config(vec![portrait]).encode().is_ok());
 
-        assert_eq!(Mode::fitting((2000, 1200), 2.0).pixels, (3600, 2160));
+        let landscape = Mode::fitting((1210, 834), 2.0);
+        assert_eq!(landscape.pixels, (2420, 1668));
     }
 }

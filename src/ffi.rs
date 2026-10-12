@@ -62,7 +62,7 @@ impl From<Config> for crate::Config {
 
 /// 가상 디스플레이의 논리 크기와 배율. 픽셀 크기는 논리 크기 × 배율입니다.
 ///
-/// - 세로 크기는 가로로 돌려 요청하고, 픽셀 크기가 서버 한도(3840×2160)를 넘으면 비율을 유지한 채 줄입니다. 실제 크기는 `Layout`으로 옵니다.
+/// - 픽셀 크기가 서버 한도(3840×2160)를 넘으면 비율을 유지한 채 줄여 요청합니다. 실제 크기는 `Layout`으로 옵니다.
 #[derive(uniffi::Record)]
 pub struct DisplayMode {
     pub width: u32,
