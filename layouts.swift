@@ -1,6 +1,6 @@
 // macOS 키보드 배열에서 Naru가 쓰는 변환 표를 뽑아 Rust 코드로 씁니다. 입력 소스 설정은 읽기만 합니다.
 //
-//     swift tools/layouts.swift > src/session/keyboard/tables.rs
+//     swift layouts.swift > src/session/keyboard/tables.rs
 //
 // - ABC와, 라틴 문자를 칠 수 없는 배열(2벌식, 러시아어, 주음 등)만 담습니다. 라틴 배열에는 글자를 그대로 보내므로 표가 필요 없습니다.
 // - 열은 메인 키 블록에서 ABC가 공백이 아닌 글자 하나를 내는 키 자리입니다. keysym 하나로 보낼 수 없거나 데드 키인 자리는 U+FFFD로 둡니다.
@@ -63,7 +63,7 @@ let codes = (0..<64).filter { code in
 
 let version = ProcessInfo.processInfo.operatingSystemVersion
 print("""
-// tools/layouts.swift가 만든 파일입니다. 손으로 고치지 마십시오.
+// layouts.swift가 만든 파일입니다. 손으로 고치지 마십시오.
 // macOS \(version.majorVersion).\(version.minorVersion).\(version.patchVersion), keyboard type \(keyboardType)
 // 키 코드: \(codes.map(String.init).joined(separator: " "))
 
