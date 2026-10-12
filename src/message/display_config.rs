@@ -106,6 +106,19 @@ impl Mode {
             hdr: false,
         }
     }
+
+    /// 픽셀 크기가 서버 한도(3840×2160)에 들어가도록, 비율을 유지한 채 논리 크기를 줄인 모드를 만듭니다.
+    ///
+    /// - 한도는 가로와 세로가 정해져 있어서, 세로로 세운 태블릿은 높이가 한도를 넘습니다. 예: 834×1210@2 → 744×1080@2.
+    pub fn fitting(logical: (u32, u32), scale: f64) -> Self {
+        let (max_width, max_height) = MAX_PIXELS;
+        let ratio = (f64::from(max_width) / (f64::from(logical.0) * scale))
+            .min(f64::from(max_height) / (f64::from(logical.1) * scale))
+            .min(1.0);
+        let shrink = |value: u32| ((f64::from(value) * ratio).floor() as u32).max(1);
+
+        Self::new((shrink(logical.0), shrink(logical.1)), scale)
+    }
 }
 
 #[cfg(test)]
@@ -142,5 +155,16 @@ mod tests {
     fn pixels_beyond_the_server_limit_are_refused() {
         assert!(config(vec![Mode::new((2000, 1200), 2.0)]).encode().is_err());
         assert!(config(Vec::new()).encode().is_err());
+    }
+
+    // 세로로 세운 iPad Pro 11형(834×1210@2)이 높이 한도를 넘어 접속에 실패했습니다(2026-10-12 TestFlight).
+    #[test]
+    fn fitting_shrinks_a_portrait_tablet_into_the_server_limit() {
+        let portrait = Mode::fitting((834, 1210), 2.0);
+        assert_eq!((portrait.logical, portrait.pixels), ((744, 1080), (1488, 2160)));
+        assert!(config(vec![portrait]).encode().is_ok());
+
+        let landscape = Mode::fitting((1210, 834), 2.0);
+        assert_eq!(landscape.pixels, (2420, 1668));
     }
 }
