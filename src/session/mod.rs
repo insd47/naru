@@ -20,6 +20,7 @@ use tokio::task::JoinSet;
 mod control;
 mod engine;
 mod input;
+pub use input::TouchPhase;
 mod keyboard;
 mod media;
 mod negotiation;
@@ -123,6 +124,8 @@ pub enum Event {
     Frame(AccessUnit),
     /// 커서 모양. 포인터 아이콘으로 씁니다. 위치는 오지 않습니다.
     Cursor(Arc<CursorImage>),
+    /// 터치로 옮긴 커서 위치(레이아웃 픽셀). 이 자리에 커서를 그립니다.
+    Pointer { x: u16, y: u16 },
     /// Mac의 컴퓨터 이름. 인증 뒤에 한 번 옵니다.
     ServerName(String),
     /// Mac의 현재 입력 소스. 글자 변환은 세션이 하므로 기록과 표시에만 씁니다.
@@ -262,6 +265,14 @@ impl Session {
     /// 확대 제스처. 배율은 시작할 때 1.0이고 누적됩니다. 중심은 마지막 포인터 위치입니다.
     pub fn magnify(&self, phase: Phase, scale: f32) -> Result<()> {
         self.input(input::Event::Magnify { phase, scale })
+    }
+
+    /// 화면에 닿은 손가락 하나. 위치는 포인터와 같은 레이아웃 픽셀이며, 화면 밖이어도 자르지 않습니다.
+    ///
+    /// - 화면 전체를 트랙패드로 씁니다. 한 손가락은 커서 이동과 탭 클릭, 탭 직후 누른 채 끌기, 두 손가락은 오른쪽 클릭, 스크롤, 확대입니다.
+    /// - 커서는 손가락 자리가 아니라 상대 이동으로 움직이며, 옮긴 위치는 [`Event::Pointer`]로 옵니다.
+    pub fn touch(&self, id: u32, phase: TouchPhase, at: (f32, f32)) -> Result<()> {
+        self.input(input::Event::Touch(input::Touch { id, phase, at }))
     }
 
     /// Mac의 클립보드에 텍스트를 넣습니다. 받을 때와 같은 크기 한도를 넘으면 보내지 않고 `TooLong`을 반환합니다.

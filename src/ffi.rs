@@ -2,7 +2,9 @@
 //!
 //! - 네이티브 쪽은 [`Session::connect`]에 [`SessionListener`]를 넘겨 세션을 열고, 사건은 세션 전용 스레드에서 차례로 받습니다.
 //! - 코어 타입 가운데 튜플이나 내부 필드가 없는 것은 그대로 넘기고, 나머지는 여기서 네이티브 쪽에 맞는 모양으로 옮깁니다.
-use crate::{AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, MediaStats, Mode, Phase, Priority, Stage};
+use crate::{
+    AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, MediaStats, Mode, Phase, Priority, Stage, TouchPhase,
+};
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, LazyLock};
 use tokio::runtime::Runtime;
@@ -124,6 +126,11 @@ pub enum Event {
         hotspot_y: u16,
         rgba: Vec<u8>,
     },
+    /// 터치로 옮긴 커서 위치(레이아웃 픽셀). 이 자리에 커서를 그립니다.
+    Pointer {
+        x: u16,
+        y: u16,
+    },
     /// Mac의 현재 입력 소스. 글자 변환은 세션이 하므로 기록과 표시에만 씁니다.
     Source {
         source: InputSource,
@@ -162,6 +169,7 @@ impl From<crate::Event> for Event {
             crate::Event::AudioConfig(config) => Self::AudioConfig { config },
             crate::Event::Audio(frame) => Self::Audio { frame },
             crate::Event::Frame(unit) => Self::Frame { unit },
+            crate::Event::Pointer { x, y } => Self::Pointer { x, y },
             crate::Event::Cursor(image) => Self::Cursor {
                 width: image.width,
                 height: image.height,
@@ -286,6 +294,13 @@ impl Session {
     /// 확대 제스처. 배율은 시작할 때 1.0이고 누적됩니다.
     pub fn magnify(&self, phase: Phase, scale: f32) {
         let _ = self.session.magnify(phase, scale);
+    }
+
+    /// 화면에 닿은 손가락 하나. `id`는 손가락마다 다르게, 위치는 포인터와 같은 레이아웃 픽셀로 줍니다.
+    ///
+    /// - 화면 전체를 트랙패드로 씁니다. 커서 위치는 `Pointer` 사건으로 옵니다.
+    pub fn touch(&self, id: u32, phase: TouchPhase, x: f32, y: f32) {
+        let _ = self.session.touch(id, phase, (x, y));
     }
 
     /// Mac의 클립보드에 텍스트를 넣습니다. 받을 때와 같은 크기 한도를 넘으면 보내지 않고 `false`를 반환합니다.

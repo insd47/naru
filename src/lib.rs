@@ -11,7 +11,7 @@ pub use error::{Error, Result};
 pub use media::{AccessUnit, AudioFrame, DecoderConfig, Priority, RtpPacket, SrtpContext, VideoCodec};
 pub use message::gesture::Phase;
 pub use message::{CursorImage, DisplayConfig, InputSource, Layout, Mode};
-pub use session::{Config, Event, MediaStats, Session, Stage};
+pub use session::{Config, Event, MediaStats, Session, Stage, TouchPhase};
 
 pub mod auth;
 mod error;

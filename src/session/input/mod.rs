@@ -3,6 +3,10 @@ use crate::message::gesture::{Magnify, Momentum, Phase, Scroll};
 use crate::record::RecordKeys;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
+use touch::{Gesture, Touchpad};
+pub use touch::{Touch, TouchPhase};
+
+mod touch;
 
 // 줄 단위 값 하나가 몇 포인트인지입니다. Apple 클라이언트의 트랙패드 스크롤에서 약 10이고, 휠 한 칸도 이만큼 스크롤합니다.
 const POINTS_PER_LINE: f32 = 10.0;
@@ -25,18 +29,27 @@ pub enum Event {
     Wheel { lines: (f32, f32) },
     /// 확대. 배율은 시작할 때 1.0이고 누적됩니다.
     Magnify { phase: Phase, scale: f32 },
+    /// 화면에 닿은 손가락. 화면 전체를 트랙패드로 씁니다.
+    Touch(Touch),
 }
 
 /// 입력을 Mac에 보낼 메시지로 바꿉니다.
 ///
 /// - 스크롤과 확대는 마지막 포인터 위치에서 일어나므로, 포인터 위치를 기억해 함께 싣습니다.
 /// - 트랙패드 스크롤이 끝나면 관성을 직접 만들어 [`Self::tick`]으로 이어 보냅니다. Mac은 관성을 클라이언트에게 맡깁니다.
+/// - 손가락 터치는 상대 이동으로 커서를 옮기므로, 커서 위치를 이곳이 정합니다. 네이티브 계층은 [`Self::cursor`]로 받아 그립니다.
 pub struct Input {
     keys: RecordKeys,
     // 직전 포인터 이벤트의 시각
     pointed: Instant,
     bounds: (u16, u16),
+    // 레이아웃 픽셀이 Mac 포인트의 몇 배인지. 터치 스크롤의 이동량을 포인트로 바꿉니다.
+    pixels_per_point: f32,
     at: (u16, u16),
+    // 터치로 옮기는 커서의 소수 위치와 누른 버튼
+    cursor: (f32, f32),
+    buttons: u8,
+    touchpad: Touchpad,
     // 관성 속도를 정하려고 남기는 최근 스크롤 이동
     recent: VecDeque<(Instant, (f32, f32))>,
     fling: Option<Fling>,
@@ -58,7 +71,11 @@ impl Input {
             keys,
             pointed: Instant::now(),
             bounds: (u16::MAX, u16::MAX),
+            pixels_per_point: 1.0,
             at: (0, 0),
+            cursor: (0.0, 0.0),
+            buttons: 0,
+            touchpad: Touchpad::new(),
             recent: VecDeque::new(),
             fling: None,
             remainder: (0.0, 0.0),
@@ -66,21 +83,25 @@ impl Input {
         }
     }
 
-    /// 레이아웃의 픽셀 크기. 포인터 위치를 이 안으로 자릅니다.
-    pub fn resize(&mut self, pixels: (u16, u16)) {
+    /// 레이아웃의 논리 크기와 픽셀 크기. 포인터 위치를 픽셀 크기 안으로 자릅니다.
+    pub fn resize(&mut self, logical: (u16, u16), pixels: (u16, u16)) {
         self.bounds = pixels;
+        self.pixels_per_point = f32::from(pixels.0) / f32::from(logical.0.max(1));
         self.at = self.clamp(self.at);
+        self.cursor = (f32::from(self.at.0), f32::from(self.at.1));
+    }
+
+    /// 지금 커서 위치(레이아웃 픽셀)
+    pub fn cursor(&self) -> (u16, u16) {
+        self.at
     }
 
     pub fn handle(&mut self, event: Event, now: Instant) -> Vec<Vec<u8>> {
         match event {
             Event::Pointer { buttons, x, y } => {
                 self.at = self.clamp((x, y));
-
-                let elapsed_us =
-                    u32::try_from(now.saturating_duration_since(self.pointed).as_micros()).unwrap_or(u32::MAX);
-                self.pointed = now;
-                vec![client::pointer(&self.keys, buttons, self.at.0, self.at.1, elapsed_us).to_vec()]
+                self.cursor = (f32::from(self.at.0), f32::from(self.at.1));
+                vec![self.pointer(buttons, now)]
             }
             Event::Scroll { phase, delta } => self.scroll(phase, delta, now),
             Event::Wheel { lines } => {
@@ -90,7 +111,48 @@ impl Input {
                 messages
             }
             Event::Magnify { phase, scale } => vec![self.magnify(phase, scale)],
+            Event::Touch(touch) => {
+                let gestures = self.touchpad.handle(touch, now);
+                gestures
+                    .into_iter()
+                    .flat_map(|gesture| self.gesture(gesture, now))
+                    .collect()
+            }
         }
+    }
+
+    fn gesture(&mut self, gesture: Gesture, now: Instant) -> Vec<Vec<u8>> {
+        match gesture {
+            Gesture::Move((dx, dy)) => {
+                let max = (
+                    f32::from(self.bounds.0.saturating_sub(1)),
+                    f32::from(self.bounds.1.saturating_sub(1)),
+                );
+                self.cursor = (
+                    (self.cursor.0 + dx).clamp(0.0, max.0),
+                    (self.cursor.1 + dy).clamp(0.0, max.1),
+                );
+                // 범위 안으로 자른 양수라 `as`가 값을 잃지 않습니다.
+                self.at = (self.cursor.0.round() as u16, self.cursor.1.round() as u16);
+                vec![self.pointer(self.buttons, now)]
+            }
+            Gesture::Buttons(buttons) => {
+                self.buttons = buttons;
+                vec![self.pointer(buttons, now)]
+            }
+            Gesture::Scroll { phase, delta } => {
+                let points = (delta.0 / self.pixels_per_point, delta.1 / self.pixels_per_point);
+                self.scroll(phase, points, now)
+            }
+            Gesture::Magnify { phase, scale } => vec![self.magnify(phase, scale)],
+        }
+    }
+
+    // 포인터 이벤트에는 직전 포인터 이벤트로부터 지난 시간을 싣습니다. 더블 클릭 판정에 쓰입니다.
+    fn pointer(&mut self, buttons: u8, now: Instant) -> Vec<u8> {
+        let elapsed_us = u32::try_from(now.saturating_duration_since(self.pointed).as_micros()).unwrap_or(u32::MAX);
+        self.pointed = now;
+        client::pointer(&self.keys, buttons, self.at.0, self.at.1, elapsed_us).to_vec()
     }
 
     /// 다음 관성 프레임을 보낼 시각
@@ -242,7 +304,7 @@ fn speed((x, y): (f32, f32)) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{Event, FRAME, Input};
+    use super::{Event, FRAME, Input, Touch, TouchPhase};
     use crate::message::client;
     use crate::message::gesture::Phase;
     use crate::record::RecordKeys;
@@ -339,7 +401,7 @@ mod tests {
     #[test]
     fn wheel_has_no_phases_and_scrolls_at_the_pointer() {
         let mut input = input();
-        input.resize((800, 600));
+        input.resize((800, 600), (800, 600));
         input.handle(
             Event::Pointer {
                 buttons: 0,
@@ -422,7 +484,7 @@ mod tests {
     #[test]
     fn pointer_carries_microseconds_since_the_previous_event() {
         let mut input = input();
-        input.resize((800, 600));
+        input.resize((800, 600), (800, 600));
         let start = Instant::now() + Duration::from_secs(600);
         let click = |buttons| Event::Pointer { buttons, x: 10, y: 20 };
         input.handle(click(1), start);
@@ -435,5 +497,33 @@ mod tests {
             input.handle(click(0), start + Duration::from_millis(80)),
             vec![client::pointer(&keys, 0, 10, 20, 80_000).to_vec()]
         );
+    }
+
+    // 터치는 마지막 포인터 위치에서부터 상대 이동으로 커서를 옮기고, 화면 끝에서 멈춥니다.
+    #[test]
+    fn touch_moves_the_cursor_from_the_last_pointer_and_stops_at_the_edge() {
+        let mut input = input();
+        input.resize((400, 300), (800, 600));
+        input.handle(
+            Event::Pointer {
+                buttons: 0,
+                x: 100,
+                y: 100,
+            },
+            Instant::now(),
+        );
+
+        let touch = |phase, at| Event::Touch(Touch { id: 1, phase, at });
+        input.handle(touch(TouchPhase::Began, (0.0, 0.0)), Instant::now());
+        assert_eq!(
+            input
+                .handle(touch(TouchPhase::Moved, (50.5, -20.0)), Instant::now())
+                .len(),
+            1
+        );
+        assert_eq!(input.cursor(), (151, 80));
+
+        input.handle(touch(TouchPhase::Moved, (5000.0, -500.0)), Instant::now());
+        assert_eq!(input.cursor(), (799, 0));
     }
 }

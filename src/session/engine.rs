@@ -1,5 +1,5 @@
 use super::control::Control;
-use super::input::Input;
+use super::input::{self, Input};
 use super::keyboard::Keyboard;
 use super::media::{Media, Sockets};
 use super::negotiation::Negotiation;
@@ -116,7 +116,7 @@ impl Engine {
                     }
                 }
                 Wake::Command(None) => return Ok(()),
-                Wake::Command(Some(command)) => self.command(command, now).await?,
+                Wake::Command(Some(command)) => self.command(command, now, &mut outgoing).await?,
             }
 
             events.publish(&mut outgoing).await?;
@@ -192,7 +192,7 @@ impl Engine {
                         .pixels
                         .replace(layout.pixels)
                         .is_some_and(|previous| previous != layout.pixels);
-                    self.input.resize(layout.pixels);
+                    self.input.resize(layout.logical, layout.pixels);
                     outgoing.push(Event::Layout(layout));
 
                     // 크기가 같은 레이아웃(로그인, 잠금, 세션 전환)에서도 요청하지 않으면 커서 모양이 굳습니다.
@@ -251,11 +251,18 @@ impl Engine {
         Ok(())
     }
 
-    async fn command(&mut self, command: Command, now: Instant) -> Result<()> {
+    async fn command(&mut self, command: Command, now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
         match command {
             Command::Key { keysym, down } => self.control.send(&self.keyboard.key(keysym, down)).await,
             Command::Language(language) => {
                 self.keyboard.select(&language);
+                Ok(())
+            }
+            // 터치는 커서를 상대 이동으로 옮기므로, 옮긴 위치를 네이티브 계층에 알려 커서를 그 자리에 그리게 합니다.
+            Command::Input(event @ input::Event::Touch(_), at) => {
+                self.control.send_all(self.input.handle(event, at)).await?;
+                let (x, y) = self.input.cursor();
+                outgoing.push(Event::Pointer { x, y });
                 Ok(())
             }
             Command::Input(event, at) => self.control.send_all(self.input.handle(event, at)).await,
