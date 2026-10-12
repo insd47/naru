@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// 세션 하나를 열고, 코어가 밀어 주는 사건을 영상, 소리, 화면 쪽으로 나눠 보냅니다.
 ///
@@ -9,6 +10,7 @@ final class Connection: SessionListener, @unchecked Sendable {
     private var audio: Audio?
     private var session: Session!
     private let announce: @Sendable (Event) -> Void
+    private let log = Logger(subsystem: "dev.insd.naru", category: "Connection")
 
     // 세션은 연결하면서 사건 스레드를 시작하므로, 사건을 받을 영상이 먼저 있어야 합니다.
     init(config: Config, announce: @escaping @Sendable (Event) -> Void, firstFrame: @escaping @Sendable () -> Void) {
@@ -37,8 +39,15 @@ final class Connection: SessionListener, @unchecked Sendable {
 
     func disconnect() { session.disconnect() }
 
-    // 영상과 소리는 초당 수십 번 오므로 화면 쪽에 넘기지 않습니다.
+    // 영상과 소리는 초당 수십 번 오므로 화면 쪽에 넘기지 않고 로그에도 남기지 않습니다.
     func onEvent(event: Event) {
+        switch event {
+        case .frame, .audio, .stats:
+            break
+        default:
+            log.info("\(Self.describe(event), privacy: .public)")
+        }
+
         switch event {
         case let .frame(unit):
             video.queue(unit)
@@ -61,6 +70,26 @@ final class Connection: SessionListener, @unchecked Sendable {
             announce(event)
         default:
             announce(event)
+        }
+    }
+
+    // 로그에는 사건의 종류와 크기만 남깁니다. 클립보드 내용이나 키 바이트는 남기지 않습니다.
+    private static func describe(_ event: Event) -> String {
+        switch event {
+        case let .progress(stage): "단계: \(stage)"
+        case let .serverKey(der): "서버 키 \(der.count)바이트"
+        case let .authenticated(serverProof): "인증 성공 (서버 증명 \(serverProof))"
+        case let .layout(logicalWidth, logicalHeight, pixelWidth, pixelHeight):
+            "레이아웃: 논리 \(logicalWidth)×\(logicalHeight), 픽셀 \(pixelWidth)×\(pixelHeight)"
+        case let .decoder(config): "디코더 설정: SPS \(config.sps.count)개, PPS \(config.pps.count)개"
+        case let .cursor(width, height, _, _, _): "커서 \(width)×\(height)"
+        case let .serverName(name): "Mac 이름: \(name)"
+        case let .source(source): "입력 소스: \(source.id) (보안 입력 \(source.secure))"
+        case let .clipboard(text): "클립보드 \(text.count)자"
+        case .resetDecoder: "디코더 재생성 요청"
+        case let .closed(_, detail): "세션 종료: \(detail ?? "정상")"
+        case let .audioConfig(config): "오디오 설정 \(config.count)바이트"
+        default: "\(event)"
         }
     }
 }
