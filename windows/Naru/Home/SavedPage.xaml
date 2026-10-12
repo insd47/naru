@@ -2,8 +2,82 @@
 <Page
     x:Class="Naru.Home.SavedPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid Padding="36,24">
-        <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Saved" />
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Naru.Home">
+
+    <Page.Resources>
+        <DataTemplate x:Key="RowTemplate" x:DataType="local:HostItem">
+            <local:HostRow Item="{x:Bind}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="TileTemplate" x:DataType="local:HostItem">
+            <StackPanel Width="148" Padding="8,16" Spacing="8">
+                <Grid HorizontalAlignment="Center">
+                    <FontIcon Glyph="&#xE977;" FontSize="56" />
+                    <ProgressRing Width="20" Height="20" IsActive="{x:Bind Connecting, Mode=OneWay}" HorizontalAlignment="Right" VerticalAlignment="Bottom" />
+                </Grid>
+                <TextBlock Text="{x:Bind Title, Mode=OneWay}" HorizontalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <TextBlock Text="{x:Bind Subtitle, Mode=OneWay}" HorizontalAlignment="Center" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+        </DataTemplate>
+    </Page.Resources>
+
+    <Grid Padding="36,24,36,0" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <TextBlock Text="Saved" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
+            <CommandBar HorizontalAlignment="Right" Background="Transparent" DefaultLabelPosition="Collapsed" OverflowButtonVisibility="Collapsed">
+                <AppBarToggleButton x:Name="GridButton" Label="Icons" ToolTipService.ToolTip="View as Icons" Click="OnGrid">
+                    <AppBarToggleButton.Icon>
+                        <FontIcon Glyph="&#xF0E2;" />
+                    </AppBarToggleButton.Icon>
+                </AppBarToggleButton>
+                <AppBarToggleButton x:Name="ListButton" Label="List" ToolTipService.ToolTip="View as List" Click="OnList">
+                    <AppBarToggleButton.Icon>
+                        <FontIcon Glyph="&#xE8FD;" />
+                    </AppBarToggleButton.Icon>
+                </AppBarToggleButton>
+                <AppBarSeparator />
+                <AppBarButton Label="New Connection" ToolTipService.ToolTip="New Connection (Ctrl+N)" Click="OnAdd">
+                    <AppBarButton.Icon>
+                        <FontIcon Glyph="&#xE710;" />
+                    </AppBarButton.Icon>
+                    <AppBarButton.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control" Key="N" />
+                    </AppBarButton.KeyboardAccelerators>
+                </AppBarButton>
+            </CommandBar>
+        </Grid>
+
+        <ListView
+            x:Name="List"
+            Grid.Row="1"
+            Margin="-16,0"
+            SelectionMode="Single"
+            ItemTemplate="{StaticResource RowTemplate}"
+            ContainerContentChanging="OnContainerContentChanging"
+            ContextRequested="OnContextRequested"
+            DoubleTapped="OnDoubleTapped"
+            KeyDown="OnKeyDown" />
+
+        <GridView
+            x:Name="Tiles"
+            Grid.Row="1"
+            Visibility="Collapsed"
+            SelectionMode="Single"
+            ItemTemplate="{StaticResource TileTemplate}"
+            ContextRequested="OnContextRequested"
+            DoubleTapped="OnDoubleTapped"
+            KeyDown="OnKeyDown" />
+
+        <StackPanel x:Name="Empty" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12" Visibility="Collapsed">
+            <FontIcon Glyph="&#xE977;" FontSize="48" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+            <TextBlock Text="No Connections" Style="{StaticResource SubtitleTextBlockStyle}" HorizontalAlignment="Center" />
+            <TextBlock Text="Add a Mac with New Connection, or pick one from Network." Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" />
+        </StackPanel>
     </Grid>
 </Page>

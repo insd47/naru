@@ -20,7 +20,7 @@
             IsPaneToggleButtonVisible="True"
             PaneToggleRequested="OnPaneToggleRequested">
             <TitleBar.IconSource>
-                <ImageIconSource ImageSource="Assets/AppIcon.ico" />
+                <ImageIconSource ImageSource="Assets/Naru.ico" />
             </TitleBar.IconSource>
         </TitleBar>
 
@@ -31,6 +31,7 @@
             IsBackButtonVisible="Collapsed"
             IsPaneToggleButtonVisible="False"
             PaneDisplayMode="Left"
+            KeyboardAcceleratorPlacementMode="Hidden"
             SelectionChanged="OnSelectionChanged">
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="Saved" Tag="Saved">

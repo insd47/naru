@@ -1,11 +1,61 @@
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Naru.Core;
+using Naru.Store;
+using Windows.ApplicationModel;
 
 namespace Naru;
 
+/// <summary>Settings shared by every Mac.</summary>
 public sealed partial class SettingsPage : Page
 {
+    private readonly Preferences preferences = App.Current.Preferences;
+    private readonly bool loaded;
+
     public SettingsPage()
     {
         InitializeComponent();
+
+        Swap.IsOn = preferences.SwapCommandOption;
+        WindowsKeys.SelectedIndex = (int)preferences.WindowsKeys;
+        Clipboard.IsOn = preferences.SharedClipboard;
+        Quality.SelectedIndex = preferences.Priority == Priority.Quality ? 1 : 0;
+
+        var version = Package.Current.Id.Version;
+        Version.Text = $"Version {version.Major}.{version.Minor}.{version.Build}";
+        loaded = true;
+    }
+
+    // Controls raise change events while the page sets their initial values, which must not write back.
+    private void OnSwap(object sender, RoutedEventArgs e)
+    {
+        if (loaded)
+        {
+            preferences.SwapCommandOption = Swap.IsOn;
+        }
+    }
+
+    private void OnWindowsKeys(object sender, SelectionChangedEventArgs e)
+    {
+        if (loaded)
+        {
+            preferences.WindowsKeys = (WindowsKeys)WindowsKeys.SelectedIndex;
+        }
+    }
+
+    private void OnClipboard(object sender, RoutedEventArgs e)
+    {
+        if (loaded)
+        {
+            preferences.SharedClipboard = Clipboard.IsOn;
+        }
+    }
+
+    private void OnQuality(object sender, SelectionChangedEventArgs e)
+    {
+        if (loaded)
+        {
+            preferences.Priority = Quality.SelectedIndex == 1 ? Priority.Quality : Priority.Latency;
+        }
     }
 }
