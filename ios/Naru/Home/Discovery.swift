@@ -37,9 +37,12 @@ final class Discovery {
         found = []
     }
 
-    /// 찾은 Mac의 IP 주소를 풉니다. 서비스에 잠깐 연결해 상대 주소를 읽고 바로 끊습니다. 실패하면 `nil`입니다.
+    /// 찾은 Mac의 IPv4 주소를 풉니다. 서비스에 잠깐 연결해 상대 주소를 읽고 바로 끊습니다. 실패하면 `nil`입니다.
     func resolve(_ endpoint: NWEndpoint) async -> String? {
-        let connection = NWConnection(to: endpoint, using: .tcp)
+        // 코어는 UDP 미디어 때문에 IPv4로만 접속하므로, 링크 로컬 IPv6 주소가 고르지 않도록 IPv4로 연결합니다.
+        let parameters = NWParameters.tcp
+        (parameters.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options)?.version = .v4
+        let connection = NWConnection(to: endpoint, using: parameters)
         defer { connection.cancel() }
 
         return await withCheckedContinuation { continuation in
@@ -53,9 +56,7 @@ final class Discovery {
                     if case let .hostPort(host, _) = connection.currentPath?.remoteEndpoint {
                         address = switch host {
                         case let .ipv4(ipv4): "\(ipv4)"
-                        case let .ipv6(ipv6): "\(ipv6)"
-                        case let .name(name, _): name
-                        @unknown default: nil
+                        default: nil
                         }
                     }
 
