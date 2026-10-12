@@ -53,11 +53,9 @@ final class Discovery {
                 case .ready:
                     var address: String?
 
-                    if case let .hostPort(host, _) = connection.currentPath?.remoteEndpoint {
-                        address = switch host {
-                        case let .ipv4(ipv4): "\(ipv4)"
-                        default: nil
-                        }
+                    // 문자열 표현에는 `%en0` 같은 인터페이스가 붙으므로 네 바이트로 씁니다.
+                    if case let .hostPort(.ipv4(ipv4), _) = connection.currentPath?.remoteEndpoint {
+                        address = ipv4.rawValue.map(String.init).joined(separator: ".")
                     }
 
                     resumed.once { continuation.resume(returning: address) }
