@@ -141,8 +141,9 @@ class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface, handler: Handler
     companion object {
         const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
 
-        // 입력 버퍼를 기다리며 쌓아 두는 접근 단위의 한도. 60fps에서 약 0.1초입니다.
-        const val BACKLOG = 6
+        // 입력 버퍼를 기다리며 쌓아 두는 접근 단위의 한도. 60fps에서 약 0.5초입니다.
+        // 코덱은 시작한 뒤 입력 버퍼를 내주기까지 시간이 걸리므로, 너무 작으면 첫 키프레임부터 버리게 됩니다.
+        const val BACKLOG = 30
 
         private val START_CODE = byteArrayOf(0, 0, 0, 1)
 

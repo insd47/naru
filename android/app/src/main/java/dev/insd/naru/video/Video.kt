@@ -31,7 +31,9 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
     private var released = false
 
     // 디코더를 새로 만든 뒤에는 키프레임이 올 때까지 넣지 않습니다.
+    // 요청이 서버에 닿지 않았을 수 있으므로, 기다리는 동안 프레임이 오면 일정 간격으로 다시 요청합니다.
     private var awaitingKeyframe = true
+    private var requestedAt = 0L
 
     // 통계 사건마다 남기는 수신 기록입니다.
     private var frames = 0
@@ -134,8 +136,14 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
 
         val current = decoder
 
-        if (current == null || (awaitingKeyframe && !unit.keyframe)) {
+        if (current == null) {
             dropped += 1
+            return
+        }
+
+        if (awaitingKeyframe && !unit.keyframe) {
+            dropped += 1
+            if (System.nanoTime() - requestedAt >= KEYFRAME_RETRY_NS) askKeyframe()
             return
         }
 
@@ -148,7 +156,7 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
             Log.w(TAG, "디코더 입력이 밀려 쌓인 프레임을 버립니다")
             dropped += Decoder.BACKLOG + 1
             awaitingKeyframe = true
-            requestKeyframe()
+            askKeyframe()
         }
     }
 
@@ -170,8 +178,13 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
             .getOrNull()
 
         if (keyframe) {
-            requestKeyframe()
+            askKeyframe()
         }
+    }
+
+    private fun askKeyframe() {
+        requestedAt = System.nanoTime()
+        requestKeyframe()
     }
 
     companion object {
@@ -179,5 +192,8 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
 
         // Surface가 사라질 때 디코더 해제를 기다리는 한도. 디코더 해제는 보통 수십 ms 안에 끝납니다.
         private const val DETACH_TIMEOUT_MS = 500L
+
+        // 키프레임을 기다리며 다시 요청하는 간격. 세션도 요청 사이에 최소 간격을 둡니다.
+        private const val KEYFRAME_RETRY_NS = 1_000_000_000L
     }
 }
