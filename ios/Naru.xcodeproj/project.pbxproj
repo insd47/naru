@@ -205,7 +205,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/build/generated/$(PLATFORM_NAME)";
-				MARKETING_VERSION = 0.1.1;
+				MARKETING_VERSION = 0.1;
 				OTHER_LDFLAGS = "-lnaru";
 				PRODUCT_BUNDLE_IDENTIFIER = dev.insd.naru;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -230,7 +230,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/build/generated/$(PLATFORM_NAME)";
-				MARKETING_VERSION = 0.1.1;
+				MARKETING_VERSION = 0.1;
 				OTHER_LDFLAGS = "-lnaru";
 				PRODUCT_BUNDLE_IDENTIFIER = dev.insd.naru;
 				PRODUCT_NAME = "$(TARGET_NAME)";
