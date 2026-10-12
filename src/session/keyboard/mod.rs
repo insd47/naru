@@ -86,8 +86,9 @@ impl Keyboard {
         vec![self.translate(keysym, down)]
     }
 
-    /// Mac이 알린 입력 소스를 반영합니다. 확인이면 붙잡아 둔 키를, 보안 입력이 끝났으면 다시 지정하는 메시지를 돌려줍니다.
+    /// Mac이 알린 입력 소스를 반영합니다. 확인이면 붙잡아 둔 키를, 처음 알렸거나 보안 입력이 끝났으면 다시 지정하는 메시지를 돌려줍니다.
     pub fn observe(&mut self, source: InputSource, now: Instant) -> Vec<Vec<u8>> {
+        let first = self.mac.is_none();
         let was_secure = self.mac.as_ref().is_some_and(|mac| mac.secure);
         let confirmed = self.pending.as_ref().is_some_and(|pending| source.id == pending.source);
         let secure = source.secure;
@@ -102,7 +103,7 @@ impl Keyboard {
             return self.release();
         }
 
-        if was_secure && self.pending.is_none() {
+        if (first || was_secure) && self.pending.is_none() {
             self.attempts = 0;
             return self.request(now);
         }
@@ -126,22 +127,26 @@ impl Keyboard {
         messages
     }
 
-    // 고른 언어를 지정합니다. 보안 입력 중이면 Mac이 받지 않으므로 끝날 때 다시 지정합니다.
+    // 고른 언어를 지정합니다. Mac은 지정 하나를 다음 지정이 올 때까지 반영하지 않습니다. 한 번만 보냈을 때는 확인이 늘
+    // 대기 시간이 끝나 다시 보낸 뒤 30ms쯤에 왔으므로, 같은 지정을 두 번 보내 곧바로 반영되게 합니다.
+    // 보안 입력 중이면 Mac이 받지 않으므로 끝날 때 다시 지정합니다.
     // 다른 지정이 확인을 기다리는 중이면 Mac이 곧 그 언어로 바꿀 수 있으므로, 지금 입력 소스와 같아도 지정합니다.
+    // Mac이 아직 입력 소스를 알리지 않았으면 키를 붙잡지 않습니다. 접속 직후 잠금 화면의 비밀번호처럼 바로 쳐야 하는 입력이 있고,
+    // 알리기까지 2초쯤 걸립니다. 알리면 다시 지정합니다.
     fn request(&mut self, now: Instant) -> Vec<Vec<u8>> {
         let Some(source) = self.selected else {
             return Vec::new();
         };
 
+        let message = InputSource::request(source);
+
         match &self.mac {
+            None => vec![message.clone(), message],
             Some(mac) if mac.secure => self.release(),
             Some(mac) if mac.id == source && self.pending.is_none() => Vec::new(),
             _ => {
                 self.attempts += 1;
                 self.pending = Some(Pending { source, at: now });
-                // Mac은 지정 하나를 다음 지정이 올 때까지 반영하지 않습니다. 한 번만 보냈을 때는 확인이 늘 대기 시간이 끝나
-                // 다시 보낸 뒤 30ms쯤에 왔으므로, 같은 지정을 두 번 보내 곧바로 반영되게 합니다.
-                let message = InputSource::request(source);
                 vec![message.clone(), message]
             }
         }
@@ -315,14 +320,26 @@ mod tests {
         assert_eq!(keyboard.observe(source(ENGLISH, false), now), request(KOREAN));
     }
 
+    // 접속 직후 잠금 화면의 비밀번호를 곧바로 칠 수 있어야 합니다.
     #[test]
-    fn letters_stay_latin_until_the_mac_reports_its_source() {
+    fn keys_go_out_as_latin_until_the_mac_reports_its_source() {
+        let mut keyboard = Keyboard::new();
+        let now = Instant::now();
+
+        assert_eq!(keyboard.select("ko-KR", now), request(KOREAN));
+        assert_eq!(keyboard.key(R, true), vec![key(R, true)]);
+        assert_eq!(keyboard.deadline(), None);
+    }
+
+    #[test]
+    fn first_report_requests_the_selected_language_again() {
         let mut keyboard = Keyboard::new();
         let now = Instant::now();
         keyboard.select("ko-KR", now);
-        keyboard.key(R, true);
 
-        assert_eq!(keyboard.expire(now)[0], key(R, true));
+        assert_eq!(keyboard.observe(source(ENGLISH, false), now), request(KOREAN));
+        assert!(keyboard.key(R, true).is_empty());
+        assert_eq!(keyboard.observe(source(KOREAN, false), now), vec![key(GIYEOK, true)]);
     }
 
     #[test]
