@@ -4,7 +4,7 @@
 //! - 네이티브 계층은 완성된 접근 단위와 디코더 설정만 받습니다. 디코더 오류는 `request_keyframe`로 알려 주십시오.
 //! - 미디어가 시작되지 않으면 연결을 끊고 처음부터 다시 접속합니다. 접속 시도는 합쳐서 세 번까지입니다.
 use crate::error::{Error, Result};
-use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority, RtpPacket, VideoCodec};
+use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority, VideoCodec};
 use crate::message::gesture::Phase;
 use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, clipboard};
 use control::Control;
@@ -46,10 +46,8 @@ pub struct Config {
     pub audio: bool,
     /// 패킷을 잃었을 때 지연과 화질 중 무엇을 우선할지
     pub priority: Priority,
-    /// 서버에 요청할 영상 코덱
-    pub codec: Codec,
-    /// 진단용. 영상을 조립하지 않고 받은 RTP 패킷을 [`Event::RawVideo`]로 넘깁니다. 키프레임 요청과 정지 감시도 하지 않습니다.
-    pub raw_video: bool,
+    /// 서버에 요청할 영상 코덱. HEVC 4:4:4는 기기의 하드웨어 디코더가 풀 수 있을 때만 요청합니다. 영상이 시작되지 않으면 H.264로 다시 시도합니다.
+    pub codec: VideoCodec,
     /// 로컬 UDP 포트(오디오, 비디오). 기본값은 서버와 같은 번호입니다. 서버와 같은 기기에서 시험할 때처럼 그 번호를 쓸 수 없을 때만 정합니다.
     pub local_ports: Option<(u16, u16)>,
 }
@@ -66,57 +64,10 @@ impl Config {
             display: None,
             audio: false,
             priority: Priority::default(),
-            codec: Codec::default(),
-            raw_video: false,
+            codec: VideoCodec::H264,
             local_ports: None,
         }
     }
-}
-
-/// 서버에 요청할 영상 코덱입니다.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Codec {
-    /// H.264 4:2:0 단일 스트림
-    #[default]
-    H264,
-    /// HEVC 4:4:4 단일 스트림. 기기의 디코더가 4:4:4를 풀 수 있을 때만 요청합니다.
-    ///
-    /// - Apple 클라이언트는 화면을 띠 4개로 나눠 받지만, 띠 하나로도 서버가 보내고 띠 4개는 움직이는 화면에서 1.8초 만에 멈췄습니다(2026-10-12 실측).
-    Hevc,
-    /// 진단용. 오퍼의 코덱 뱅크를 직접 정해 서버가 무엇을 보내는지 알아봅니다. `raw_video`와 함께 씁니다.
-    Custom(Bank),
-}
-
-impl Codec {
-    /// 서버가 보낼 영상의 코덱. 뱅크 100만 HEVC를 받습니다.
-    pub fn video(self) -> VideoCodec {
-        match self {
-            Self::H264 => VideoCodec::H264,
-            Self::Hevc => VideoCodec::Hevc,
-            Self::Custom(bank) if bank.id == 100 => VideoCodec::Hevc,
-            Self::Custom(_) => VideoCodec::H264,
-        }
-    }
-}
-
-/// 비디오 오퍼에 넣을 코덱 뱅크와 스트림 요청입니다.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Bank {
-    pub id: u32,
-    /// 뱅크의 필드 4. H.264 뱅크는 1, HEVC 뱅크는 14를 넣습니다. 뜻은 알려지지 않았습니다.
-    pub field_4: u32,
-    /// 기능 문자열과 해상도 항목을 어느 뱅크의 것으로 넣을지
-    pub features: Features,
-    pub tiles: u32,
-    /// LTR과 RTCP 피드백을 켤지 여부
-    pub ltr: bool,
-}
-
-/// 알려진 두 뱅크의 기능 문자열과 해상도 항목입니다.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Features {
-    H264,
-    Hevc,
 }
 
 /// 접속 단계입니다. 실패한 단계를 사용자에게 구분해 보여 주면 원인을 찾기 쉽습니다.
@@ -182,8 +133,6 @@ pub enum Event {
     ResetDecoder,
     /// 미디어 수신 통계. 미디어 협상이 끝난 뒤 0.5초마다 옵니다.
     Stats(MediaStats),
-    /// 복호화한 영상 RTP 패킷. `raw_video`를 켰을 때만 옵니다.
-    RawVideo(RtpPacket),
     /// 세션이 끝났습니다. `close()`로 닫았으면 `None`입니다.
     Closed(Option<Error>),
 }
@@ -384,8 +333,8 @@ async fn attempts(config: &Config, commands: &mut mpsc::UnboundedReceiver<Comman
         }
 
         // HEVC로 영상이 시작되지 않으면 다음 시도부터 H.264로 받습니다. 실기기에서 HEVC 띠 1개를 어떤 Mac이 받아 주는지 다 확인하지 못했습니다.
-        if codec == Codec::Hevc {
-            codec = Codec::H264;
+        if codec == VideoCodec::Hevc {
+            codec = VideoCodec::H264;
         }
 
         attempt += 1;
@@ -395,7 +344,7 @@ async fn attempts(config: &Config, commands: &mut mpsc::UnboundedReceiver<Comman
 
 async fn attempt_session(
     config: &Config,
-    codec: Codec,
+    codec: VideoCodec,
     commands: &mut mpsc::UnboundedReceiver<Command>,
     events: &mut Events,
 ) -> Result<()> {

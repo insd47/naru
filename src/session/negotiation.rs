@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn silent_server_is_given_up_after_a_few_offers() {
-        let mut negotiation = Negotiation::new(Offer::new(false, crate::Codec::H264));
+        let mut negotiation = Negotiation::new(Offer::new(false, crate::media::VideoCodec::H264));
         let mut now = Instant::now();
         negotiation.start(now);
 
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn nothing_is_resent_before_an_answer_or_the_timeout() {
-        let mut negotiation = Negotiation::new(Offer::new(false, crate::Codec::H264));
+        let mut negotiation = Negotiation::new(Offer::new(false, crate::media::VideoCodec::H264));
         let now = Instant::now();
         negotiation.start(now);
 
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn reoffers_after_the_answer_are_spaced() {
-        let mut negotiation = Negotiation::new(Offer::new(false, crate::Codec::H264));
+        let mut negotiation = Negotiation::new(Offer::new(false, crate::media::VideoCodec::H264));
         let now = Instant::now();
         negotiation.start(now);
         negotiation.answered = Some(now);

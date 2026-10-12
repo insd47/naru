@@ -4,7 +4,7 @@
 //! - 비디오는 기본으로 코덱 뱅크 123만 넣고 타일 1개를 요청해 H.264 4:2:0 단일 스트림을 받습니다. 뱅크 100을 넣으면 서버가 HEVC 4:4:4를 보내는데, 일반적인 모바일 하드웨어 디코더는 이를 풀지 못합니다.
 //! - 오디오 오퍼는 생략할 수 없습니다. 오디오를 끌 때는 요청 비트레이트를 낮춰 서버가 오디오를 보내지 않게 합니다.
 //! - SRTP 마스터 키는 클라이언트가 만들어 오퍼에 실어 보냅니다. 제어 채널이 뚫리면 미디어도 함께 뚫립니다.
-use crate::{Bank, Codec, Features};
+use crate::media::VideoCodec;
 use blob::{AnswerBlob, AudioStream, AudioTier, CodecBank, EndpointInfo, MediaBlob, Resolution, VideoStream};
 use flate2::Compression;
 use flate2::read::ZlibDecoder;
@@ -31,7 +31,8 @@ const MODE_AUDIO: i64 = 8;
 const H264_BANK: u32 = 123;
 const H264_FEATURES: &str = "FLS;MS:-1;LF:-1;CABAC;POS:0;EOD:1;HTS:2;RR:3;AR:16/9,5/8;XR:16/9,5/8;";
 
-// HEVC 4:4:4는 Apple 클라이언트가 LTR과 피드백을 켜고 보내는 값을 그대로 씁니다.
+// HEVC 4:4:4는 Apple 클라이언트가 LTR과 피드백을 켜고 보내는 값을 그대로 쓰되, 띠는 1개로 요청합니다.
+// Apple 클라이언트는 띠 4개로 받지만 서버는 띠 1개도 보내고, 띠 4개는 움직이는 화면에서 1.8초 만에 멈췄습니다(2026-10-12 실측).
 const HEVC_BANK: u32 = 100;
 const HEVC_FEATURES: &str = "FLS;LF:-1;POS:5;EOD:1;HTS:2;RR:3;POSE:4;AR:16/9,5/8;XR:16/9,5/8;";
 
@@ -69,7 +70,7 @@ pub struct Offer {
     /// 클라이언트의 비디오 SSRC. 클라이언트가 보내는 RTCP의 송신자 SSRC입니다.
     pub video_ssrc: u32,
     audio: bool,
-    codec: Codec,
+    codec: VideoCodec,
 }
 
 /// 오퍼에 싣는 SRTP 키 블롭 네 개입니다.
@@ -94,7 +95,7 @@ pub struct Answer {
 
 impl Offer {
     /// 새 키와 SSRC로 오퍼를 만듭니다.
-    pub fn new(audio: bool, codec: Codec) -> Self {
+    pub fn new(audio: bool, codec: VideoCodec) -> Self {
         Self {
             keys: MediaKeys {
                 audio_send: random(),
@@ -157,41 +158,23 @@ impl Offer {
         };
 
         // H.264는 LTR과 피드백을 끄고, HEVC는 켭니다.
-        let request = match self.codec {
-            Codec::H264 => Bank {
-                id: H264_BANK,
-                field_4: 1,
-                features: Features::H264,
-                tiles: 1,
-                ltr: false,
-            },
-            Codec::Hevc => Bank {
-                id: HEVC_BANK,
-                field_4: 14,
-                features: Features::Hevc,
-                tiles: 1,
-                ltr: true,
-            },
-            Codec::Custom(bank) => bank,
-        };
-        let (kinds, features): (&[u32], _) = match request.features {
-            Features::H264 => (&[1, 2, 1, 2], H264_FEATURES),
-            Features::Hevc => (&[1, 2], HEVC_FEATURES),
+        let (id, kinds, features, field_4, ltr): (_, &[u32], _, _, _) = match self.codec {
+            VideoCodec::H264 => (H264_BANK, &[1, 2, 1, 2], H264_FEATURES, 1, 0),
+            VideoCodec::Hevc => (HEVC_BANK, &[1, 2], HEVC_FEATURES, 14, 1),
         };
         let bank = CodecBank {
-            id: Some(request.id),
+            id: Some(id),
             resolutions: kinds.iter().copied().map(resolution).collect(),
             features: Some(features.into()),
-            field_4: Some(request.field_4),
+            field_4: Some(field_4),
         };
-        let (tiles, ltr) = (request.tiles, u32::from(request.ltr));
 
         MediaBlob {
             video: Some(VideoStream {
                 ssrc: Some(self.video_ssrc),
                 feedback: Some(ltr),
                 banks: vec![bank],
-                tiles: Some(tiles),
+                tiles: Some(1),
                 ltr: Some(ltr),
                 field_8: Some(63),
                 field_9: Some(1),
@@ -342,7 +325,7 @@ fn call_id(id: &[u8; 16]) -> String {
 mod tests {
     use super::blob::{AnswerBlob, MediaBlob, VideoAnswer};
     use super::{Answer, H264_FEATURES, HEVC_FEATURES, Offer, call_id};
-    use crate::Codec;
+    use crate::media::VideoCodec;
     use flate2::Compression;
     use flate2::read::ZlibDecoder;
     use flate2::write::ZlibEncoder;
@@ -367,7 +350,7 @@ mod tests {
 
     #[test]
     fn layout_places_keys_and_offers_at_their_offsets() {
-        let offer = Offer::new(false, Codec::H264);
+        let offer = Offer::new(false, VideoCodec::H264);
         let message = offer.encode();
 
         let audio_len = u16::from_be_bytes([message[0x0a], message[0x0b]]) as usize;
@@ -388,7 +371,7 @@ mod tests {
 
     #[test]
     fn video_offer_requests_single_tile_h264_without_ltr() {
-        let offer = Offer::new(false, Codec::H264);
+        let offer = Offer::new(false, VideoCodec::H264);
         let message = offer.encode();
         let audio_len = u16::from_be_bytes([message[0x0a], message[0x0b]]) as usize;
         let video = blob(&message[0x80 + audio_len + 92..]).video.unwrap();
@@ -403,7 +386,7 @@ mod tests {
 
     #[test]
     fn hevc_offer_requests_a_single_tile_with_ltr() {
-        let offer = Offer::new(false, Codec::Hevc);
+        let offer = Offer::new(false, VideoCodec::Hevc);
         let message = offer.encode();
         let audio_len = u16::from_be_bytes([message[0x0a], message[0x0b]]) as usize;
         let video = blob(&message[0x80 + audio_len + 92..]).video.unwrap();
@@ -417,17 +400,17 @@ mod tests {
 
     #[test]
     fn audio_off_requests_a_bitrate_below_the_threshold() {
-        let message = Offer::new(false, Codec::H264).encode();
+        let message = Offer::new(false, VideoCodec::H264).encode();
         let audio = audio_blob(&message).audio.unwrap();
         assert!(audio.bitrate.unwrap() < 5000);
 
-        let message = Offer::new(true, Codec::H264).encode();
+        let message = Offer::new(true, VideoCodec::H264).encode();
         assert_eq!(audio_blob(&message).audio.unwrap().bitrate, Some(24191));
     }
 
     #[test]
     fn zero_valued_fields_are_still_encoded() {
-        let message = Offer::new(false, Codec::H264).encode();
+        let message = Offer::new(false, VideoCodec::H264).encode();
         let encoded = audio_blob(&message).encode_to_vec();
 
         // 필드 8과 16(값 0)이 각각 태그 바이트 0x40, 0x80 0x01로 들어 있어야 합니다.

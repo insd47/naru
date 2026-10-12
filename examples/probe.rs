@@ -14,14 +14,10 @@
 //! - 저장한 파일은 `ffplay capture.h264`로 재생할 수 있습니다.
 //! - `--hevc`는 H.264 대신 HEVC 4:4:4를 요청합니다. `--out`에는 HEVC Annex-B로 저장합니다.
 //! - `--local-ports 오디오,비디오`는 로컬 UDP 포트를 바꿉니다. 같은 Mac에서 Apple 화면 공유가 5900과 5901을 쥐고 있을 때 씁니다.
-//! - `--bank`, `--field4`, `--features h264|hevc`, `--tiles`, `--ltr 0|1`은 오퍼의 코덱 뱅크를 하나씩 바꿉니다. 바꾸지 않은 값은 H.264(또는 `--hevc`)의 값을 쓰고, 조립하지 않으므로 `--raw`와 함께 씁니다.
-//! - `--raw 파일`은 영상을 조립하지 않고 복호화한 RTP 패킷을 그대로 저장합니다. 패킷마다 받은 시각(µs, u64), SSRC(u32), 순번(u16),
-//!   타임스탬프(u32), 마커(u8), 페이로드 길이(u32)를 빅엔디언으로 쓰고 페이로드를 잇습니다. 끝나면 SSRC별 패킷 수와 비트레이트를 찍습니다.
 use anyhow::{Context, Result, bail};
 use naru::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey, VERSION};
-use naru::{Bank, Codec, Config, DecoderConfig, DisplayConfig, Event, Features, Mode, Session};
+use naru::{Config, DecoderConfig, DisplayConfig, Event, Mode, Session, VideoCodec};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -29,7 +25,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--local-ports N,N] [--display 1280x800@2] [--unlock N] [--audio] [--out 파일] [--hevc] [--bank N] [--field4 N] [--features h264|hevc] [--tiles N] [--ltr 0|1] [--raw 파일] [--seconds N] [--handshake-only]";
+const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--local-ports N,N] [--display 1280x800@2] [--unlock N] [--audio] [--out 파일] [--hevc] [--seconds N] [--handshake-only]";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -52,12 +48,6 @@ struct Args {
     audio: bool,
     out: Option<PathBuf>,
     hevc: bool,
-    bank: Option<u32>,
-    field_4: Option<u32>,
-    features: Option<Features>,
-    tiles: Option<u32>,
-    ltr: Option<bool>,
-    raw: Option<PathBuf>,
     seconds: u64,
     handshake_only: bool,
 }
@@ -74,12 +64,6 @@ impl Args {
             audio: false,
             out: None,
             hevc: false,
-            bank: None,
-            field_4: None,
-            features: None,
-            tiles: None,
-            ltr: None,
-            raw: None,
             seconds: 10,
             handshake_only: false,
         };
@@ -101,18 +85,6 @@ impl Args {
                 "--audio" => parsed.audio = true,
                 "--out" => parsed.out = Some(value()?.into()),
                 "--hevc" => parsed.hevc = true,
-                "--bank" => parsed.bank = Some(value()?.parse()?),
-                "--field4" => parsed.field_4 = Some(value()?.parse()?),
-                "--features" => {
-                    parsed.features = Some(match value()?.as_str() {
-                        "h264" => Features::H264,
-                        "hevc" => Features::Hevc,
-                        other => bail!("--features는 h264나 hevc입니다: {other}"),
-                    })
-                }
-                "--tiles" => parsed.tiles = Some(value()?.parse()?),
-                "--ltr" => parsed.ltr = Some(value()? == "1"),
-                "--raw" => parsed.raw = Some(value()?.into()),
                 "--seconds" => parsed.seconds = value()?.parse()?,
                 "--handshake-only" => parsed.handshake_only = true,
                 _ if arg.starts_with("--") => bail!("알 수 없는 옵션입니다: {arg}"),
@@ -126,49 +98,7 @@ impl Args {
         (parsed.handshake_only || parsed.username.is_some())
             .then_some(())
             .context("사용자 이름이 필요합니다")?;
-        (!matches!(parsed.codec(), Codec::Custom(_)) || parsed.raw.is_some())
-            .then_some(())
-            .context("코덱 뱅크를 바꾼 요청은 --raw와 함께 써야 합니다")?;
         Ok(parsed)
-    }
-
-    // 바꾼 값이 없으면 알려진 요청을 그대로 쓰고, 있으면 그 요청의 뱅크에서 바꾼 값만 덮어씁니다.
-    fn codec(&self) -> Codec {
-        let preset = if self.hevc { Codec::Hevc } else { Codec::H264 };
-        let changed = self.bank.is_some()
-            || self.field_4.is_some()
-            || self.features.is_some()
-            || self.tiles.is_some()
-            || self.ltr.is_some();
-
-        if !changed {
-            return preset;
-        }
-
-        let base = match self.hevc {
-            true => Bank {
-                id: 100,
-                field_4: 14,
-                features: Features::Hevc,
-                tiles: 1,
-                ltr: true,
-            },
-            false => Bank {
-                id: 123,
-                field_4: 1,
-                features: Features::H264,
-                tiles: 1,
-                ltr: false,
-            },
-        };
-
-        Codec::Custom(Bank {
-            id: self.bank.unwrap_or(base.id),
-            field_4: self.field_4.unwrap_or(base.field_4),
-            features: self.features.unwrap_or(base.features),
-            tiles: self.tiles.unwrap_or(base.tiles),
-            ltr: self.ltr.unwrap_or(base.ltr),
-        })
     }
 }
 
@@ -231,14 +161,9 @@ async fn session(args: Args) -> Result<()> {
     config.audio = args.audio;
     config.known_key = std::fs::read(&key_path).ok();
     config.display = args.display.map(DisplayConfig::from);
-    config.codec = args.codec();
-    println!("요청: {:?}", config.codec);
-    config.raw_video = args.raw.is_some();
+    config.codec = if args.hevc { VideoCodec::Hevc } else { VideoCodec::H264 };
 
     let mut out = args.out.as_ref().map(File::create).transpose()?.map(BufWriter::new);
-    let mut raw = args.raw.as_ref().map(File::create).transpose()?.map(BufWriter::new);
-    // SSRC별 패킷 수, 페이로드 바이트, 처음과 마지막으로 받은 시각
-    let mut ssrcs: BTreeMap<u32, (u64, u64, Instant, Instant)> = BTreeMap::new();
 
     let started = Instant::now();
     let (session, mut events) = Session::start(config);
@@ -321,23 +246,6 @@ async fn session(args: Args) -> Result<()> {
                     out.write_all(&unit.annex_b())?;
                 }
             }
-            Event::RawVideo(packet) => {
-                let now = Instant::now();
-                let entry = ssrcs.entry(packet.ssrc).or_insert((0, 0, now, now));
-                entry.0 += 1;
-                entry.1 += packet.payload.len() as u64;
-                entry.3 = now;
-
-                if let Some(raw) = raw.as_mut() {
-                    raw.write_all(&(now.duration_since(started).as_micros() as u64).to_be_bytes())?;
-                    raw.write_all(&packet.ssrc.to_be_bytes())?;
-                    raw.write_all(&packet.sequence.to_be_bytes())?;
-                    raw.write_all(&packet.timestamp.to_be_bytes())?;
-                    raw.write_all(&[u8::from(packet.marker)])?;
-                    raw.write_all(&(packet.payload.len() as u32).to_be_bytes())?;
-                    raw.write_all(&packet.payload)?;
-                }
-            }
             Event::InputSource(source) => println!("[{at}] 입력 소스: {} (보안 입력 {})", source.id, source.secure),
             Event::Closed(None) => break,
             Event::Closed(Some(error)) => return Err(error.into()),
@@ -347,19 +255,6 @@ async fn session(args: Args) -> Result<()> {
 
     if let Some(mut out) = out {
         out.flush()?;
-    }
-
-    if let Some(mut raw) = raw {
-        raw.flush()?;
-    }
-
-    for (ssrc, (packets, bytes, first, last)) in &ssrcs {
-        let seconds = last.duration_since(*first).as_secs_f64().max(f64::EPSILON);
-        println!(
-            "SSRC {ssrc:08x}: 패킷 {packets}개, {} KiB, {:.1} Mbps",
-            bytes >> 10,
-            *bytes as f64 * 8.0 / seconds / 1e6
-        );
     }
 
     println!("프레임 {frames}개(키프레임 {keyframes}개), {} KiB", bytes >> 10);
