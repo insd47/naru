@@ -1,7 +1,12 @@
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Naru.Core;
+using Windows.Foundation;
 using Windows.Graphics;
 
 namespace Naru.Session;
@@ -12,13 +17,23 @@ namespace Naru.Session;
 /// <remarks>
 /// <list type="bullet">
 /// <item>Closing the window disconnects, as in Screen Sharing.</item>
-/// <item>The title bar holds the toolbar. In full screen it hides and slides back over the screen from the top edge.</item>
+/// <item>The virtual display follows the screen area's size. The picture is centered with black bars when the sizes differ.</item>
+/// <item>Pointer positions are converted to the pixels of the Mac's latest layout. Touch goes to the session's trackpad emulation.</item>
+/// <item>The title bar holds the toolbar. In full screen it hides, and slides back over the screen when the pointer rests at the top edge.</item>
 /// </list>
 /// </remarks>
 internal sealed partial class SessionWindow : Window
 {
+    // How long the pointer rests at the top edge in full screen before the title bar slides down
+    private static readonly TimeSpan RevealDelay = TimeSpan.FromMilliseconds(300);
+
     private readonly Sessions sessions;
     private readonly Running session;
+    private readonly Keyboard keyboard;
+    private readonly Clipboard clipboard;
+    private readonly DispatcherQueueTimer resizing;
+    private readonly DispatcherQueueTimer revealing;
+    private bool active;
     private bool ended;
 
     public SessionWindow(Sessions sessions, Running session)
@@ -34,26 +49,105 @@ internal sealed partial class SessionWindow : Window
         Rename(session.Host.Title);
         Size(session.Display);
 
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        keyboard = new Keyboard(handle, session.Connection, App.Current.Preferences, Capturing, () => FullScreen, ToggleFullScreen);
+        clipboard = new Clipboard(session.Connection, App.Current.Preferences);
+
         AppWindow.Closing += (_, _) => sessions.Close(session.Host.Id);
         AppWindow.Changed += OnChanged;
+        Activated += OnActivated;
+        Closed += (_, _) =>
+        {
+            keyboard.Dispose();
+            clipboard.Dispose();
+        };
 
         resizing = DispatcherQueue.CreateTimer();
         resizing.Interval = TimeSpan.FromMilliseconds(500);
         resizing.IsRepeating = false;
         resizing.Tick += (_, _) => ResizeDisplay();
 
+        revealing = DispatcherQueue.CreateTimer();
+        revealing.Interval = RevealDelay;
+        revealing.IsRepeating = false;
+        revealing.Tick += (_, _) => Reveal(true);
+
         session.Connection.Video.FirstFrame += () => DispatcherQueue.TryEnqueue(() => Loading.Visibility = Visibility.Collapsed);
         Surface.Loaded += (_, _) => session.Connection.Video.Attach(Surface, PixelWidth, PixelHeight, Scale);
         Surface.SizeChanged += (_, _) => OnSurfaceChanged();
         Surface.CompositionScaleChanged += (_, _) => OnSurfaceChanged();
+
+        Screen.PointerMoved += (_, e) => OnPointer(e, TouchPhase.Moved);
+        Screen.PointerPressed += (_, e) => OnPointer(e, TouchPhase.Began);
+        Screen.PointerReleased += (_, e) => OnPointer(e, TouchPhase.Ended);
+        Screen.PointerCanceled += OnPointerEnded;
+        Screen.PointerCaptureLost += OnPointerEnded;
+        Screen.PointerWheelChanged += OnWheel;
+        Bar.PointerExited += (_, _) => Reveal(false);
     }
+
+    private bool FullScreen => AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
 
     // The screen area in physical pixels and the monitor scale it is drawn at
     private uint PixelWidth => (uint)Math.Round(Surface.ActualWidth * Surface.CompositionScaleX);
     private uint PixelHeight => (uint)Math.Round(Surface.ActualHeight * Surface.CompositionScaleY);
     private float Scale => Surface.CompositionScaleX;
 
-    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer resizing;
+    public void Rename(string title)
+    {
+        Title = title;
+        Bar.Title = title;
+    }
+
+    /// <summary>A session event, on the UI thread.</summary>
+    public void Handle(Event @event)
+    {
+        if (@event is Event.Clipboard text)
+        {
+            clipboard.OnServer(text.Text);
+        }
+    }
+
+    /// <summary>The session ended. The window closes without disconnecting again.</summary>
+    public void Ended()
+    {
+        if (!ended)
+        {
+            ended = true;
+            Close();
+        }
+    }
+
+    public void ToggleFullScreen()
+    {
+        AppWindow.SetPresenter(FullScreen ? AppWindowPresenterKind.Default : AppWindowPresenterKind.FullScreen);
+    }
+
+    // Keys go to the Mac while this window is in front and no menu or dialog is open over it.
+    private bool Capturing() => active && Content.XamlRoot is { } root && VisualTreeHelper.GetOpenPopupsForXamlRoot(root).Count == 0;
+
+    private void OnActivated(object sender, WindowActivatedEventArgs args)
+    {
+        var now = args.WindowActivationState != WindowActivationState.Deactivated;
+
+        if (now == active)
+        {
+            return;
+        }
+
+        active = now;
+
+        if (active)
+        {
+            keyboard.Activated();
+            clipboard.Activated();
+        }
+        else
+        {
+            keyboard.Deactivated();
+            clipboard.Deactivated();
+        }
+    }
 
     // The picture follows the window at once. The Mac's virtual display follows once resizing pauses, since each change makes the Mac redraw.
     private void OnSurfaceChanged()
@@ -71,27 +165,6 @@ internal sealed partial class SessionWindow : Window
         }
     }
 
-    public void Rename(string title)
-    {
-        Title = title;
-        Bar.Title = title;
-    }
-
-    /// <summary>A session event, on the UI thread.</summary>
-    public void Handle(Event @event)
-    {
-    }
-
-    /// <summary>The session ended. The window closes without disconnecting again.</summary>
-    public void Ended()
-    {
-        if (!ended)
-        {
-            ended = true;
-            Close();
-        }
-    }
-
     // The client area fits the virtual display below the title bar. Without one, a size that suits the screen is used.
     private void Size(DisplayMode? display)
     {
@@ -105,16 +178,120 @@ internal sealed partial class SessionWindow : Window
             area.Y + Math.Max(0, (area.Height - AppWindow.Size.Height) / 2)));
     }
 
+    // In full screen the screen spans both rows and the title bar becomes an overlay, hidden until revealed.
     private void OnChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
-        if (args.DidPresenterChange)
+        if (!args.DidPresenterChange)
         {
-            var full = sender.Presenter.Kind == AppWindowPresenterKind.FullScreen;
-            Bar.Visibility = full ? Visibility.Collapsed : Visibility.Visible;
-            Grid.SetRow(Screen, full ? 0 : 1);
-            Grid.SetRowSpan(Screen, full ? 2 : 1);
-            FullScreenIcon.Glyph = full ? "" : "";
+            return;
         }
+
+        var full = FullScreen;
+        Grid.SetRow(Screen, full ? 0 : 1);
+        Grid.SetRowSpan(Screen, full ? 2 : 1);
+        FullScreenIcon.Glyph = full ? "" : "";
+        Bar.Background = full ? (Brush)Application.Current.Resources["AcrylicInAppFillColorDefaultBrush"] : null;
+        Reveal(!full);
+    }
+
+    private void Reveal(bool visible)
+    {
+        revealing.Stop();
+
+        // A menu opened from the overlay keeps it down until it closes.
+        if (!visible && (!FullScreen || (Content.XamlRoot is { } root && VisualTreeHelper.GetOpenPopupsForXamlRoot(root).Count > 0)))
+        {
+            return;
+        }
+
+        Bar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // The phase names what happened for mouse and pen too: Began is a press and Ended a release.
+    private void OnPointer(PointerRoutedEventArgs e, TouchPhase phase)
+    {
+        var point = e.GetCurrentPoint(Surface);
+
+        if (FullScreen && Bar.Visibility == Visibility.Collapsed)
+        {
+            if (point.Position.Y <= 2)
+            {
+                if (!revealing.IsRunning)
+                {
+                    revealing.Start();
+                }
+            }
+            else
+            {
+                revealing.Stop();
+            }
+        }
+
+        if (MacPoint(point.Position) is not { } mac)
+        {
+            return;
+        }
+
+        if (e.Pointer.PointerDeviceType == PointerDeviceType.Touch)
+        {
+            session.Connection.Touch(e.Pointer.PointerId, phase, (float)mac.X, (float)mac.Y);
+        }
+        else
+        {
+            var properties = point.Properties;
+            var buttons = (byte)((properties.IsLeftButtonPressed ? 1 : 0) | (properties.IsRightButtonPressed ? 2 : 0) | (properties.IsMiddleButtonPressed ? 4 : 0));
+            session.Connection.Pointer(buttons, (ushort)mac.X, (ushort)mac.Y);
+        }
+
+        // Capture keeps a drag going when it leaves the window.
+        if (phase == TouchPhase.Began)
+        {
+            Screen.CapturePointer(e.Pointer);
+        }
+
+        e.Handled = true;
+    }
+
+    private void OnPointerEnded(object sender, PointerRoutedEventArgs e)
+    {
+        if (e.Pointer.PointerDeviceType == PointerDeviceType.Touch && MacPoint(e.GetCurrentPoint(Surface).Position) is { } mac)
+        {
+            session.Connection.Touch(e.Pointer.PointerId, TouchPhase.Cancelled, (float)mac.X, (float)mac.Y);
+        }
+    }
+
+    // One notch is 120. Windows counts up and right as positive, the session up and left.
+    private void OnWheel(object sender, PointerRoutedEventArgs e)
+    {
+        var properties = e.GetCurrentPoint(Surface).Properties;
+        var notches = properties.MouseWheelDelta / 120f;
+
+        if (properties.IsHorizontalMouseWheel)
+        {
+            session.Connection.Wheel(-notches, 0);
+        }
+        else
+        {
+            session.Connection.Wheel(0, notches);
+        }
+
+        e.Handled = true;
+    }
+
+    // Converts a position on the screen area to pixels of the Mac's layout, undoing the centering and scaling.
+    private Point? MacPoint(Point position)
+    {
+        if (session.Layout is not { } layout || layout.PixelWidth == 0 || layout.PixelHeight == 0 || Surface.ActualWidth <= 0 || Surface.ActualHeight <= 0)
+        {
+            return null;
+        }
+
+        var fit = Math.Min(Surface.ActualWidth / layout.PixelWidth, Surface.ActualHeight / layout.PixelHeight);
+        var left = (Surface.ActualWidth - layout.PixelWidth * fit) / 2;
+        var top = (Surface.ActualHeight - layout.PixelHeight * fit) / 2;
+        var x = Math.Clamp((position.X - left) / fit, 0, layout.PixelWidth - 1);
+        var y = Math.Clamp((position.Y - top) / fit, 0, layout.PixelHeight - 1);
+        return new Point(x, y);
     }
 
     // The Mac's default shortcuts: Control-Up Arrow, Control-Down Arrow, F11
@@ -125,12 +302,6 @@ internal sealed partial class SessionWindow : Window
     private void OnDesktop(object sender, RoutedEventArgs e) => Press(Keysyms.F11);
 
     private void OnFullScreen(object sender, RoutedEventArgs e) => ToggleFullScreen();
-
-    public void ToggleFullScreen()
-    {
-        var full = AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
-        AppWindow.SetPresenter(full ? AppWindowPresenterKind.Default : AppWindowPresenterKind.FullScreen);
-    }
 
     private void OnShowConnections(object sender, RoutedEventArgs e) => App.Current.ShowConnections();
 

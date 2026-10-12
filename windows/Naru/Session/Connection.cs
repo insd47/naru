@@ -44,6 +44,9 @@ internal sealed class Connection : SessionListener
 
     public void Resize(DisplayMode mode) => session.Resize(mode);
 
+    /// <summary>The input language as a BCP 47 tag. The session maps characters to that language's Mac layout.</summary>
+    public void Language(string language) => session.Language(language);
+
     public void Disconnect() => session.Disconnect();
 
     // Video and audio arrive dozens of times per second, so they are neither logged nor passed to the UI.
