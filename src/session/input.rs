@@ -33,7 +33,8 @@ pub enum Event {
 /// - 트랙패드 스크롤이 끝나면 관성을 직접 만들어 [`Self::tick`]으로 이어 보냅니다. Mac은 관성을 클라이언트에게 맡깁니다.
 pub struct Input {
     keys: RecordKeys,
-    started: Instant,
+    // 직전 포인터 이벤트의 시각
+    pointed: Instant,
     bounds: (u16, u16),
     at: (u16, u16),
     // 관성 속도를 정하려고 남기는 최근 스크롤 이동
@@ -55,7 +56,7 @@ impl Input {
     pub fn new(keys: RecordKeys) -> Self {
         Self {
             keys,
-            started: Instant::now(),
+            pointed: Instant::now(),
             bounds: (u16::MAX, u16::MAX),
             at: (0, 0),
             recent: VecDeque::new(),
@@ -76,9 +77,10 @@ impl Input {
             Event::Pointer { buttons, x, y } => {
                 self.at = self.clamp((x, y));
 
-                // 시각이 있어야 같은 위치와 버튼의 이벤트가 이어져도 서버가 중복으로 버리지 않습니다.
-                let time_ms = u32::try_from(now.duration_since(self.started).as_millis()).unwrap_or(u32::MAX);
-                vec![client::pointer(&self.keys, buttons, self.at.0, self.at.1, time_ms).to_vec()]
+                let elapsed_us =
+                    u32::try_from(now.saturating_duration_since(self.pointed).as_micros()).unwrap_or(u32::MAX);
+                self.pointed = now;
+                vec![client::pointer(&self.keys, buttons, self.at.0, self.at.1, elapsed_us).to_vec()]
             }
             Event::Scroll { phase, delta } => self.scroll(phase, delta, now),
             Event::Wheel { lines } => {
@@ -241,6 +243,7 @@ fn speed((x, y): (f32, f32)) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{Event, FRAME, Input};
+    use crate::message::client;
     use crate::message::gesture::Phase;
     use crate::record::RecordKeys;
     use std::time::{Duration, Instant};
@@ -413,5 +416,24 @@ mod tests {
         assert_eq!(magnification(&began[0]), 0.0);
         assert!((magnification(&wider[0]) - 0.1).abs() < 1e-6);
         assert!(magnification(&narrower[0]) < 0.0);
+    }
+
+    // 더블 클릭이 세션 시간과 관계없이 실제 간격으로 판단되도록, 시각은 직전 이벤트로부터의 마이크로초로 보냅니다.
+    #[test]
+    fn pointer_carries_microseconds_since_the_previous_event() {
+        let mut input = input();
+        input.resize((800, 600));
+        let start = Instant::now() + Duration::from_secs(600);
+        let click = |buttons| Event::Pointer { buttons, x: 10, y: 20 };
+        input.handle(click(1), start);
+
+        let keys = RecordKeys {
+            content_key: [5; 16],
+            iv: [0; 16],
+        };
+        assert_eq!(
+            input.handle(click(0), start + Duration::from_millis(80)),
+            vec![client::pointer(&keys, 0, 10, 20, 80_000).to_vec()]
+        );
     }
 }

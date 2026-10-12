@@ -88,10 +88,11 @@ pub fn key(keysym: u32, down: bool) -> [u8; 8] {
 ///
 /// - 좌표는 디코딩된 영상의 픽셀 좌표이며, 호출자가 영상 크기 안으로 자릅니다.
 /// - 버튼 마스크는 왼쪽 1, 오른쪽 2, 가운데 4입니다. 표준 RFB와 오른쪽, 가운데 비트의 위치가 다릅니다.
-/// - `time_ms`는 이벤트 시각입니다. 같은 위치·버튼의 이벤트가 이어져도 서버가 중복으로 버리지 않게 합니다. 단위는 확인하지 않았습니다.
-pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16, time_ms: u32) -> [u8; 18] {
+/// - `elapsed_us`는 직전 포인터 이벤트로부터 지난 마이크로초입니다. Apple 클라이언트의 캡처에서 이 값의 합이 실제 경과 시간과 같았습니다.
+///   Mac은 이 값으로 이벤트 시각을 이어 가므로 더블 클릭 간격도 이 값으로 판단합니다.
+pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16, elapsed_us: u32) -> [u8; 18] {
     let mut plain = [0; 16];
-    plain[6..10].copy_from_slice(&time_ms.to_be_bytes());
+    plain[6..10].copy_from_slice(&elapsed_us.to_be_bytes());
     plain[10] = 0xff;
     plain[11] = buttons;
     plain[12..14].copy_from_slice(&x.to_be_bytes());
