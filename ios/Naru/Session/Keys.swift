@@ -1,22 +1,22 @@
 import UIKit
 
-/// 하드웨어 키를 X11 keysym으로 바꿉니다.
+/// Translates hardware keys to X11 keysyms.
 ///
-/// - 글자는 iPadOS가 지금 입력 언어의 배열을 적용한 글자(`characters`)를 보냅니다. 한국어면 2벌식 자모가 오고 Mac의 입력기가 조합하므로,
-///   코어의 배열 변환(`language`)은 쓰지 않습니다.
-/// - Control, Option, Command가 눌려 있으면 단축키이므로 물리 자리의 라틴 문자를 보냅니다.
-/// - 지구본 키와 Caps Lock은 iPadOS의 입력 언어 전환에 쓰이므로 보내지 않습니다. Caps Lock은 키로 오지도 않습니다.
-/// - 뗄 때는 누를 때 보낸 keysym을 보냅니다. 그 사이 수식 키나 언어가 바뀌어도 Mac에 눌린 키가 남지 않게 합니다.
+/// - Characters are sent as iPadOS produces them with the current input language's layout (`characters`). For Korean that yields Dubeolsik jamo that the Mac's input method composes,
+///   so the core's layout translation (`language`) is not used.
+/// - With Control, Option, or Command held, the key is a shortcut, so the Latin character at the physical position is sent.
+/// - The Globe key and Caps Lock are not sent because iPadOS uses them to switch input languages. Caps Lock never arrives as a key anyway.
+/// - A release sends the keysym sent on press, so no key stays held on the Mac if modifiers or the language changed in between.
 @MainActor
 struct Keys {
     private var pressed: [UIKeyboardHIDUsage: UInt32] = [:]
 
-    /// iPadOS가 처리하도록 넘길 키인지 여부
+    /// Whether the key should be left for iPadOS to handle
     static func isSystem(_ key: UIKey) -> Bool {
         key.keyCode == .keyboardCapsLock || (key.keyCode == .keyboardErrorUndefined && key.modifierFlags.rawValue & globe != 0)
     }
 
-    /// 누른 키의 keysym. 보내지 않는 키면 `nil`입니다.
+    /// The keysym for a pressed key, or `nil` for a key that is not sent.
     mutating func press(_ key: UIKey) -> UInt32? {
         guard let keysym = Self.keysym(key) else {
             return nil
@@ -26,12 +26,12 @@ struct Keys {
         return keysym
     }
 
-    /// 뗀 키의 keysym. 누를 때 보내지 않은 키면 `nil`입니다.
+    /// The keysym for a released key, or `nil` if nothing was sent on press.
     mutating func release(_ key: UIKey) -> UInt32? {
         pressed.removeValue(forKey: key.keyCode)
     }
 
-    /// 눌린 채로 남은 키를 모두 뗍니다. 화면을 떠날 때 Mac에 키가 눌린 채 남지 않게 합니다.
+    /// Releases every key still held, so no key stays down on the Mac after leaving the screen.
     mutating func releaseAll() -> [UInt32] {
         defer { pressed.removeAll() }
         return Array(pressed.values)
@@ -52,12 +52,12 @@ struct Keys {
         return latin(key.keyCode.rawValue).map { keysym($0.value) }
     }
 
-    // 라틴-1은 문자 코드 그대로, 그 밖은 유니코드 keysym입니다.
+    // Latin-1 maps to its character code, everything else to a Unicode keysym.
     private static func keysym(_ code: UInt32) -> UInt32 {
         (0x20...0x7e).contains(code) || (0xa0...0xff).contains(code) ? code : 0x0100_0000 + code
     }
 
-    // US 배열의 물리 자리 글자(HID 사용 코드)
+    // Characters at each physical position on the US layout (HID usage codes)
     private static func latin(_ usage: Int) -> Unicode.Scalar? {
         switch usage {
         case 4...29: Unicode.Scalar(UInt8(ascii: "a") + UInt8(usage - 4))
@@ -78,10 +78,10 @@ struct Keys {
         }
     }
 
-    // 지구본 키는 HID 코드 없이 이 수식 비트로 옵니다(macOS의 Fn과 같은 자리).
+    // The Globe key arrives as this modifier bit with no HID code (the same bit as Fn on macOS).
     private static let globe = 1 << 23
 
-    // Mac은 Super를 Command로, Meta를 Option으로 받습니다.
+    // The Mac maps Super to Command and Meta to Option.
     private static let special: [Int: UInt32] = {
         var keys: [Int: UInt32] = [
             224: 0xffe3, 225: 0xffe1, 226: 0xffe7, 227: 0xffeb,

@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// 저장한 Mac의 비밀번호를 키체인에 둡니다. 이 기기에만 남고 백업으로 옮겨지지 않습니다.
+/// Stores saved Macs' passwords in the keychain. They stay on this device and are not carried over by backups.
 enum Keychain {
     static func find(_ hostId: String) -> String? {
         var query = item(hostId)

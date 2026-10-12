@@ -1,14 +1,14 @@
 import Foundation
 
-/// 접속한 Mac의 공개키입니다. 처음 접속할 때 저장하고, 다음 접속부터 바뀌었는지 확인하는 데 씁니다.
+/// Public keys of Macs connected to, saved on the first connection and checked for changes on later ones.
 ///
-/// - Mac의 공개키에는 인증서 체인이 없으므로, 처음 본 키를 믿고 이후 바뀌면 사용자에게 묻습니다.
+/// - The Mac's public key has no certificate chain, so the first key seen is trusted and the user is asked if it later changes.
 enum ServerKeys {
     static func find(_ host: Host) -> Data? {
         try? Data(contentsOf: file(host))
     }
 
-    /// 저장한 키가 없을 때만 저장합니다.
+    /// Saves the key only when none is saved yet.
     static func remember(_ host: Host, der: Data) {
         let file = file(host)
 

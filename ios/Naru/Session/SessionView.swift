@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// 세션 화면. Mac 화면을 꽉 채워 보이고, 첫 화면이 올 때까지 준비 중임을 보입니다.
+/// The session screen. Shows the Mac's screen edge to edge, with a loading state until the first frame arrives.
 ///
-/// - 연결 목록으로 돌아가기와 연결 끊기는 메뉴 막대에 둡니다. 손가락으로는 화면 위에서 쓸어내려 메뉴 막대를 엽니다.
+/// - Returning to the connection list and disconnecting live in the menu bar. With a finger, swipe down from the top of the screen to open it.
 struct SessionView: View {
     @Environment(SessionController.self) private var session
 

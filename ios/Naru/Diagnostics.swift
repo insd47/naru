@@ -1,18 +1,18 @@
 import SwiftUI
 import UIKit
 
-// TestFlight로 실기기를 확인하는 동안 쓰는 임시 화면입니다. 디코더 지원과 지금 세션의 코덱, 하드웨어 키보드가 주는 글자와 입력 언어를 보입니다.
+// A temporary screen for testing on real devices. Shows decoder support, the current session's codec, and the characters and input language the hardware keyboard produces.
 struct Diagnostics: View {
     let session: SessionController
     @State private var lines: [String] = []
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text("HEVC 4:4:4 하드웨어 디코딩: \(Video.decodesHevc444 ? "가능" : "불가")")
-            Text("지금 세션의 코덱: \(session.codec.map { $0 == .hevc ? "HEVC 4:4:4" : "H.264" } ?? "세션 없음")")
-            Text("마지막 세션 종료: \(session.closedDetail ?? "없음")")
+            Text("HEVC 4:4:4 hardware decoding: \(Video.decodesHevc444 ? "supported" : "unsupported")")
+            Text("Current session codec: \(session.codec.map { $0 == .hevc ? "HEVC 4:4:4" : "H.264" } ?? "no session")")
+            Text("Last session ended: \(session.closedDetail ?? "none")")
                 .textSelection(.enabled)
-            Text("하드웨어 키보드로 쳐 보세요").font(.headline).padding(.top)
+            Text("Type on the hardware keyboard").font(.headline).padding(.top)
             ProbeView { line in lines.insert(line, at: 0) }
                 .frame(height: 1)
             List(lines, id: \.self) { Text($0).font(.system(.body, design: .monospaced)) }
@@ -41,7 +41,7 @@ final class ProbeInput: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         NotificationCenter.default.addObserver(forName: UITextInputMode.currentInputModeDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.report("언어 변경") }
+            MainActor.assumeIsolated { self?.report("language changed") }
         }
     }
 
@@ -53,7 +53,7 @@ final class ProbeInput: UIView {
         for press in presses {
             guard let key = press.key else { continue }
             count += 1
-            log("\(count) 누름 code \(key.keyCode.rawValue) chars [\(key.characters)] ignoring [\(key.charactersIgnoringModifiers)] mods \(key.modifierFlags.rawValue) lang \(textInputMode?.primaryLanguage ?? "nil")")
+            log("\(count) press code \(key.keyCode.rawValue) chars [\(key.characters)] ignoring [\(key.charactersIgnoringModifiers)] mods \(key.modifierFlags.rawValue) lang \(textInputMode?.primaryLanguage ?? "nil")")
         }
         super.pressesBegan(presses, with: event)
     }

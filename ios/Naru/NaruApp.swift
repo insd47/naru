@@ -39,7 +39,7 @@ struct NaruApp: App {
     }
 }
 
-// Screen Sharing 앱처럼 Connection 메뉴를 File 메뉴 자리에 둡니다. SwiftUI는 직접 만든 메뉴를 View 뒤에 넣으므로 옮깁니다.
+// Puts the Connection menu where the File menu goes, as Screen Sharing does. SwiftUI inserts custom menus after View, so this moves it.
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     override func buildMenu(with builder: any UIMenuBuilder) {
         super.buildMenu(with: builder)

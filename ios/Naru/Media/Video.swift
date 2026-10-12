@@ -1,17 +1,17 @@
 import AVFoundation
 import VideoToolbox
 
-/// 세션의 영상을 [layer]에 그립니다.
+/// Draws the session's video into [layer].
 ///
-/// - 메인 스레드에서 만들고, 그 뒤로는 세션의 사건 스레드에서만 부르십시오. 디코딩과 표시는 시스템 하드웨어 디코더가 맡습니다.
-/// - 설정(SPS, PPS)이 바뀌거나 표시가 실패하면 비우고, 키프레임이 올 때까지 넣지 않습니다.
-///   요청이 서버에 닿지 않았을 수 있으므로, 기다리는 동안 프레임이 오면 일정 간격으로 다시 요청합니다.
-/// - 비운 뒤 첫 프레임을 넣으면 [firstFrame]을 부릅니다. 그때까지 화면은 비어 있습니다.
-/// - 코덱은 설정을 따릅니다. HEVC 4:4:4는 [decodesHevc444]일 때만 요청합니다.
+/// - Create on the main thread, then call only from the session's event thread. The system hardware decoder handles decoding and display.
+/// - When the decoder config (SPS, PPS) changes or display fails, it flushes and enqueues nothing until a keyframe arrives.
+///   The request may not have reached the server, so frames arriving while waiting trigger a new request at a fixed interval.
+/// - Calls [firstFrame] when the first frame after a flush is enqueued. The screen stays blank until then.
+/// - The codec follows the decoder config. HEVC 4:4:4 is requested only when [decodesHevc444] is true.
 final class Video: @unchecked Sendable {
     let layer = AVSampleBufferDisplayLayer()
     var requestKeyframe: () -> Void = {}
-    // 레이어는 메인 스레드 것이지만, 렌더러는 어느 스레드에서나 넣을 수 있습니다.
+    // The layer belongs to the main thread, but its renderer accepts samples from any thread.
     private let renderer: AVSampleBufferVideoRenderer
     private let firstFrame: () -> Void
     private var format: CMVideoFormatDescription?
@@ -31,7 +31,7 @@ final class Video: @unchecked Sendable {
         flush()
     }
 
-    /// 서버가 디코더를 새로 만들라고 했습니다.
+    /// The server asked for the decoder to be recreated.
     func reset() {
         flush()
     }
@@ -83,9 +83,9 @@ final class Video: @unchecked Sendable {
         }
     }
 
-    /// 이 기기의 하드웨어 디코더가 서버의 HEVC 4:4:4를 풀 수 있는지 여부
+    /// Whether this device's hardware decoder can decode the server's HEVC 4:4:4
     ///
-    /// - `VTIsHardwareDecodeSupported`는 크로마 형식을 가리지 않으므로, 서버가 보낸 4:4:4 파라미터 세트로 하드웨어 전용 세션을 만들어 봅니다.
+    /// - `VTIsHardwareDecodeSupported` ignores the chroma format, so this tries to create a hardware-only session from 4:4:4 parameter sets the server sent.
     static let decodesHevc444: Bool = {
         guard let format = format(DecoderConfig(codec: .hevc, profile: 4, compatibility: 0, level: 150, vps: [hevcVps], sps: [hevcSps], pps: [hevcPps])) else {
             return false
@@ -125,7 +125,7 @@ final class Video: @unchecked Sendable {
         return status == noErr ? format : nil
     }
 
-    // 파라미터 세트는 형식 설명에 있으므로 샘플에서 뺍니다. H.264는 SPS(7)와 PPS(8), HEVC는 VPS(32), SPS(33), PPS(34)입니다.
+    // Parameter sets live in the format description, so they are removed from samples. H.264 uses SPS (7) and PPS (8); HEVC uses VPS (32), SPS (33), and PPS (34).
     private static func isParameterSet(_ nal: Data, codec: VideoCodec) -> Bool {
         let header = nal[nal.startIndex]
 
@@ -135,7 +135,7 @@ final class Video: @unchecked Sendable {
         }
     }
 
-    // 시작 코드 없는 NAL을 4바이트 길이를 앞에 붙인 형식으로 바꿉니다.
+    // Converts a NAL unit without a start code to the 4-byte length-prefixed format.
     private static func sample(_ unit: AccessUnit, format: CMVideoFormatDescription) -> CMSampleBuffer? {
         var data = Data()
 
@@ -163,7 +163,7 @@ final class Video: @unchecked Sendable {
             return nil
         }
 
-        // 시각을 맞추지 않고 받는 대로 바로 그립니다.
+        // Displays frames immediately as they arrive, without timing.
         if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true) as? [NSMutableDictionary] {
             attachments.first?[kCMSampleAttachmentKey_DisplayImmediately] = true
         }
@@ -172,7 +172,7 @@ final class Video: @unchecked Sendable {
     }
 }
 
-// macOS 27 Mac mini가 2420×1668 가상 디스플레이로 보낸 HEVC 4:4:4 8비트 파라미터 세트입니다(2026-10-12 캡처). [Video.decodesHevc444]에 씁니다.
+// HEVC 4:4:4 8-bit parameter sets a Mac sent for a 2420×1668 virtual display, used by [Video.decodesHevc444].
 private let hevcVps = Data([
     0x40, 0x01, 0x0c, 0x01, 0xff, 0xff, 0x04, 0x08, 0x00, 0x00, 0x03, 0x00, 0xbe, 0x08, 0x00, 0x00, 0x03, 0x00,
     0x00, 0x96, 0x0c, 0xc0, 0x90,

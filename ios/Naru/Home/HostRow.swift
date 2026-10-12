@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Mac 하나의 행. 누르면 접속합니다.
+/// A row for one Mac. Tapping it connects.
 ///
-/// - Screen Sharing 앱처럼 마우스를 올릴 때 Connect 버튼을 내지 않습니다. iPad에서는 포인터가 지날 때마다 행의 내용이 바뀌어 흔들립니다.
-/// - 세션 중인 Mac은 Disconnect 버튼을 늘 보이고, 접속 중이면 진행 표시를 곁들입니다.
+/// - Unlike Screen Sharing, no Connect button appears on hover. On iPad the row content would shift every time the pointer passes over it.
+/// - A Mac in a session always shows a Disconnect button, with a progress indicator while connecting.
 struct HostRow: View {
     let title: String
     let subtitle: String?
@@ -49,7 +49,7 @@ struct HostRow: View {
     }
 }
 
-/// Screen Sharing 앱처럼 "Today at 20:48", "Aug 29, 2026 at 20:03"으로 씁니다.
+/// Formats like Screen Sharing: "Today at 20:48", "Aug 29, 2026 at 20:03".
 func formatDate(_ date: Date) -> String {
     let time = date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
     let calendar = Calendar.current

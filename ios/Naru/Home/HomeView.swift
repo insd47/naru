@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// 연결 목록 창. Screen Sharing 앱처럼 사이드바에 모든 연결과 네트워크를 두고, 고른 쪽의 Mac을 보입니다.
+/// The connection list window. Like Screen Sharing, the sidebar holds All Connections and Network, and the detail shows the Macs in the selected one.
 ///
-/// - 새 연결은 Screen Sharing 앱처럼 주소만 묻습니다. 이름과 비밀번호는 접속하면서 묻고, 인증에 성공하면 목록에 저장합니다.
-/// - 접속하면서 이름과 비밀번호를 묻고, 인증에 성공하면 세션 화면을 엽니다. 비밀번호가 틀리면 로그인 시트에 알립니다.
-/// - 접속하는 동안에는 목록을 막아 다른 Mac으로 접속을 겹쳐 시작하지 않게 합니다.
+/// - A new connection asks only for the address, like Screen Sharing. The user name and password are asked while connecting and saved to the list once authentication succeeds.
+/// - Connecting asks for the user name and password and opens the session screen once authentication succeeds. A wrong password is reported in the login sheet.
+/// - The list is disabled while connecting so a second connection to another Mac cannot start on top of it.
 struct HomeView: View {
     @Environment(Hosts.self) private var hosts
     @Environment(Discovery.self) private var discovery
@@ -173,7 +173,7 @@ struct HomeView: View {
         open(host, credentials: .init(username: host.username, password: password, remember: false))
     }
 
-    // 찾은 Mac의 주소를 풀어 접속합니다. 같은 주소로 저장한 Mac이 있으면 그것으로 접속합니다.
+    // Resolves a discovered Mac's address and connects. If a saved Mac has the same address, connects with that one.
     private func connect(_ found: Discovery.Found) {
         Task {
             guard let address = await discovery.resolve(found.endpoint) else { return }
@@ -186,7 +186,7 @@ struct HomeView: View {
         session.open(host, credentials: credentials, display: host.virtualDisplay ? virtualDisplay() : nil)
     }
 
-    // 인증에 성공하면 로그인 시트를 닫고, 비밀번호가 틀리면 로그인 시트에 알립니다. 그 밖의 실패는 알림으로 보입니다.
+    // Closes the login sheet on successful authentication and reports a wrong password in it. Other failures are shown as an alert.
     private func react(_ state: SessionController.State?) {
         switch state {
         case .connected:
@@ -202,7 +202,7 @@ struct HomeView: View {
         }
     }
 
-    // 시트를 여는 사이 세션이 저장한 접속 시각이나 이름을 덮어쓰지 않도록, 고친 항목만 최신 값에 더합니다.
+    // Applies only the edited fields to the latest value, so the connection time or name a session saved while the sheet was open is not overwritten.
     private func save(_ edited: Host) {
         var latest = hosts.find(edited.id) ?? edited
         latest.name = edited.name
@@ -231,7 +231,7 @@ struct HomeView: View {
     }
 }
 
-/// 메뉴 막대가 연결 목록 창에 맡기는 일
+/// Actions the menu bar delegates to the connection list window
 struct HomeActions {
     let add: () -> Void
     let connect: (Host) -> Void
@@ -241,7 +241,7 @@ extension FocusedValues {
     @Entry var home: HomeActions?
 }
 
-/// 이 창 크기에 맞춘 가상 디스플레이. 배율 2로 두어 Mac이 Retina로 그리고, 픽셀 크기는 iPad 화면과 같습니다.
+/// A virtual display sized to this window. The scale is 2 so the Mac renders at Retina resolution, and the pixel size matches the iPad screen.
 @MainActor
 func virtualDisplay() -> DisplayMode? {
     let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first

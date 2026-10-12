@@ -1,10 +1,10 @@
 import AudioToolbox
 import AVFoundation
 
-/// Mac의 소리를 재생합니다. AAC-ELD를 AudioQueue에 넣어 시스템 디코더로 풀어 냅니다.
+/// Plays the Mac's audio by feeding AAC-ELD to an AudioQueue, which decodes it with the system decoder.
 ///
-/// - 세션의 사건 스레드에서만 부르십시오. 영상과 시각을 맞추지 않고 받는 대로 재생합니다.
-/// - 설정(AudioSpecificConfig)을 매직 쿠키로 넘겨 표본 수와 채널을 시스템이 정하게 합니다.
+/// - Call only from the session's event thread. Audio plays as it arrives, without syncing to video.
+/// - The AudioSpecificConfig is passed as the magic cookie so the system determines the sample rate and channels.
 final class Audio: @unchecked Sendable {
     private let queue: AudioQueueRef
 

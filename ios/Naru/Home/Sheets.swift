@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// 저장한 Mac을 고치는 시트. Screen Sharing 앱의 편집 창을 따릅니다.
+/// The sheet for editing a saved Mac, following Screen Sharing's edit window.
 ///
-/// - 이름을 비우면 다음 접속 때 Mac의 컴퓨터 이름으로 채웁니다.
-/// - Connect는 고친 내용을 저장하고 곧바로 접속합니다.
+/// - An empty name is filled with the Mac's computer name on the next connection.
+/// - Connect saves the edits and connects right away.
 struct EditSheet: View {
     let original: Host
     let onSave: (Host, _ connect: Bool) -> Void
@@ -75,7 +75,7 @@ struct EditSheet: View {
     }
 }
 
-/// 접속할 때 이름과 비밀번호를 묻는 시트. 비밀번호가 틀리면 [message]로 알립니다.
+/// The sheet that asks for the user name and password when connecting. A wrong password is reported through [message].
 struct LoginSheet: View {
     let host: Host
     let message: String?

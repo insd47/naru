@@ -1,13 +1,13 @@
 import AVFoundation
 import UIKit
 
-/// Mac 화면을 그리고 키보드와 포인터 입력을 Mac에 보냅니다.
+/// Draws the Mac's screen and sends keyboard and pointer input to the Mac.
 ///
-/// - 영상은 [Video]의 레이어를 붙여 그리고, 커서는 시스템 포인터를 숨긴 뒤 Mac이 보낸 비트맵을 포인터 자리에 그립니다.
-/// - 포인터(트랙패드, 마우스, Apple Pencil)는 그 자리를 Mac에 보냅니다. 손가락 터치는 코어가 화면 전체를 트랙패드로 써서 커서를 상대 이동으로 옮기고,
-///   옮긴 자리를 [touchCursor]로 알려 주면 거기에 커서를 그립니다.
-/// - 텍스트 입력을 받는 뷰로 두어 iPadOS의 입력 언어 전환(Caps Lock, 지구본 키)이 동작하게 하고, 글자 키는 입력기로 넘기지 않고 직접 보냅니다.
-/// - 크기가 바뀌면 잠시 기다렸다가 [onResize]로 가상 디스플레이 크기를 알립니다.
+/// - Video is drawn by attaching [Video]'s layer. The system pointer is hidden and the cursor bitmap the Mac sent is drawn at its position.
+/// - Pointers (trackpad, mouse, Apple Pencil) send their position to the Mac. For finger touches the core uses the whole screen as a trackpad and moves the cursor relatively,
+///   and the cursor is drawn where [touchCursor] reports.
+/// - The view accepts text input so iPadOS input language switching (Caps Lock, Globe key) works, but character keys are sent directly instead of through the input method.
+/// - After a size change it waits briefly, then reports the virtual display size through [onResize].
 final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     var onResize: (DisplayMode) -> Void = { _ in }
 
@@ -28,7 +28,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         didSet { placeCursor() }
     }
 
-    /// 손가락 터치로 옮긴 커서 위치(레이아웃 픽셀)
+    /// The cursor position moved by finger touches, in layout pixels
     var touchCursor: CGPoint? {
         didSet {
             guard let touchCursor, touchCursor != oldValue, let layout else { return }
@@ -74,7 +74,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     }
 
     required init?(coder: NSCoder) {
-        fatalError("코드로만 만듭니다")
+        fatalError("created in code only")
     }
 
     override func layoutSubviews() {
@@ -102,11 +102,11 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         }
     }
 
-    // MARK: 키보드
+    // MARK: Keyboard
 
     override var canBecomeFirstResponder: Bool { true }
 
-    // 화면 키보드는 띄우지 않습니다. 하드웨어 키보드만 받습니다.
+    // Never shows the on-screen keyboard; only hardware keyboards are accepted.
     override var inputView: UIView? { blank }
     private let blank = UIView()
 
@@ -154,7 +154,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         if !system.isEmpty { pass(system, event) }
     }
 
-    // MARK: 포인터
+    // MARK: Pointer
 
     func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
         .hidden()
@@ -184,7 +184,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         finger(touches, .cancelled)
     }
 
-    // 손가락마다 위치를 레이아웃 픽셀로 바꿔 코어에 넘깁니다. 화면 밖으로 나가도 상대 이동이므로 자르지 않습니다.
+    // Converts each finger's position to layout pixels for the core. Positions are not clamped to the screen because movement is relative.
     private func finger(_ touches: Set<UITouch>, _ phase: TouchPhase) {
         guard let connection, let layout else { return }
         let rect = videoRect(layout)
@@ -197,7 +197,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         }
     }
 
-    // 서버의 버튼 비트는 표준 RFB와 달리 오른쪽이 2, 가운데가 4입니다. 펜은 왼쪽 버튼입니다.
+    // Unlike standard RFB, the server's button bits are 2 for right and 4 for middle. The pencil is the left button.
     private func point(_ touches: Set<UITouch>, event: UIEvent?, released: Bool = false) {
         guard let touch = touches.first(where: { $0.type == .indirectPointer || $0.type == .pencil }) else {
             return
@@ -228,7 +228,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         connection.pointer(buttons, x: UInt16(x), y: UInt16(y))
     }
 
-    // 트랙패드 스크롤은 Mac의 포인트로 옮깁니다. 관성과 포인터 위치는 세션이 처리합니다.
+    // Trackpad scrolling is converted to Mac points. The session handles momentum and pointer position.
     @objc private func scroll(_ recognizer: UIPanGestureRecognizer) {
         guard let connection else { return }
 
@@ -250,7 +250,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         }
     }
 
-    // 마우스 휠은 한 칸을 10포인트로 보고 줄 단위로 보냅니다.
+    // Mouse wheel scrolling treats one notch as 10 points and is sent in lines.
     @objc private func wheel(_ recognizer: UIPanGestureRecognizer) {
         let delta = recognizer.translation(in: self)
         recognizer.setTranslation(.zero, in: self)
@@ -272,7 +272,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         }
     }
 
-    // MARK: 커서
+    // MARK: Cursor
 
     private func placeCursor() {
         CATransaction.begin()

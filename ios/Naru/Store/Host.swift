@@ -1,18 +1,18 @@
 import Foundation
 
-/// 저장한 Mac 하나. 비밀번호는 [Keychain]이 따로 둡니다.
+/// One saved Mac. The password is kept separately by [Keychain].
 struct Host: Codable, Identifiable, Hashable {
     var id = UUID().uuidString
-    /// 사용자가 붙인 이름. 비어 있으면 접속할 때 Mac이 알려 준 컴퓨터 이름으로 채웁니다.
+    /// The user-given name. When empty, it is filled with the computer name the Mac reports on connection.
     var name = ""
     var address: String
     var username = ""
     var port = 5900
-    /// iPad 화면 크기의 가상 디스플레이로 접속할지 여부. 끄면 Mac의 실제 화면을 받습니다.
+    /// Whether to connect with a virtual display sized to the iPad screen. When off, the Mac's physical display is shown.
     var virtualDisplay = true
-    /// 마지막으로 접속에 성공한 시각
+    /// The time of the last successful connection
     var lastConnected: Date?
 
-    /// 화면에 보일 이름. 이름이 없으면 주소입니다.
+    /// The name to display, or the address when there is no name.
     var title: String { name.isEmpty ? address : name }
 }

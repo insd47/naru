@@ -1,6 +1,6 @@
 import Foundation
 
-/// 저장한 Mac 목록입니다. 앱 설정에 JSON으로 둡니다.
+/// The list of saved Macs, stored as JSON in user defaults.
 @MainActor @Observable
 final class Hosts {
     private(set) var list: [Host]
@@ -10,12 +10,12 @@ final class Hosts {
         list = data.flatMap { try? JSONDecoder().decode([Host].self, from: $0) } ?? []
     }
 
-    /// 이 ID로 저장한 Mac. 없으면 `nil`입니다.
+    /// The saved Mac with this ID, or `nil` if there is none.
     func find(_ id: String) -> Host? {
         list.first { $0.id == id }
     }
 
-    /// 같은 ID가 있으면 바꾸고, 없으면 끝에 더합니다.
+    /// Replaces the entry with the same ID, or appends it if there is none.
     func save(_ host: Host) {
         if let index = list.firstIndex(where: { $0.id == host.id }) {
             list[index] = host

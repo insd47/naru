@@ -1,17 +1,17 @@
 import UIKit
 
-/// Mac 한 대와의 세션을 들고 있습니다. 목록 화면과 세션 화면이 함께 봅니다.
+/// Holds the session with one Mac, observed by both the list screen and the session screen.
 ///
-/// - 목록 화면은 [state]로 접속 단계와 실패를 봅니다. 인증에 성공하면 목록 화면이 세션 화면을 엽니다.
-/// - 세션 화면은 [connection], [layout], [cursor], [shown]을 봅니다. 화면을 닫아도 세션은 이어집니다.
-/// - 접속 결과를 저장하는 일(Mac 목록, 비밀번호, 서버 키)과 클립보드는 화면이 없어도 일어나므로 여기서 합니다.
-/// - 앱이 백그라운드로 가면 iPadOS가 허락하는 동안만 이어 가고, 멈추기 전에 끊습니다.
+/// - The list screen watches [state] for the connection stage and failures. Once authentication succeeds, it opens the session screen.
+/// - The session screen watches [connection], [layout], [cursor], and [shown]. Closing the screen does not end the session.
+/// - Saving connection results (the Mac list, password, server key) and clipboard sync happen here because they must work without a screen.
+/// - In the background the session continues only as long as iPadOS allows, and disconnects before the app is suspended.
 @MainActor @Observable
 final class SessionController {
-    /// 세션의 단계. 모두 어느 Mac과의 세션인지 [host]로 알려 줍니다.
+    /// The session stage. Every case carries the Mac it belongs to in [host].
     enum State: Equatable {
         case connecting(Host, Stage)
-        /// 인증에 성공했습니다. 화면은 아직 준비 중일 수 있습니다.
+        /// Authentication succeeded. The screen may still be loading.
         case connected(Host)
         case failed(Host, Failure)
 
@@ -22,40 +22,40 @@ final class SessionController {
         }
     }
 
-    /// 접속에 쓸 사용자 이름과 비밀번호. 인증에 성공하면 [remember]가 `true`일 때 비밀번호를 저장합니다.
+    /// The user name and password to connect with. On successful authentication, the password is saved if [remember] is `true`.
     struct Credentials {
         var username: String
         var password: String
         var remember: Bool
     }
 
-    /// Mac 화면의 논리 크기와 디코딩된 영상의 픽셀 크기
+    /// The logical size of the Mac's screen and the pixel size of the decoded video
     struct Layout: Equatable {
         var logical: CGSize
         var pixels: CGSize
     }
 
-    /// 커서 모양. 크기와 핫스팟은 Mac의 논리 좌표입니다.
+    /// The cursor image. Size and hotspot are in the Mac's logical coordinates.
     struct Cursor {
         var image: CGImage
         var size: CGSize
         var hotspot: CGPoint
     }
 
-    /// 지금 세션의 상태. 세션이 없으면 `nil`이고, 실패는 [dismiss]할 때까지 남습니다.
+    /// The current session state, or `nil` with no session. A failure stays until [dismiss].
     private(set) var state: State?
     private(set) var connection: Connection?
     private(set) var layout: Layout?
     private(set) var cursor: Cursor?
-    /// 손가락 터치로 옮긴 커서 위치(레이아웃 픽셀). 터치를 쓰기 전에는 `nil`입니다.
+    /// The cursor position moved by finger touches, in layout pixels, or `nil` before any touch.
     private(set) var touchCursor: CGPoint?
-    /// 첫 화면을 그렸는지 여부
+    /// Whether the first frame has been drawn
     private(set) var shown = false
-    /// 서버가 보내는 영상의 코덱. 첫 디코더 설정이 오기 전에는 `nil`입니다.
+    /// The codec of the server's video, or `nil` before the first decoder config arrives.
     private(set) var codec: VideoCodec?
-    /// 마지막 세션이 끝난 이유를 원인까지 이은 한 줄. 닫아서 끝났으면 `nil`입니다. 확인 화면에 보입니다.
+    /// One line with why the last session ended, including its cause chain, or `nil` if it was closed normally. Shown on the diagnostics screen.
     private(set) var closedDetail: String?
-    /// 세션 화면을 보이는지 여부. 인증에 성공하면 켜고, 세션이 끝나면 끕니다.
+    /// Whether the session screen is shown. Turned on when authentication succeeds and off when the session ends.
     var presented = false
 
     private let hosts: Hosts
@@ -70,7 +70,7 @@ final class SessionController {
         self.preferences = preferences
     }
 
-    /// 이 Mac과의 세션을 엽니다. 이미 열린 세션이 있으면 닫고 새로 엽니다.
+    /// Opens a session with this Mac, closing any session already open.
     func open(_ host: Host, credentials: Credentials, display: DisplayMode?) {
         connection?.disconnect()
         state = .connecting(host, .warmup)
@@ -86,7 +86,7 @@ final class SessionController {
             hevc: Video.decodesHevc444
         )
 
-        // 새 세션으로 바뀐 뒤 늦게 도착한 이전 세션의 사건은 버립니다.
+        // Drops events from a previous session that arrive after a new one has started.
         let running = Running(host: host, credentials: credentials, display: display)
         let token = running.token
         let connection = Connection(
@@ -99,7 +99,7 @@ final class SessionController {
         self.connection = connection
     }
 
-    /// 실패를 보여 준 뒤 지웁니다.
+    /// Clears a failure after it has been shown.
     func dismiss() {
         if case .failed = state { state = nil }
     }
@@ -108,7 +108,7 @@ final class SessionController {
         connection?.disconnect()
     }
 
-    /// 가상 디스플레이를 이 크기로 바꿉니다. 창 크기가 바뀐 뒤에 부릅니다. Mac의 실제 화면으로 접속했거나 크기가 같으면 보내지 않습니다.
+    /// Resizes the virtual display. Called after the window size changes. Sends nothing when connected to the Mac's physical display or when the size is unchanged.
     func resize(_ mode: DisplayMode) {
         guard let running, let current = running.display, mode != current else {
             return
@@ -118,9 +118,9 @@ final class SessionController {
         connection?.resize(mode)
     }
 
-    /// 다른 앱에서 복사한 텍스트를 Mac에 보냅니다. 앱이 다시 앞으로 올 때 부릅니다.
+    /// Sends text copied in another app to the Mac. Called when the app returns to the foreground.
     ///
-    /// - 클립보드를 읽으면 iPadOS가 붙여 넣기 허용을 물으므로, 바뀌었을 때만 읽습니다.
+    /// - Reading the clipboard makes iPadOS ask for paste permission, so it is read only when it has changed.
     func syncClipboard() {
         let pasteboard = UIPasteboard.general
 
@@ -135,7 +135,7 @@ final class SessionController {
         }
     }
 
-    /// 지금 클립보드의 텍스트를 바뀌었는지와 관계없이 Mac에 보냅니다. 편집 메뉴의 Send Clipboard입니다.
+    /// Sends the current clipboard text to the Mac whether or not it changed. Backs Send Clipboard in the Edit menu.
     func sendClipboard() {
         guard let connection, let text = UIPasteboard.general.string else {
             return
@@ -148,7 +148,7 @@ final class SessionController {
         }
     }
 
-    /// 단축키를 차례로 눌렀다가 거꾸로 뗍니다. iPadOS가 가져가는 세 손가락 제스처 대신 보기 메뉴에서 씁니다.
+    /// Presses a shortcut's keys in order and releases them in reverse. Used from the View menu in place of three-finger gestures that iPadOS takes.
     func press(_ keysyms: [UInt32]) {
         guard let connection else {
             return
@@ -199,7 +199,7 @@ final class SessionController {
         case let .serverName(name):
             rename(running, name)
         case let .clipboard(text):
-            // Mac에 보낸 글이 되돌아오면 다시 쓰지 않습니다.
+            // Text echoed back from what was sent to the Mac is not written again.
             guard preferences.sharedClipboard, text != clipboard else { break }
             clipboard = text
             UIPasteboard.general.string = text
@@ -226,7 +226,7 @@ final class SessionController {
         }
     }
 
-    // 인증에 성공한 Mac을 목록에 저장하고, 원하면 비밀번호도 저장합니다. 비밀번호는 이 뒤로 들고 있지 않습니다.
+    // Saves the authenticated Mac to the list, and the password if requested. The password is not held after this.
     private func remember(_ running: Running) {
         guard let credentials = running.credentials else {
             return
@@ -244,7 +244,7 @@ final class SessionController {
         }
     }
 
-    // 이름 없이 추가한 Mac은 Mac이 알려 준 컴퓨터 이름으로 채웁니다. 사용자가 붙인 이름은 그대로 둡니다.
+    // A Mac added without a name gets the computer name it reports. A user-given name is kept.
     private func rename(_ running: Running, _ name: String) {
         var host = latest(running)
 
@@ -258,12 +258,12 @@ final class SessionController {
         if case .connected = state { state = .connected(host) }
     }
 
-    // 접속하는 동안 목록 화면에서 고친 내용을 덮어쓰지 않도록, 저장할 때는 저장소의 최신 값에 더합니다.
+    // Saves onto the store's latest value so edits made in the list screen while connecting are not overwritten.
     private func latest(_ running: Running) -> Host {
         hosts.find(running.host.id) ?? running.host
     }
 
-    // 비밀번호가 틀렸으면 저장한 비밀번호를 지웁니다. 실패는 목록 화면이 보여 줄 때까지 [state]에 남깁니다.
+    // Deletes the saved password if it was wrong. The failure stays in [state] until the list screen shows it.
     private func end(_ running: Running, failure: Failure?) {
         self.running = nil
         connection = nil
@@ -282,7 +282,7 @@ final class SessionController {
         endBackground()
     }
 
-    // 코어는 미리 곱하지 않은 RGBA를 줍니다.
+    // The core provides non-premultiplied RGBA.
     private static func cursor(width: Int, height: Int, rgba: Data) -> CGImage? {
         guard width > 0, height > 0, rgba.count == width * height * 4, let provider = CGDataProvider(data: rgba as CFData) else {
             return nil
@@ -296,7 +296,7 @@ final class SessionController {
     }
 }
 
-// 열려 있는 세션 하나. 자격 증명은 인증할 때까지만 듭니다. 가상 디스플레이가 없으면(Mac의 실제 화면) `display`도 없습니다.
+// One open session. Credentials are held only until authentication. `display` is `nil` without a virtual display (the Mac's physical display).
 private final class Running {
     let token = UUID()
     var host: Host

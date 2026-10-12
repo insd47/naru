@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// 메뉴 막대. Screen Sharing 앱의 메뉴 구성과 문구를 따르고, Naru가 하는 일만 둡니다.
+/// The menu bar, following Screen Sharing's menus and wording but keeping only what Naru does.
 ///
-/// - 세션 중에는 단축키가 Mac으로 가야 하므로, 단축키는 연결 목록을 보는 동안에만 붙입니다.
+/// - Shortcuts are attached only while the connection list is showing, because during a session they must go to the Mac.
 struct NaruCommands: Commands {
     static let connection = "Connection"
 
@@ -37,7 +37,7 @@ struct NaruCommands: Commands {
                 .disabled(session.connection == nil)
         }
 
-        // Mac의 기본 단축키입니다. Control+위쪽, Control+아래쪽 화살표, F11
+        // The Mac's default shortcuts: Control-Up Arrow, Control-Down Arrow, F11
         CommandGroup(replacing: .toolbar) {
             Group {
                 Button("Mission Control") { session.press([0xffe3, 0xff52]) }
