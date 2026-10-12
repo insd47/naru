@@ -3,6 +3,7 @@ package dev.insd.naru.session
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -10,6 +11,7 @@ import android.view.PointerIcon
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import dev.insd.naru.core.Event
+import dev.insd.naru.core.TouchPhase
 import kotlin.math.roundToInt
 
 /**
@@ -17,8 +19,9 @@ import kotlin.math.roundToInt
  *
  * - 뷰는 영상과 같은 비율로 놓이므로, 뷰 안의 위치를 레이아웃 픽셀 좌표로 비례해 옮기면 됩니다.
  * - 마우스는 버튼 상태를 그대로 보냅니다. 펜은 대면 왼쪽 버튼, 옆 버튼을 누른 채 대면 오른쪽 버튼이고, 띄우면 포인터만 움직입니다.
- * - 프로토콜에 터치가 없으므로 손가락 터치는 보내지 않습니다. 터치패드 제스처는 [Touchpad]가 맡습니다.
- * - 커서 모양은 시스템 포인터 아이콘으로 바꿔 지연 없이 그립니다.
+ * - 손가락 터치는 코어가 화면 전체를 트랙패드로 써서 커서를 상대 이동으로 옮깁니다. 터치패드 제스처는 [Touchpad]가 맡습니다.
+ * - 커서 모양은 마우스와 펜이면 시스템 포인터 아이콘으로 바꿔 지연 없이 그립니다. 손가락 터치 중에는 시스템 포인터가 없으므로,
+ *   코어가 알려 준 자리([setTouchCursor])에 직접 그립니다.
  */
 @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
 class ScreenView(context: Context) : SurfaceView(context) {
@@ -39,12 +42,18 @@ class ScreenView(context: Context) : SurfaceView(context) {
 
     private var buttons = 0
 
+    // 직접 그릴 커서 비트맵과 핫스팟(뷰 픽셀), 손가락 터치로 옮긴 커서 자리(뷰 픽셀). 마우스나 펜을 쓰면 자리를 지웁니다.
+    private var cursorBitmap: Bitmap? = null
+    private var cursorHotspot = 0f to 0f
+    private var touchCursor: Pair<Float, Float>? = null
+
     override fun dispatchKeyEventPreIme(event: KeyEvent): Boolean =
         onKey?.invoke(event) ?: super.dispatchKeyEventPreIme(event)
 
     init {
         isFocusable = true
         isFocusableInTouchMode = true
+        setWillNotDraw(false)
 
         // 키를 누르면 터치 모드가 풀리며 포커스된 뷰에 흰 강조가 그려집니다. 화면 위에 덮이지 않게 끕니다.
         defaultFocusHighlightEnabled = false
@@ -88,15 +97,34 @@ class ScreenView(context: Context) : SurfaceView(context) {
         val bitmap = Bitmap.createScaledBitmap(source, scaledWidth, scaledHeight, true)
 
         pointerIcon = PointerIcon.create(bitmap, cursor.hotspotX.toFloat() * scale, cursor.hotspotY.toFloat() * scale)
+        cursorBitmap = bitmap
+        cursorHotspot = cursor.hotspotX.toFloat() * scale to cursor.hotspotY.toFloat() * scale
+        invalidate()
+    }
+
+    /** 손가락 터치로 옮긴 커서 자리(레이아웃 픽셀). 이 자리에 커서를 그립니다. */
+    fun setTouchCursor(x: Int, y: Int) {
+        val (layoutWidth, layoutHeight) = layoutSize ?: return
+        touchCursor = x.toFloat() / layoutWidth * width to y.toFloat() / layoutHeight * height
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val bitmap = cursorBitmap ?: return
+        val (x, y) = touchCursor ?: return
+        canvas.drawBitmap(bitmap, x - cursorHotspot.first, y - cursorHotspot.second, null)
     }
 
     private fun touch(event: MotionEvent): Boolean {
         requestFocus()
 
-        // Mac에는 터치 입력이 없고 프로토콜도 포인터만 싣습니다. 손가락을 클릭으로 바꾸면 의도치 않은 클릭이 생기므로 버립니다.
         if (event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER && !event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+            finger(event)
             return true
         }
+
+        clearTouchCursor()
 
         val touching = event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_MOVE
 
@@ -111,7 +139,40 @@ class ScreenView(context: Context) : SurfaceView(context) {
         return true
     }
 
+    // 손가락마다 위치를 레이아웃 픽셀로 바꿔 코어에 넘깁니다. 화면 밖으로 나가도 상대 이동이므로 자르지 않습니다.
+    private fun finger(event: MotionEvent) {
+        val current = connection ?: return
+        val (layoutWidth, layoutHeight) = layoutSize ?: return
+
+        if (width == 0 || height == 0) {
+            return
+        }
+
+        val send = { index: Int, phase: TouchPhase ->
+            val x = event.getX(index) / width * layoutWidth
+            val y = event.getY(index) / height * layoutHeight
+            current.touch(event.getPointerId(index), phase, x, y)
+        }
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> send(event.actionIndex, TouchPhase.BEGAN)
+            MotionEvent.ACTION_MOVE -> for (index in 0 until event.pointerCount) send(index, TouchPhase.MOVED)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> send(event.actionIndex, TouchPhase.ENDED)
+            MotionEvent.ACTION_CANCEL -> for (index in 0 until event.pointerCount) send(index, TouchPhase.CANCELLED)
+        }
+    }
+
+    // 마우스나 펜을 쓰면 시스템 포인터가 커서를 그리므로 직접 그리던 커서를 지웁니다.
+    private fun clearTouchCursor() {
+        if (touchCursor != null) {
+            touchCursor = null
+            invalidate()
+        }
+    }
+
     private fun motion(event: MotionEvent): Boolean {
+        clearTouchCursor()
+
         when (event.actionMasked) {
             MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_HOVER_ENTER -> {
                 buttons = mouseButtons(event.buttonState)

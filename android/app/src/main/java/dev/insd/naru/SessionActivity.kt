@@ -226,6 +226,7 @@ class SessionActivity : ComponentActivity() {
                 cursor = event
                 screen?.setCursor(event)
             }
+            is Event.Pointer -> screen?.setTouchCursor(event.x.toInt(), event.y.toInt())
             is Event.Closed -> closed()
             else -> Unit
         }

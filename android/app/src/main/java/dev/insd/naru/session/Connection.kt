@@ -10,6 +10,7 @@ import dev.insd.naru.core.Event
 import dev.insd.naru.core.Phase
 import dev.insd.naru.core.Session
 import dev.insd.naru.core.SessionListener
+import dev.insd.naru.core.TouchPhase
 import dev.insd.naru.video.Video
 
 /**
@@ -45,6 +46,8 @@ class Connection(config: Config, private val listener: Listener) {
     fun wheel(dx: Float, dy: Float) = session.wheel(dx, dy)
 
     fun magnify(phase: Phase, scale: Float) = session.magnify(phase, scale)
+
+    fun touch(id: Int, phase: TouchPhase, x: Float, y: Float) = session.touch(id.toUInt(), phase, x, y)
 
     /** 보냈으면 `true`. 크기 한도를 넘으면 보내지 않고 `false`입니다. */
     fun clipboard(text: String): Boolean = session.clipboard(text)
@@ -86,7 +89,8 @@ class Connection(config: Config, private val listener: Listener) {
             else -> Unit
         }
 
-        Log.i(TAG, describe(event))
+        // 터치로 옮긴 커서 위치는 손가락이 움직일 때마다 오므로 남기지 않습니다.
+        if (event !is Event.Pointer) Log.i(TAG, describe(event))
         listener.onEvent(event)
 
         if (event is Event.Closed) {
