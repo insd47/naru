@@ -13,9 +13,13 @@ import android.view.KeyEvent
  * - 글자 키는 물리 키의 라틴 문자를 보냅니다. Mac의 입력 소스가 2벌식처럼 라틴 문자를 칠 수 없는 배열이면 세션이 그 배열의 글자로 바꿉니다.
  * - Control, Option, Command가 눌려 있지 않으면 Shift를 적용한 문자(`A`, `!`)를, 눌려 있으면 소문자(`c`)를 보냅니다.
  * - 뗄 때는 누를 때 보낸 keysym을 그대로 보냅니다. 그 사이 Shift가 바뀌어도 Mac에 눌린 키가 남지 않게 합니다.
+ * - 데드 키(`´` 다음 `e`)는 태블릿 배열대로 합친 글자(`é`)를 보냅니다. Mac은 배열에 없는 글자를 그대로 넣습니다.
  */
 class Keys(swapCommandOption: Boolean) {
     private val pressed = HashMap<Int, Int>()
+
+    // 눌러 둔 데드 키의 결합 문자. 다음 글자와 합칩니다.
+    private var accent = 0
 
     private val modifiers = if (swapCommandOption) {
         mapOf(
@@ -60,23 +64,44 @@ class Keys(swapCommandOption: Boolean) {
         (event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_FORWARD) &&
             event.isFromSource(InputDevice.SOURCE_MOUSE)
 
+    /** 데드 키인지 여부. 다음 글자와 합쳐 보내므로 시스템에 넘기지 않고 삼킵니다. */
+    fun isDeadKey(event: KeyEvent): Boolean = char(event) and KeyCharacterMap.COMBINING_ACCENT != 0
+
     /** 눌린 채로 남은 키를 모두 뗍니다. 화면을 떠날 때 Mac에 키가 눌린 채 남지 않게 합니다. */
     fun releaseAll(): List<Pair<Int, Boolean>> = pressed.values.map { it to false }.also { pressed.clear() }
 
     private fun keysym(event: KeyEvent): Int? {
         modifiers[event.keyCode]?.let { return it }
-        SPECIAL[event.keyCode]?.let { return it }
 
-        val commandLike = KeyEvent.META_CTRL_ON or KeyEvent.META_ALT_ON or KeyEvent.META_META_ON
-        val meta = if (event.metaState and commandLike != 0) 0 else event.metaState and KeyEvent.META_SHIFT_MASK
-        val char = event.keyCharacterMap.get(event.keyCode, meta)
+        // 데드 키 다음에 스페이스나 화살표를 누르면 데드 키를 버립니다. Shift는 `É`처럼 함께 쓰므로 남깁니다.
+        SPECIAL[event.keyCode]?.let { keysym ->
+            if (!KeyEvent.isModifierKey(event.keyCode)) accent = 0
+            return keysym
+        }
 
-        if (char == 0 || char and KeyCharacterMap.COMBINING_ACCENT != 0) {
+        val char = char(event)
+
+        if (char == 0) {
             return null
         }
 
+        if (char and KeyCharacterMap.COMBINING_ACCENT != 0) {
+            accent = char and KeyCharacterMap.COMBINING_ACCENT_MASK
+            return null
+        }
+
+        // 합칠 수 없는 글자면 데드 키를 버리고 글자만 보냅니다.
+        val combined = KeyCharacterMap.getDeadChar(accent, char).takeIf { accent != 0 && it != 0 } ?: char
+        accent = 0
+
         // 라틴-1은 문자 코드 그대로, 그 밖은 유니코드 keysym입니다.
-        return if (char in 0x20..0x7e || char in 0xa0..0xff) char else 0x0100_0000 + char
+        return if (combined in 0x20..0x7e || combined in 0xa0..0xff) combined else 0x0100_0000 + combined
+    }
+
+    private fun char(event: KeyEvent): Int {
+        val commandLike = KeyEvent.META_CTRL_ON or KeyEvent.META_ALT_ON or KeyEvent.META_META_ON
+        val meta = if (event.metaState and commandLike != 0) 0 else event.metaState and KeyEvent.META_SHIFT_MASK
+        return event.keyCharacterMap.get(event.keyCode, meta)
     }
 
     companion object {
