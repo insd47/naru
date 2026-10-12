@@ -38,6 +38,10 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
     <!-- Registers a debug package identity so `dotnet run` launches the packaged app. -->
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.7.1" />
+    <!-- Direct3D 11, DXGI, and Media Foundation for hardware decoding and presenting video -->
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
+    <PackageReference Include="Vortice.MediaFoundation" Version="3.8.3" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">

@@ -20,9 +20,6 @@
         </Grid>
 
         <TitleBar x:Name="Bar" Height="48">
-            <TitleBar.IconSource>
-                <ImageIconSource ImageSource="ms-appx:///Assets/Naru.ico" />
-            </TitleBar.IconSource>
             <TitleBar.Content>
                 <CommandBar
                     x:Name="Toolbar"

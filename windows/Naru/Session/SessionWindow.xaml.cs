@@ -29,12 +29,46 @@ internal sealed partial class SessionWindow : Window
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(Bar);
+        AppIcon.Apply(Bar);
         AppWindow.SetIcon("Assets/Naru.ico");
         Rename(session.Host.Title);
         Size(session.Display);
 
         AppWindow.Closing += (_, _) => sessions.Close(session.Host.Id);
         AppWindow.Changed += OnChanged;
+
+        resizing = DispatcherQueue.CreateTimer();
+        resizing.Interval = TimeSpan.FromMilliseconds(500);
+        resizing.IsRepeating = false;
+        resizing.Tick += (_, _) => ResizeDisplay();
+
+        session.Connection.Video.FirstFrame += () => DispatcherQueue.TryEnqueue(() => Loading.Visibility = Visibility.Collapsed);
+        Surface.Loaded += (_, _) => session.Connection.Video.Attach(Surface, PixelWidth, PixelHeight, Scale);
+        Surface.SizeChanged += (_, _) => OnSurfaceChanged();
+        Surface.CompositionScaleChanged += (_, _) => OnSurfaceChanged();
+    }
+
+    // The screen area in physical pixels and the monitor scale it is drawn at
+    private uint PixelWidth => (uint)Math.Round(Surface.ActualWidth * Surface.CompositionScaleX);
+    private uint PixelHeight => (uint)Math.Round(Surface.ActualHeight * Surface.CompositionScaleY);
+    private float Scale => Surface.CompositionScaleX;
+
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer resizing;
+
+    // The picture follows the window at once. The Mac's virtual display follows once resizing pauses, since each change makes the Mac redraw.
+    private void OnSurfaceChanged()
+    {
+        session.Connection.Video.Resize(PixelWidth, PixelHeight, Scale);
+        resizing.Stop();
+        resizing.Start();
+    }
+
+    private void ResizeDisplay()
+    {
+        if (Surface.ActualWidth > 0 && Surface.ActualHeight > 0)
+        {
+            sessions.Resize(session, Displays.Mode(Surface.ActualWidth, Surface.ActualHeight, Scale));
+        }
     }
 
     public void Rename(string title)

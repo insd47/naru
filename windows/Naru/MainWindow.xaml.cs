@@ -23,6 +23,7 @@ public sealed partial class MainWindow : Window
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
+        AppIcon.Apply(AppTitleBar);
         AppWindow.SetIcon("Assets/Naru.ico");
         Place();
 

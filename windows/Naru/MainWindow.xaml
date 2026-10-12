@@ -19,9 +19,6 @@
             Title="Naru"
             IsPaneToggleButtonVisible="True"
             PaneToggleRequested="OnPaneToggleRequested">
-            <TitleBar.IconSource>
-                <ImageIconSource ImageSource="Assets/Naru.ico" />
-            </TitleBar.IconSource>
         </TitleBar>
 
         <!-- The title bar owns the pane toggle, so the NavigationView hides its own. -->

@@ -76,6 +76,9 @@ internal sealed class Connection : SessionListener
             case Event.ResetDecoder:
                 Video.Reset();
                 break;
+            case Event.Layout layout:
+                Video.Show(layout.PixelWidth, layout.PixelHeight);
+                break;
         }
 
         // The touch cursor position arrives on every finger movement, so it is not logged.
