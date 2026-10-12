@@ -2,6 +2,7 @@ import SwiftUI
 
 /// 연결 목록 창. Screen Sharing 앱처럼 사이드바에 모든 연결과 네트워크를 두고, 고른 쪽의 Mac을 보입니다.
 ///
+/// - 새 연결은 Screen Sharing 앱처럼 주소만 묻습니다. 이름과 비밀번호는 접속하면서 묻고, 인증에 성공하면 목록에 저장합니다.
 /// - 접속하면서 이름과 비밀번호를 묻고, 인증에 성공하면 세션 화면을 엽니다. 비밀번호가 틀리면 로그인 시트에 알립니다.
 /// - 접속하는 동안에는 목록을 막아 다른 Mac으로 접속을 겹쳐 시작하지 않게 합니다.
 struct HomeView: View {
@@ -11,18 +12,14 @@ struct HomeView: View {
 
     @State private var section: Section? = .saved
     @State private var search = ""
-    @State private var editing: Editing?
+    @State private var editing: Host?
+    @State private var adding = false
+    @State private var address = ""
     @State private var signingIn: Host?
     @State private var loginMessage: String?
 
     private enum Section: Hashable {
         case saved, network
-    }
-
-    private struct Editing: Identifiable {
-        var host: Host
-        var isNew: Bool
-        var id: String { host.id }
     }
 
     var body: some View {
@@ -42,11 +39,20 @@ struct HomeView: View {
                 }
             }
         }
-        .sheet(item: $editing) { editing in
-            EditSheet(original: editing.host, isNew: editing.isNew) { edited, connect in
-                if !editing.isNew { save(edited) }
-                if connect { self.connect(editing.isNew ? edited : hosts.find(edited.id) ?? edited) }
+        .sheet(item: $editing) { host in
+            EditSheet(original: host) { edited, connect in
+                save(edited)
+                if connect { self.connect(hosts.find(edited.id) ?? edited) }
             }
+        }
+        .alert("Connect To", isPresented: $adding) {
+            TextField("Hostname or IP address", text: $address)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Cancel", role: .cancel) {}
+            Button("Connect") { connect(Host(address: address.trimmingCharacters(in: .whitespaces))) }
+                .disabled(address.trimmingCharacters(in: .whitespaces).isEmpty)
         }
         .sheet(item: $signingIn) { host in
             LoginSheet(host: host, message: loginMessage) { credentials in
@@ -87,12 +93,12 @@ struct HomeView: View {
                 connecting: active && connecting,
                 onConnect: { connect(host) },
                 onDisconnect: { session.close() },
-                onInfo: { editing = Editing(host: host, isNew: false) }
+                onInfo: { editing = host }
             )
             .disabled(connecting && !active)
             .contextMenu {
                 Button("Connect") { connect(host) }
-                Button("Edit") { editing = Editing(host: host, isNew: false) }
+                Button("Edit") { editing = host }
                 Divider()
                 Button("Delete", role: .destructive) { delete(host) }
             }
@@ -106,7 +112,8 @@ struct HomeView: View {
         .searchable(text: $search)
         .toolbar {
             Button("New Connection", systemImage: "plus") {
-                editing = Editing(host: Host(address: ""), isNew: true)
+                address = ""
+                adding = true
             }
             .disabled(connecting)
         }

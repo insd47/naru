@@ -1,21 +1,19 @@
 import SwiftUI
 
-/// 저장한 Mac을 고치거나 새 연결을 만드는 시트. Screen Sharing 앱의 편집 창을 따릅니다.
+/// 저장한 Mac을 고치는 시트. Screen Sharing 앱의 편집 창을 따릅니다.
 ///
 /// - 이름을 비우면 다음 접속 때 Mac의 컴퓨터 이름으로 채웁니다.
 /// - Connect는 고친 내용을 저장하고 곧바로 접속합니다.
 struct EditSheet: View {
     let original: Host
-    let isNew: Bool
     let onSave: (Host, _ connect: Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var host: Host
     @State private var port: String
 
-    init(original: Host, isNew: Bool, onSave: @escaping (Host, Bool) -> Void) {
+    init(original: Host, onSave: @escaping (Host, Bool) -> Void) {
         self.original = original
-        self.isNew = isNew
         self.onSave = onSave
         _host = State(initialValue: original)
         _port = State(initialValue: String(original.port))
@@ -52,7 +50,7 @@ struct EditSheet: View {
                     }
                 }
             }
-            .navigationTitle(isNew ? "New Connection" : "Edit “\(original.title)”")
+            .navigationTitle("Edit “\(original.title)”")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -60,9 +58,7 @@ struct EditSheet: View {
                 }
                 ToolbarItemGroup(placement: .confirmationAction) {
                     Button("Connect") { save(connect: true) }.disabled(!valid)
-                    if !isNew {
-                        Button("Done") { save(connect: false) }.disabled(!valid)
-                    }
+                    Button("Done") { save(connect: false) }.disabled(!valid)
                 }
             }
         }
