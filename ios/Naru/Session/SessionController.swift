@@ -47,6 +47,8 @@ final class SessionController {
     private(set) var connection: Connection?
     private(set) var layout: Layout?
     private(set) var cursor: Cursor?
+    /// 손가락 터치로 옮긴 커서 위치(레이아웃 픽셀). 터치를 쓰기 전에는 `nil`입니다.
+    private(set) var touchCursor: CGPoint?
     /// 첫 화면을 그렸는지 여부
     private(set) var shown = false
     /// 서버가 보내는 영상의 코덱. 첫 디코더 설정이 오기 전에는 `nil`입니다.
@@ -74,6 +76,7 @@ final class SessionController {
         state = .connecting(host, .warmup)
         layout = nil
         cursor = nil
+        touchCursor = nil
         shown = false
         codec = nil
 
@@ -211,6 +214,8 @@ final class SessionController {
                 .map { Cursor(image: $0, size: CGSize(width: Int(width), height: Int(height)), hotspot: CGPoint(x: Int(hotspotX), y: Int(hotspotY))) }
         case let .decoder(config):
             codec = config.codec
+        case let .pointer(x, y):
+            touchCursor = CGPoint(x: Int(x), y: Int(y))
         case let .progress(stage):
             if case .connecting = state { state = .connecting(running.host, stage) }
         case let .closed(failure, detail):
@@ -265,6 +270,7 @@ final class SessionController {
         presented = false
         layout = nil
         cursor = nil
+        touchCursor = nil
         shown = false
         codec = nil
         state = failure.map { .failed(running.host, $0) }

@@ -32,6 +32,8 @@ final class Connection: SessionListener, @unchecked Sendable {
 
     func magnify(_ phase: Phase, scale: Float) { session.magnify(phase: phase, scale: scale) }
 
+    func touch(_ id: UInt32, _ phase: TouchPhase, x: Float, y: Float) { session.touch(id: id, phase: phase, x: x, y: y) }
+
     /// 보냈으면 `true`. 크기 한도를 넘으면 보내지 않고 `false`입니다.
     func clipboard(_ text: String) -> Bool { session.clipboard(text: text) }
 
@@ -44,7 +46,7 @@ final class Connection: SessionListener, @unchecked Sendable {
     // 영상과 소리는 초당 수십 번 오므로 화면 쪽에 넘기지 않고 로그에도 남기지 않습니다.
     func onEvent(event: Event) {
         switch event {
-        case .frame, .audio, .stats:
+        case .frame, .audio, .stats, .pointer:
             break
         default:
             log.info("\(Self.describe(event), privacy: .public)")

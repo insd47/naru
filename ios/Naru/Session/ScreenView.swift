@@ -4,7 +4,8 @@ import UIKit
 /// Mac 화면을 그리고 키보드와 포인터 입력을 Mac에 보냅니다.
 ///
 /// - 영상은 [Video]의 레이어를 붙여 그리고, 커서는 시스템 포인터를 숨긴 뒤 Mac이 보낸 비트맵을 포인터 자리에 그립니다.
-/// - 포인터(트랙패드, 마우스, Apple Pencil)만 Mac에 보냅니다. 손가락 터치는 Mac에 대응하는 입력이 없으므로 받지 않습니다.
+/// - 포인터(트랙패드, 마우스, Apple Pencil)는 그 자리를 Mac에 보냅니다. 손가락 터치는 코어가 화면 전체를 트랙패드로 써서 커서를 상대 이동으로 옮기고,
+///   옮긴 자리를 [touchCursor]로 알려 주면 거기에 커서를 그립니다.
 /// - 텍스트 입력을 받는 뷰로 두어 iPadOS의 입력 언어 전환(Caps Lock, 지구본 키)이 동작하게 하고, 글자 키는 입력기로 넘기지 않고 직접 보냅니다.
 /// - 크기가 바뀌면 잠시 기다렸다가 [onResize]로 가상 디스플레이 크기를 알립니다.
 final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
@@ -27,6 +28,19 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         didSet { placeCursor() }
     }
 
+    /// 손가락 터치로 옮긴 커서 위치(레이아웃 픽셀)
+    var touchCursor: CGPoint? {
+        didSet {
+            guard let touchCursor, touchCursor != oldValue, let layout else { return }
+            let rect = videoRect(layout)
+            pointer = CGPoint(
+                x: rect.minX + touchCursor.x / layout.pixels.width * rect.width,
+                y: rect.minY + touchCursor.y / layout.pixels.height * rect.height
+            )
+            placeCursor()
+        }
+    }
+
     private let cursorLayer = CALayer()
     private var keys = Keys()
     private var buttons: UInt8 = 0
@@ -37,6 +51,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .black
+        isMultipleTouchEnabled = true
         cursorLayer.zPosition = 1
         layer.addSublayer(cursorLayer)
 
@@ -151,18 +166,35 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         point(touches, event: event)
+        finger(touches, .began)
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         point(touches, event: event)
+        finger(touches, .moved)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         point(touches, event: event, released: true)
+        finger(touches, .ended)
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         point(touches, event: event, released: true)
+        finger(touches, .cancelled)
+    }
+
+    // 손가락마다 위치를 레이아웃 픽셀로 바꿔 코어에 넘깁니다. 화면 밖으로 나가도 상대 이동이므로 자르지 않습니다.
+    private func finger(_ touches: Set<UITouch>, _ phase: TouchPhase) {
+        guard let connection, let layout else { return }
+        let rect = videoRect(layout)
+
+        for touch in touches where touch.type == .direct {
+            let location = touch.location(in: self)
+            let x = (location.x - rect.minX) / rect.width * layout.pixels.width
+            let y = (location.y - rect.minY) / rect.height * layout.pixels.height
+            connection.touch(UInt32(truncatingIfNeeded: ObjectIdentifier(touch).hashValue), phase, x: Float(x), y: Float(y))
+        }
     }
 
     // 서버의 버튼 비트는 표준 RFB와 달리 오른쪽이 2, 가운데가 4입니다. 펜은 왼쪽 버튼입니다.
