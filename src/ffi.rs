@@ -295,6 +295,8 @@ impl Session {
     }
 
     /// 태블릿의 입력 언어를 알립니다. 언어가 바뀌면 BCP 47 태그(`ko-KR`)로 부릅니다.
+    ///
+    /// - 키가 물리 자리의 라틴 문자만 주는 플랫폼용입니다. 시스템이 배열을 적용한 글자를 주면 부르지 않습니다.
     pub fn language(&self, language: String) {
         let _ = self.session.language(&language);
     }

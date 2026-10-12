@@ -281,6 +281,7 @@ impl Session {
     /// 태블릿의 입력 언어를 알립니다. 언어가 바뀌면 BCP 47 태그(`ko-KR`)로 부릅니다.
     ///
     /// - 글자를 그 언어에 대응하는 Mac 배열의 글자로 바꿔 보냅니다. Mac의 입력 소스는 바꾸지 않으므로 Mac은 모국어 입력기에 둡니다.
+    /// - 키가 물리 자리의 라틴 문자만 주는 플랫폼(Android)용입니다. 시스템이 배열을 적용한 글자를 주는 플랫폼(iPadOS)은 부르지 않고 그 글자를 그대로 보냅니다.
     pub fn language(&self, language: &str) -> Result<()> {
         self.send(Command::Language(language.to_owned()))
     }
