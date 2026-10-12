@@ -3,7 +3,7 @@ use super::input::Input;
 use super::keyboard::Keyboard;
 use super::media::{Media, Sockets};
 use super::negotiation::Negotiation;
-use super::{Command, Config, Event, Events, Stage};
+use super::{Codec, Command, Config, Event, Events, Stage};
 use crate::error::{Error, Result};
 use crate::message::{Cursors, InputSource, Layout, Messages, Rect, ServerMessage, client, clipboard};
 use crate::offer::Offer;
@@ -46,14 +46,15 @@ enum Wake {
 }
 
 impl Engine {
-    pub fn new(control: Control, sockets: Sockets, config: &Config) -> Self {
-        let offer = Offer::new(config.audio, config.codec);
+    /// `codec`은 이번 시도에서 요청할 코덱입니다. HEVC가 시작되지 않으면 세션이 H.264로 바꿔 다시 시도합니다.
+    pub fn new(control: Control, sockets: Sockets, config: &Config, codec: Codec) -> Self {
+        let offer = Offer::new(config.audio, codec);
 
         Self {
             media: Media::new(
                 sockets.clone(),
                 &offer,
-                config.codec.video(),
+                codec.video(),
                 config.priority,
                 config.raw_video,
             ),

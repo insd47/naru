@@ -374,12 +374,18 @@ async fn run(
 
 async fn attempts(config: &Config, commands: &mut mpsc::UnboundedReceiver<Command>, events: &mut Events) -> Result<()> {
     let mut attempt = 1;
+    let mut codec = config.codec;
 
     loop {
-        let result = attempt_session(config, commands, events).await;
+        let result = attempt_session(config, codec, commands, events).await;
 
         if !matches!(result, Err(Error::NoMedia { .. })) || attempt == ATTEMPTS {
             return result;
+        }
+
+        // HEVC로 영상이 시작되지 않으면 다음 시도부터 H.264로 받습니다. 실기기에서 HEVC 띠 1개를 어떤 Mac이 받아 주는지 다 확인하지 못했습니다.
+        if codec == Codec::Hevc {
+            codec = Codec::H264;
         }
 
         attempt += 1;
@@ -389,6 +395,7 @@ async fn attempts(config: &Config, commands: &mut mpsc::UnboundedReceiver<Comman
 
 async fn attempt_session(
     config: &Config,
+    codec: Codec,
     commands: &mut mpsc::UnboundedReceiver<Command>,
     events: &mut Events,
 ) -> Result<()> {
@@ -404,7 +411,9 @@ async fn attempt_session(
     let control = Control::connect(config, server, events).await;
     punch.abort_all();
 
-    Engine::new(control?, sockets, config).run(commands, events).await
+    Engine::new(control?, sockets, config, codec)
+        .run(commands, events)
+        .await
 }
 
 async fn resolve(host: &str, port: u16) -> Result<IpAddr> {
