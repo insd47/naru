@@ -166,7 +166,7 @@ class SessionActivity : ComponentActivity() {
         }
 
         // Mac으로 보내지 않는 키는 시스템과 IME에 그대로 넘깁니다. 한/영 키는 IME가 언어를 바꾸고, 볼륨 키는 볼륨을, 뒤로 가기는 화면을 바꿉니다.
-        if (translated.isEmpty() && !KeyEvent.isModifierKey(event.keyCode)) {
+        if (translated.isEmpty() && !KeyEvent.isModifierKey(event.keyCode) && !keys.isMouseNavigation(event)) {
             // 화면 뷰(IME 전)와 액티비티(IME 후)가 같은 키를 두 번 볼 수 있으므로 IME 뒤에서만 언어를 다시 읽습니다.
             if (event.keyCode == KeyEvent.KEYCODE_LANGUAGE_SWITCH && event.action == KeyEvent.ACTION_UP && afterIme) {
                 language?.sync()

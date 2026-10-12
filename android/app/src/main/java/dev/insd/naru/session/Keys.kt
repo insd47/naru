@@ -1,5 +1,6 @@
 package dev.insd.naru.session
 
+import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
 
@@ -48,6 +49,16 @@ class Keys(swapCommandOption: Boolean) {
         pressed[event.keyCode] = keysym
         return listOf(keysym to true)
     }
+
+    /**
+     * 마우스의 뒤로/앞으로 버튼에서 온 키인지 여부.
+     *
+     * - Android는 이 버튼을 BACK/FORWARD 키로 바꿔 보내므로, 시스템에 넘기면 세션 화면을 떠납니다. 삼키기만 합니다.
+     * - Screen Sharing에는 이 버튼이 없어 Mac에도 보내지 않습니다.
+     */
+    fun isMouseNavigation(event: KeyEvent): Boolean =
+        (event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_FORWARD) &&
+            event.isFromSource(InputDevice.SOURCE_MOUSE)
 
     /** 눌린 채로 남은 키를 모두 뗍니다. 화면을 떠날 때 Mac에 키가 눌린 채 남지 않게 합니다. */
     fun releaseAll(): List<Pair<Int, Boolean>> = pressed.values.map { it to false }.also { pressed.clear() }
