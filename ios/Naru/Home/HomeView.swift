@@ -118,7 +118,7 @@ struct HomeView: View {
     }
 
     private var network: some View {
-        List(discovery.found, id: \.name) { found in
+        List(discovery.found) { found in
             HostRow(title: found.name, subtitle: nil, detail: nil, onConnect: { connect(found) })
                 .disabled(connecting)
         }
@@ -174,7 +174,7 @@ struct HomeView: View {
     }
 
     // 찾은 Mac의 주소를 풀어 접속합니다. 같은 주소로 저장한 Mac이 있으면 그것으로 접속합니다.
-    private func connect(_ found: (name: String, endpoint: NWEndpointValue)) {
+    private func connect(_ found: Discovery.Found) {
         Task {
             guard let address = await discovery.resolve(found.endpoint) else { return }
             connect(hosts.list.first { $0.address == address } ?? Host(name: found.name, address: address))
@@ -240,8 +240,6 @@ struct HomeActions {
 extension FocusedValues {
     @Entry var home: HomeActions?
 }
-
-typealias NWEndpointValue = Discovery.Endpoint
 
 /// 이 창 크기에 맞춘 가상 디스플레이. 배율 2로 두어 Mac이 Retina로 그리고, 픽셀 크기는 iPad 화면과 같습니다.
 @MainActor

@@ -2,21 +2,25 @@ import AVFoundation
 
 /// 세션의 영상을 [layer]에 그립니다.
 ///
-/// - 세션의 사건 스레드에서만 부르십시오. 디코딩과 표시는 시스템 하드웨어 디코더가 맡습니다.
+/// - 메인 스레드에서 만들고, 그 뒤로는 세션의 사건 스레드에서만 부르십시오. 디코딩과 표시는 시스템 하드웨어 디코더가 맡습니다.
 /// - 설정(SPS, PPS)이 바뀌거나 표시가 실패하면 비우고, 키프레임이 올 때까지 넣지 않습니다.
 ///   요청이 서버에 닿지 않았을 수 있으므로, 기다리는 동안 프레임이 오면 일정 간격으로 다시 요청합니다.
 /// - 비운 뒤 첫 프레임을 넣으면 [firstFrame]을 부릅니다. 그때까지 화면은 비어 있습니다.
 final class Video: @unchecked Sendable {
     let layer = AVSampleBufferDisplayLayer()
     var requestKeyframe: () -> Void = {}
+    // 레이어는 메인 스레드 것이지만, 렌더러는 어느 스레드에서나 넣을 수 있습니다.
+    private let renderer: AVSampleBufferVideoRenderer
     private let firstFrame: () -> Void
     private var format: CMVideoFormatDescription?
     private var awaitingKeyframe = true
     private var requestedAt: ContinuousClock.Instant?
     private var shown = false
 
+    @MainActor
     init(firstFrame: @escaping () -> Void) {
         self.firstFrame = firstFrame
+        renderer = layer.sampleBufferRenderer
         layer.videoGravity = .resizeAspect
     }
 
@@ -34,8 +38,6 @@ final class Video: @unchecked Sendable {
         guard let format else {
             return
         }
-
-        let renderer = layer.sampleBufferRenderer
 
         if renderer.status == .failed || renderer.requiresFlushToResumeDecoding {
             flush()
@@ -63,7 +65,7 @@ final class Video: @unchecked Sendable {
     }
 
     private func flush() {
-        layer.sampleBufferRenderer.flush()
+        renderer.flush()
         awaitingKeyframe = true
         shown = false
         requestedAt = nil

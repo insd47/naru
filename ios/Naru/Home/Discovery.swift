@@ -6,10 +6,14 @@ import Observation
 /// - 화면이 보이는 동안만 [start]와 [stop]으로 찾습니다.
 @MainActor @Observable
 final class Discovery {
-    typealias Endpoint = NWEndpoint
-
     /// 찾은 Mac의 이름과 서비스 주소
-    private(set) var found: [(name: String, endpoint: NWEndpoint)] = []
+    struct Found: Identifiable {
+        let name: String
+        let endpoint: NWEndpoint
+        var id: String { name }
+    }
+
+    private(set) var found: [Found] = []
     private var browser: NWBrowser?
 
     func start() {
@@ -19,9 +23,9 @@ final class Discovery {
 
         let browser = NWBrowser(for: .bonjour(type: "_rfb._tcp", domain: nil), using: .tcp)
         browser.browseResultsChangedHandler = { [weak self] results, _ in
-            let found = results.compactMap { result -> (name: String, endpoint: NWEndpoint)? in
+            let found = results.compactMap { result -> Found? in
                 guard case let .service(name, _, _, _) = result.endpoint else { return nil }
-                return (name, result.endpoint)
+                return Found(name: name, endpoint: result.endpoint)
             }
 
             MainActor.assumeIsolated { self?.found = found.sorted { $0.name < $1.name } }

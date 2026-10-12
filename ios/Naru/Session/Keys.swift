@@ -7,6 +7,7 @@ import UIKit
 /// - Control, Option, Command가 눌려 있으면 단축키이므로 물리 자리의 라틴 문자를 보냅니다.
 /// - 지구본 키와 Caps Lock은 iPadOS의 입력 언어 전환에 쓰이므로 보내지 않습니다. Caps Lock은 키로 오지도 않습니다.
 /// - 뗄 때는 누를 때 보낸 keysym을 보냅니다. 그 사이 수식 키나 언어가 바뀌어도 Mac에 눌린 키가 남지 않게 합니다.
+@MainActor
 struct Keys {
     private var pressed: [UIKeyboardHIDUsage: UInt32] = [:]
 

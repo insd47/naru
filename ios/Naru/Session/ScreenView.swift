@@ -31,7 +31,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     private var keys = Keys()
     private var buttons: UInt8 = 0
     private var pointer: CGPoint?
-    private var scrolled = CGPoint.zero
     private var resizing: DispatchWorkItem?
     private var measured = CGSize.zero
 
@@ -201,14 +200,12 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     @objc private func scroll(_ recognizer: UIPanGestureRecognizer) {
         guard let connection else { return }
 
-        let total = recognizer.translation(in: self)
-        let delta = CGPoint(x: total.x - scrolled.x, y: total.y - scrolled.y)
-        scrolled = total
+        let delta = recognizer.translation(in: self)
+        recognizer.setTranslation(.zero, in: self)
         let scale = pointsPerViewPoint()
 
         switch recognizer.state {
         case .began:
-            scrolled = .zero
             connection.scroll(.began, dx: 0, dy: 0)
         case .changed:
             connection.scroll(.changed, dx: Float(delta.x * scale), dy: Float(delta.y * scale))

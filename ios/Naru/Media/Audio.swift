@@ -42,7 +42,7 @@ final class Audio: @unchecked Sendable {
             return
         }
 
-        _ = data.withUnsafeBytes { buffer.pointee.mAudioData.copyMemory(from: $0.baseAddress!, byteCount: data.count) }
+        data.withUnsafeBytes { buffer.pointee.mAudioData.copyMemory(from: $0.baseAddress!, byteCount: data.count) }
         buffer.pointee.mAudioDataByteSize = UInt32(data.count)
 
         var packet = AudioStreamPacketDescription(mStartOffset: 0, mVariableFramesInPacket: 0, mDataByteSize: UInt32(data.count))

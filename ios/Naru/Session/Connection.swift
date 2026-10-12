@@ -13,6 +13,7 @@ final class Connection: SessionListener, @unchecked Sendable {
     private let log = Logger(subsystem: "dev.insd.naru", category: "Connection")
 
     // 세션은 연결하면서 사건 스레드를 시작하므로, 사건을 받을 영상이 먼저 있어야 합니다.
+    @MainActor
     init(config: Config, announce: @escaping @Sendable (Event) -> Void, firstFrame: @escaping @Sendable () -> Void) {
         self.announce = announce
         video = Video(firstFrame: firstFrame)
