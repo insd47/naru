@@ -1,13 +1,16 @@
 import SwiftUI
 import UIKit
 
-// 하드웨어 키보드가 주는 글자와 입력 언어를 확인하는 임시 화면입니다.
-struct KeyProbe: View {
+// TestFlight로 실기기를 확인하는 동안 쓰는 임시 화면입니다. 디코더 지원과 지금 세션의 코덱, 하드웨어 키보드가 주는 글자와 입력 언어를 보입니다.
+struct Diagnostics: View {
+    let session: SessionController
     @State private var lines: [String] = []
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text("하드웨어 키보드로 쳐 보세요").font(.headline)
+            Text("HEVC 4:4:4 하드웨어 디코딩: \(Video.decodesHevc444 ? "가능" : "불가")")
+            Text("지금 세션의 코덱: \(session.codec.map { $0 == .hevc ? "HEVC 4:4:4" : "H.264" } ?? "세션 없음")")
+            Text("하드웨어 키보드로 쳐 보세요").font(.headline).padding(.top)
             ProbeView { line in lines.insert(line, at: 0) }
                 .frame(height: 1)
             List(lines, id: \.self) { Text($0).font(.system(.body, design: .monospaced)) }

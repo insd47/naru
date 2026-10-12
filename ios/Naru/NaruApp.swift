@@ -7,7 +7,7 @@ struct NaruApp: App {
     @State private var preferences: Preferences
     @State private var discovery = Discovery()
     @State private var session: SessionController
-    @State private var probing = false
+    @State private var diagnosing = false
     @Environment(\.scenePhase) private var phase
 
     init() {
@@ -24,7 +24,7 @@ struct NaruApp: App {
                 .environment(hosts)
                 .environment(discovery)
                 .environment(session)
-                .sheet(isPresented: $probing) { KeyProbe() }
+                .sheet(isPresented: $diagnosing) { Diagnostics(session: session) }
         }
         .onChange(of: phase) { _, phase in
             switch phase {
@@ -34,7 +34,7 @@ struct NaruApp: App {
             }
         }
         .commands {
-            NaruCommands(hosts: hosts, preferences: preferences, session: session, probing: $probing)
+            NaruCommands(hosts: hosts, preferences: preferences, session: session, diagnosing: $diagnosing)
         }
     }
 }

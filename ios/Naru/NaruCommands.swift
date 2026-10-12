@@ -9,7 +9,7 @@ struct NaruCommands: Commands {
     let hosts: Hosts
     let preferences: Preferences
     let session: SessionController
-    @Binding var probing: Bool
+    @Binding var diagnosing: Bool
     @FocusedValue(\.home) private var home
 
     var body: some Commands {
@@ -54,7 +54,7 @@ struct NaruCommands: Commands {
         }
 
         CommandGroup(replacing: .help) {
-            Button("Keyboard Test") { probing = true }
+            Button("Diagnostics") { diagnosing = true }
         }
     }
 

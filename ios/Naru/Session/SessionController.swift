@@ -49,6 +49,8 @@ final class SessionController {
     private(set) var cursor: Cursor?
     /// 첫 화면을 그렸는지 여부
     private(set) var shown = false
+    /// 서버가 보내는 영상의 코덱. 첫 디코더 설정이 오기 전에는 `nil`입니다.
+    private(set) var codec: VideoCodec?
     /// 세션 화면을 보이는지 여부. 인증에 성공하면 켜고, 세션이 끝나면 끕니다.
     var presented = false
 
@@ -71,6 +73,7 @@ final class SessionController {
         layout = nil
         cursor = nil
         shown = false
+        codec = nil
 
         let config = Config(
             host: host.address, port: UInt16(host.port), username: credentials.username, password: credentials.password,
@@ -204,6 +207,8 @@ final class SessionController {
         case let .cursor(width, height, hotspotX, hotspotY, rgba):
             cursor = Self.cursor(width: Int(width), height: Int(height), rgba: rgba)
                 .map { Cursor(image: $0, size: CGSize(width: Int(width), height: Int(height)), hotspot: CGPoint(x: Int(hotspotX), y: Int(hotspotY))) }
+        case let .decoder(config):
+            codec = config.codec
         case let .progress(stage):
             if case .connecting = state { state = .connecting(running.host, stage) }
         case let .closed(failure, _):
@@ -258,6 +263,7 @@ final class SessionController {
         layout = nil
         cursor = nil
         shown = false
+        codec = nil
         state = failure.map { .failed(running.host, $0) }
 
         if failure == .rejected {
