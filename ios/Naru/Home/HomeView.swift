@@ -77,6 +77,7 @@ struct HomeView: View {
             SessionView()
         }
         .onChange(of: session.state) { _, state in react(state) }
+        .focusedSceneValue(\.home, HomeActions(add: add, connect: connect))
     }
 
     private var saved: some View {
@@ -111,11 +112,8 @@ struct HomeView: View {
         .navigationTitle("All Connections")
         .searchable(text: $search)
         .toolbar {
-            Button("New Connection", systemImage: "plus") {
-                address = ""
-                adding = true
-            }
-            .disabled(connecting)
+            Button("New Connection", systemImage: "plus", action: add)
+                .disabled(connecting)
         }
     }
 
@@ -153,6 +151,11 @@ struct HomeView: View {
 
     private func isFailed(_ state: SessionController.State) -> Bool {
         if case .failed = state { true } else { false }
+    }
+
+    private func add() {
+        address = ""
+        adding = true
     }
 
     private func connect(_ host: Host) {
@@ -226,6 +229,16 @@ struct HomeView: View {
         case .other: "The connection ended unexpectedly."
         }
     }
+}
+
+/// 메뉴 막대가 연결 목록 창에 맡기는 일
+struct HomeActions {
+    let add: () -> Void
+    let connect: (Host) -> Void
+}
+
+extension FocusedValues {
+    @Entry var home: HomeActions?
 }
 
 typealias NWEndpointValue = Discovery.Endpoint

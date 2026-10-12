@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct NaruApp: App {
+    @UIApplicationDelegateAdaptor private var delegate: AppDelegate
     @State private var hosts: Hosts
     @State private var preferences: Preferences
     @State private var discovery = Discovery()
@@ -32,31 +33,24 @@ struct NaruApp: App {
             default: break
             }
         }
-        // 세션 중에는 단축키가 Mac으로 가야 하므로 메뉴 항목에 단축키를 붙이지 않습니다.
         .commands {
-            CommandMenu("Connection") {
-                Button("Show Connections") { session.presented = false }
-                    .disabled(!session.presented)
-                Button("Disconnect") { session.close() }
-                    .disabled(session.connection == nil)
-            }
-            CommandGroup(after: .pasteboard) {
-                Toggle("Use Shared Clipboard", isOn: Binding(get: { preferences.sharedClipboard }, set: { preferences.sharedClipboard = $0 }))
-                Button("Send Clipboard") { session.sendClipboard() }
-                    .disabled(session.connection == nil)
-            }
-            // Mac의 기본 단축키입니다. Control+위쪽, Control+아래쪽 화살표, F11
-            CommandGroup(after: .toolbar) {
-                Group {
-                    Button("Mission Control") { session.press([0xffe3, 0xff52]) }
-                    Button("App Windows") { session.press([0xffe3, 0xff54]) }
-                    Button("Desktop") { session.press([0xffc8]) }
-                }
-                .disabled(session.connection == nil)
-            }
-            CommandGroup(replacing: .help) {
-                Button("Keyboard Test") { probing = true }
-            }
+            NaruCommands(hosts: hosts, preferences: preferences, session: session, probing: $probing)
+        }
+    }
+}
+
+// Screen Sharing 앱처럼 Connection 메뉴를 File 메뉴 자리에 둡니다. SwiftUI는 직접 만든 메뉴를 View 뒤에 넣으므로 옮깁니다.
+final class AppDelegate: UIResponder, UIApplicationDelegate {
+    override func buildMenu(with builder: any UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        builder.remove(menu: .file)
+
+        let connection = builder.menu(for: .root)?.children
+            .compactMap { $0 as? UIMenu }
+            .first { $0.title == NaruCommands.connection }
+        if let connection {
+            builder.remove(menu: connection.identifier)
+            builder.insertSibling(connection, beforeMenu: .edit)
         }
     }
 }
