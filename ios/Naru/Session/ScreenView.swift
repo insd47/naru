@@ -4,11 +4,10 @@ import UIKit
 /// Mac 화면을 그리고 키보드와 포인터 입력을 Mac에 보냅니다.
 ///
 /// - 영상은 [Video]의 레이어를 붙여 그리고, 커서는 시스템 포인터를 숨긴 뒤 Mac이 보낸 비트맵을 포인터 자리에 그립니다.
-/// - 포인터(트랙패드, 마우스, Apple Pencil)만 Mac에 보냅니다. 손가락 터치는 Mac에 대응하는 입력이 없으므로 [onTap]으로 넘깁니다.
+/// - 포인터(트랙패드, 마우스, Apple Pencil)만 Mac에 보냅니다. 손가락 터치는 Mac에 대응하는 입력이 없으므로 받지 않습니다.
 /// - 텍스트 입력을 받는 뷰로 두어 iPadOS의 입력 언어 전환(Caps Lock, 지구본 키)이 동작하게 하고, 글자 키는 입력기로 넘기지 않고 직접 보냅니다.
 /// - 크기가 바뀌면 잠시 기다렸다가 [onResize]로 가상 디스플레이 크기를 알립니다.
 final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
-    var onTap: () -> Void = {}
     var onResize: (DisplayMode) -> Void = { _ in }
 
     var connection: Connection? {
@@ -58,10 +57,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinch))
         pinch.allowedTouchTypes = [UITouch.TouchType.indirectPointer.rawValue as NSNumber]
         addGestureRecognizer(pinch)
-
-        let tap = UITapGestureRecognizer(target: self, action: #selector(tap))
-        tap.allowedTouchTypes = [UITouch.TouchType.direct.rawValue as NSNumber]
-        addGestureRecognizer(tap)
     }
 
     required init?(coder: NSCoder) {
@@ -246,10 +241,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         case .cancelled, .failed: connection?.magnify(.cancelled, scale: scale)
         default: break
         }
-    }
-
-    @objc private func tap() {
-        onTap()
     }
 
     // MARK: 커서
