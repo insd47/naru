@@ -294,7 +294,7 @@ impl Session {
         let _ = self.session.resize(&mode.into());
     }
 
-    /// 키보드 언어를 고릅니다. 태블릿의 입력 언어가 바뀌면 BCP 47 태그(`ko-KR`)로 부릅니다.
+    /// 태블릿의 입력 언어를 알립니다. 언어가 바뀌면 BCP 47 태그(`ko-KR`)로 부릅니다.
     pub fn language(&self, language: String) {
         let _ = self.session.language(&language);
     }

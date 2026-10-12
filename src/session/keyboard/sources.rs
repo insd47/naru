@@ -48,7 +48,7 @@ pub const MODES: [Mode; 12] = [
     Mode { id: "com.apple.inputmethod.Tamil.Tamil99",                             layout: "com.apple.keylayout.Tamil99" },
 ];
 
-/// 태블릿 언어(BCP 47 태그)에 대응하는 Mac 입력 소스. 없으면 `None`이고, 세션은 ABC로 칩니다.
+/// 태블릿 언어(BCP 47 태그)에 대응하는 Mac 입력 소스. 그 배열로 글자를 바꿉니다. 없으면 `None`이고 라틴 문자를 그대로 보냅니다.
 ///
 /// - 따로 정한 대응이 있으면 그것을, 없으면 Apple이 그 언어로 표시한 배열 가운데 첫 번째를 고릅니다.
 /// - 라틴 문자로 쓰는 언어(`sr-Latn`)는 대응하지 않습니다. 태블릿 배열이 낸 글자를 그대로 보내면 됩니다.

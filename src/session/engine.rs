@@ -42,7 +42,6 @@ enum Wake {
     Retry,
     Deadline,
     Momentum,
-    Confirm,
     Command(Option<Command>),
 }
 
@@ -81,7 +80,6 @@ impl Engine {
         loop {
             let deadline = self.media.deadline();
             let momentum = self.input.deadline();
-            let confirm = self.keyboard.deadline();
             let retry = self.negotiation.deadline();
 
             let wake = tokio::select! {
@@ -92,7 +90,6 @@ impl Engine {
                 _ = sleep_until(retry) => Wake::Retry,
                 _ = sleep_until(deadline) => Wake::Deadline,
                 _ = sleep_until(momentum) => Wake::Momentum,
-                _ = sleep_until(confirm) => Wake::Confirm,
                 command = commands.recv() => Wake::Command(command),
             };
 
@@ -116,7 +113,6 @@ impl Engine {
                         self.control.send(&message).await?;
                     }
                 }
-                Wake::Confirm => self.control.send_all(self.keyboard.expire(now)).await?,
                 Wake::Command(None) => return Ok(()),
                 Wake::Command(Some(command)) => self.command(command, now).await?,
             }
@@ -217,8 +213,8 @@ impl Engine {
                         continue;
                     };
 
-                    outgoing.push(Event::InputSource(source.clone()));
-                    self.control.send_all(self.keyboard.observe(source, now)).await?;
+                    self.keyboard.observe(&source);
+                    outgoing.push(Event::InputSource(source));
                 }
                 Rect::Skipped(_) => {}
             }
@@ -255,8 +251,11 @@ impl Engine {
 
     async fn command(&mut self, command: Command, now: Instant) -> Result<()> {
         match command {
-            Command::Key { keysym, down } => self.control.send_all(self.keyboard.key(keysym, down)).await,
-            Command::Language(language) => self.control.send_all(self.keyboard.select(&language, now)).await,
+            Command::Key { keysym, down } => self.control.send(&self.keyboard.key(keysym, down)).await,
+            Command::Language(language) => {
+                self.keyboard.select(&language);
+                Ok(())
+            }
             Command::Input(event, at) => self.control.send_all(self.input.handle(event, at)).await,
             Command::Clipboard(message) => self.control.send(&message).await,
             // 화면이 멈춰 서버가 조용하면 키프레임 요청에 답하지 않습니다(2026-10-12 실측, 26초 동안 응답 없음).

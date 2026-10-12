@@ -5,8 +5,8 @@ const SECURE: u32 = 1;
 
 /// Mac의 키보드 입력 소스입니다.
 ///
-/// - 클라이언트는 `0x1a`로 지정하고, 서버는 바뀔 때마다 `0x455` 사각형으로 알립니다. 서버가 스스로 바꿀 때도 알립니다.
-/// - 라틴 문자를 칠 수 없는 입력 소스(2벌식 등)에서는 그 배열이 같은 자리에서 내는 글자를 보내야 Mac이 조합합니다.
+/// - 서버는 바뀔 때마다 `0x455` 사각형으로 알립니다.
+/// - 클라이언트가 `0x1a`로 지정할 수도 있지만 입력기가 쓰는 배열은 이전 것에 남으므로 쓰지 않습니다.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct InputSource {
     /// 입력 소스 ID(예: `com.apple.inputmethod.Korean.2SetKorean`)
@@ -29,20 +29,6 @@ impl InputSource {
             secure: flags & SECURE != 0,
         })
     }
-
-    /// 입력 소스를 지정하는 메시지(`0x1a`)를 만듭니다.
-    ///
-    /// - `1a 00, u16 길이, u16 버전(1), u16 ID 길이, ID`. 길이는 길이 필드 뒤의 바이트 수입니다.
-    /// - 유형 뒤의 패딩이 없으면 서버가 이후 메시지의 경계를 잃습니다.
-    pub fn request(id: &str) -> Vec<u8> {
-        let id = &id.as_bytes()[..id.len().min(u16::MAX as usize - 16)];
-        let mut message = vec![0x1a, 0];
-        message.extend_from_slice(&((4 + id.len()) as u16).to_be_bytes());
-        message.extend_from_slice(&1u16.to_be_bytes());
-        message.extend_from_slice(&(id.len() as u16).to_be_bytes());
-        message.extend_from_slice(id);
-        message
-    }
 }
 
 #[cfg(test)]
@@ -50,13 +36,6 @@ mod tests {
     use super::InputSource;
 
     const ABC: &str = "com.apple.keylayout.ABC";
-
-    #[test]
-    fn request_has_padding_and_lengths() {
-        let mut expected = vec![0x1a, 0, 0, 27, 0, 1, 0, 23];
-        expected.extend_from_slice(ABC.as_bytes());
-        assert_eq!(InputSource::request(ABC), expected);
-    }
 
     #[test]
     fn notice_carries_the_secure_input_flag() {

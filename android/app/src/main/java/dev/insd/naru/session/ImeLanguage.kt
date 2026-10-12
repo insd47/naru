@@ -10,7 +10,7 @@ import android.view.inputmethod.InputMethodManager
 import dev.insd.naru.TAG
 
 /**
- * 태블릿 IME의 입력 언어를 BCP 47 태그로 세션에 알립니다. 언어에 맞는 Mac 입력 소스를 고르고 글자를 그 배열대로 바꾸는 일은 세션이 합니다.
+ * 태블릿 IME의 입력 언어를 BCP 47 태그로 세션에 알립니다. 글자를 그 언어의 Mac 배열대로 바꾸는 일은 세션이 합니다.
  *
  * - 한/영 키는 One UI가 처리하므로 키가 눌린 뒤 [sync]로 다시 읽습니다. 키를 시스템이 먹는 경우에 대비해 선택한 IME 서브타입의 변경도 지켜봅니다.
  * - 같은 언어는 다시 알리지 않습니다. 메인 스레드에서만 부르십시오.
@@ -47,7 +47,7 @@ class ImeLanguage(private val context: Context, private val connection: Connecti
         connection.language(language)
     }
 
-    // 서브타입이 언어를 알리지 않으면 빈 태그입니다. 세션은 모르는 언어처럼 ABC로 칩니다.
+    // 서브타입이 언어를 알리지 않으면 빈 태그입니다. 세션은 모르는 언어처럼 라틴 문자를 그대로 보냅니다.
     private fun read(): String {
         val subtype = context.getSystemService(InputMethodManager::class.java).currentInputMethodSubtype
         return subtype?.languageTag?.takeIf { it.isNotEmpty() } ?: subtype?.let { @Suppress("DEPRECATION") it.locale } ?: ""
