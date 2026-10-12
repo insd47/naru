@@ -32,13 +32,13 @@ internal sealed class Connector
         this.root = root;
         this.window = window;
         sessions.Changed += OnChanged;
-        sessions.Failed += OnFailed;
+        sessions.Failed += Report;
     }
 
     public void Detach()
     {
         sessions.Changed -= OnChanged;
-        sessions.Failed -= OnFailed;
+        sessions.Failed -= Report;
     }
 
     /// <summary>Focuses the session window of a Mac in session, or connects with the saved password, or asks for one.</summary>
@@ -208,8 +208,8 @@ internal sealed class Connector
         }
     }
 
-    // A failure during sign-in goes to the waiting dialog. A wrong password without one asks again.
-    private async void OnFailed(Host host, Failure failure)
+    /// <summary>Shows a failure. A failure during sign-in goes to the waiting dialog, and a wrong password without one asks again.</summary>
+    public async void Report(Host host, Failure failure)
     {
         if (pending is { } waiting && waiting.HostId == host.Id)
         {

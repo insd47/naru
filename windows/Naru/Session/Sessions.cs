@@ -182,11 +182,10 @@ internal sealed class Sessions(Hosts hosts, Preferences preferences)
     // Saves apply to the store's latest entry so edits made in the list while connecting are not overwritten.
     private Host Latest(Running session) => hosts.Find(session.Host.Id) ?? session.Host;
 
-    // A wrong password deletes the saved one.
+    // A wrong password deletes the saved one. The failure is reported before the session window closes, so the app is not left without a window.
     private void End(Running session, Event.Closed closed)
     {
         running.Remove(session.Host.Id);
-        session.Window?.Ended();
 
         if (closed.Failure is Failure.Rejected)
         {
@@ -199,5 +198,7 @@ internal sealed class Sessions(Hosts hosts, Preferences preferences)
         {
             Failed?.Invoke(session.Host, failure);
         }
+
+        session.Window?.Ended();
     }
 }

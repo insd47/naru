@@ -17,6 +17,8 @@ public sealed partial class MainWindow : Window
 {
     private readonly Connector connector;
 
+    internal Connector Connector => connector;
+
     public MainWindow()
     {
         InitializeComponent();

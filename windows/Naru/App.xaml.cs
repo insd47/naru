@@ -24,7 +24,18 @@ public partial class App : Application
         Hosts = new Hosts();
         Preferences = new Preferences();
         Sessions = new Sessions(Hosts, Preferences);
+        Sessions.Failed += OnFailed;
         ShowConnections();
+    }
+
+    // The connection window reports failures while it is open. Without it, it reopens to report this one.
+    private void OnFailed(Host host, Core.Failure failure)
+    {
+        if (window == null)
+        {
+            ShowConnections();
+            window!.Connector.Report(host, failure);
+        }
     }
 
     /// <summary>Brings the connection window forward, reopening it if it was closed.</summary>
