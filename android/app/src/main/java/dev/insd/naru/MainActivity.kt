@@ -427,9 +427,14 @@ class MainActivity : ComponentActivity() {
         naru.hosts.save(merged)
     }
 
+    // Server keys are stored per address, so the key stays while another saved Mac uses the same address.
     private fun delete(host: Host) {
         naru.hosts.remove(host)
         naru.keychain.remove(host.id)
+
+        if (naru.hosts.list.none { it.address == host.address }) {
+            naru.serverKeys.forget(host)
+        }
     }
 
     private fun message(failure: Failure, host: Host): String = when (failure) {

@@ -213,9 +213,14 @@ struct HomeView: View {
         hosts.save(latest)
     }
 
+    // Server keys are stored per address, so the key stays while another saved Mac uses the same address.
     private func delete(_ host: Host) {
         hosts.remove(host)
         Keychain.remove(host.id)
+
+        if !hosts.list.contains(where: { $0.address == host.address }) {
+            ServerKeys.forget(host)
+        }
     }
 
     private func message(_ failure: Failure, host: Host) -> String {
