@@ -249,7 +249,13 @@ async fn server_init(stream: &mut TcpStream) -> Result<String> {
 
     let mut name = vec![0; len];
     stream.read_exact(&mut name).await?;
-    Ok(String::from_utf8_lossy(&name).into_owned())
+    Ok(computer_name(&name))
+}
+
+// 이름 칸에는 NUL을 섞은 이진 머리와 NUL 채움이 컴퓨터 이름 앞에 붙어 옵니다(2026-10-12 macOS 27 실측). 마지막 NUL 뒤가 이름입니다.
+fn computer_name(bytes: &[u8]) -> String {
+    let start = bytes.iter().rposition(|&byte| byte == 0).map_or(0, |at| at + 1);
+    String::from_utf8_lossy(&bytes[start..]).into_owned()
 }
 
 // ServerInit 뒤의 세션 선택 프롬프트를 확인합니다. 프롬프트가 아니면 읽은 바이트를 돌려줍니다.
@@ -324,4 +330,20 @@ async fn within<T, E: Into<Error>>(future: impl Future<Output = Result<T, E>>) -
         .await
         .map_err(|_| Error::Timeout)?
         .map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::computer_name;
+
+    #[test]
+    fn computer_name_skips_the_binary_header() {
+        let mut bytes = vec![0, 0, 0, 0, 0, 0x52, 0xa1, 0xb2, 0xc3, 0x2f, 0xd4];
+        bytes.extend([0; 12]);
+        bytes.extend("황인성’s Mac mini".as_bytes());
+
+        assert_eq!(computer_name(&bytes), "황인성’s Mac mini");
+        assert_eq!(computer_name(b"Mac mini"), "Mac mini");
+        assert_eq!(computer_name(&[0x52, 0]), "");
+    }
 }
