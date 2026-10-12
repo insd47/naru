@@ -38,9 +38,13 @@ class Clipboard(private val context: Context, private val connection: Connection
             return
         }
 
+        if (!connection.clipboard(text)) {
+            Log.w(TAG, "클립보드 ${text.length}자는 너무 커서 보내지 않습니다")
+            return
+        }
+
         last = text
-        Log.i(TAG, "클립보드 ${text.length}자를 Mac에 보냅니다")
-        connection.clipboard(text)
+        Log.i(TAG, "클립보드 ${text.length}자를 Mac에 보냈습니다")
     }
 
     // Android는 포커스를 가진 앱에만 클립보드를 보여 주므로, 화면이 포커스를 가진 동안에만 부릅니다.

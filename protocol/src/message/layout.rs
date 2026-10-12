@@ -11,30 +11,13 @@ pub struct Layout {
     pub logical: (u16, u16),
     /// 디코딩된 영상의 크기. 포인터 좌표도 이 좌표계를 씁니다.
     pub pixels: (u16, u16),
-    pub displays: Vec<Display>,
-}
-
-/// 캔버스 안의 디스플레이 하나입니다.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Display {
-    pub id: u32,
-    /// 가로, 세로 배율. 2는 Retina입니다.
-    pub scale: (f64, f64),
-    pub logical: Area,
-    pub pixels: Area,
-}
-
-/// 캔버스 안의 영역. 끝 좌표는 포함하지 않습니다.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Area {
-    pub x0: u16,
-    pub y0: u16,
-    pub x1: u16,
-    pub y1: u16,
 }
 
 impl Layout {
     /// 레이아웃 사각형의 본문(`u16` 길이를 뗀 것)을 해석합니다.
+    ///
+    /// - 디스플레이마다 배율 두 개, ID, 논리 영역과 픽셀 영역(각각 y0, x0, y1, x1 순)이 56바이트로 이어집니다.
+    ///   캔버스 크기만 쓰므로 디스플레이 목록은 길이만 확인하고 건너뜁니다.
     pub fn parse(body: &[u8]) -> Result<Self> {
         let mut reader = Reader::new(body, "디스플레이 레이아웃");
         reader.skip(2)?;
@@ -49,43 +32,14 @@ impl Layout {
             return Err(Error::Malformed("디스플레이 레이아웃"));
         }
 
-        let displays = (0..count)
-            .map(|_| {
-                let mut entry = Reader::new(reader.bytes(DISPLAY_BYTES)?, "디스플레이 레이아웃");
-                let scale = (entry.f64()?, entry.f64()?);
-                let id = entry.u32()?;
-
-                Ok(Display {
-                    id,
-                    scale,
-                    logical: Area::read(&mut entry)?,
-                    pixels: Area::read(&mut entry)?,
-                })
-            })
-            .collect::<Result<_>>()?;
-
-        Ok(Self {
-            logical,
-            pixels,
-            displays,
-        })
-    }
-}
-
-impl Area {
-    // 서버는 영역을 y0, x0, y1, x1 순서로 보냅니다.
-    fn read(reader: &mut Reader) -> Result<Self> {
-        let y0 = reader.u16()?;
-        let x0 = reader.u16()?;
-        let y1 = reader.u16()?;
-        let x1 = reader.u16()?;
-        Ok(Self { x0, y0, x1, y1 })
+        reader.skip(usize::from(count) * DISPLAY_BYTES)?;
+        Ok(Self { logical, pixels })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Area, Layout};
+    use super::Layout;
 
     // 논리 1512×982, 픽셀 3024×1964인 Retina 디스플레이 하나의 레이아웃입니다.
     fn body() -> Vec<u8> {
@@ -111,21 +65,9 @@ mod tests {
     }
 
     #[test]
-    fn areas_arrive_y_first_and_are_reordered() {
+    fn canvas_sizes_are_read_and_displays_skipped() {
         let layout = Layout::parse(&body()).unwrap();
-
-        assert_eq!(layout.pixels, (3024, 1964));
-        assert_eq!(layout.displays[0].scale, (2.0, 2.0));
-
-        assert_eq!(
-            layout.displays[0].pixels,
-            Area {
-                x0: 0,
-                y0: 0,
-                x1: 3024,
-                y1: 1964
-            }
-        );
+        assert_eq!((layout.logical, layout.pixels), ((1512, 982), (3024, 1964)));
     }
 
     #[test]

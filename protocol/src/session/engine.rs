@@ -127,6 +127,7 @@ impl Engine {
 
     // 레코드 계층이 켜진 직후의 요청입니다. 오퍼를 보낸 뒤 전체 영역을 비증분으로 요청해 TCP 쪽 송신을 깨웁니다.
     async fn start(&mut self, outgoing: &mut Vec<Event>) -> Result<()> {
+        // 인코딩 목록은 평문 프렐류드에서 보냈어도 레코드 계층에서 한 번 더 보냅니다. 원 클라이언트의 순서입니다.
         self.control.send(&client::set_encodings()).await?;
         self.control.send(&client::AUTO_CLIPBOARD).await?;
         self.control.send(&self.negotiation.start(Instant::now())).await?;
@@ -257,7 +258,7 @@ impl Engine {
             Command::Key { keysym, down } => self.control.send_all(self.keyboard.key(keysym, down)).await,
             Command::Language(language) => self.control.send_all(self.keyboard.select(language, now)).await,
             Command::Input(event, at) => self.control.send_all(self.input.handle(event, at)).await,
-            Command::Clipboard(text) => self.control.send(&clipboard::message(&text)).await,
+            Command::Clipboard(message) => self.control.send(&message).await,
             // 화면이 멈춰 서버가 조용하면 키프레임 요청에 답하지 않습니다(2026-10-12 실측, 26초 동안 응답 없음).
             // 이때는 오퍼를 다시 보냅니다. 서버는 새 스트림을 열며 화면이 멈춰 있어도 설정과 키프레임을 보냅니다.
             Command::Keyframe if !self.media.active(now) => match self.negotiation.reoffer(now) {

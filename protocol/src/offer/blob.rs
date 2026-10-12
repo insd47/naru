@@ -125,8 +125,4 @@ pub struct VideoAnswer {
     pub width: Option<u32>,
     #[prost(uint32, optional, tag = "5")]
     pub height: Option<u32>,
-    #[prost(uint32, optional, tag = "6")]
-    pub tiles: Option<u32>,
-    #[prost(uint32, optional, tag = "7")]
-    pub ltr: Option<u32>,
 }

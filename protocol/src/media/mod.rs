@@ -7,7 +7,7 @@ pub use streams::{Routed, Streams};
 
 mod assembler;
 mod audio;
-pub mod h264;
+mod h264;
 pub mod rtcp;
 mod rtp;
 mod srtp;

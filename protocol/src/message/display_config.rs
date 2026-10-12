@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
 
 // 서버는 이보다 큰 픽셀 크기를 받으면 임의의 크기로 바꿉니다.
-pub const MAX_PIXELS: (u32, u32) = (3840, 2160);
+const MAX_PIXELS: (u32, u32) = (3840, 2160);
 
 const NAME_BYTES: usize = 120;
 const DESCRIPTOR_BYTES: usize = 0x9c;

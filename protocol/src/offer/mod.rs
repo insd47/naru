@@ -50,7 +50,8 @@ const AUDIO_TIERS: [(u32, u32, Option<u32>); 10] = [
 
 const CLIENT_NAME: &str = "Naru";
 
-// 응답의 압축을 풀었을 때의 크기 한도입니다.
+// 응답은 프레임버퍼 갱신 본문 안의 바이너리 plist입니다. 압축을 풀었을 때의 크기 한도를 둡니다.
+const PLIST_MARKER: &[u8] = b"bplist00";
 const MAX_ANSWER_BYTES: u64 = 1 << 20;
 
 /// 한 세션의 미디어 오퍼입니다. 재전송과 해상도 변경 때 같은 오퍼를 다시 보냅니다.
@@ -83,8 +84,6 @@ pub struct MediaKeys {
 pub struct Answer {
     /// 캔버스 크기(픽셀). 서버의 인코더가 아직 준비되지 않으면 없습니다.
     pub size: Option<(u32, u32)>,
-    /// 프레임당 타일 수. 가끔 비거나 틀리므로 실제로 관측한 SSRC 수를 우선합니다.
-    pub tiles: Option<u32>,
 }
 
 impl Offer {
@@ -110,11 +109,11 @@ impl Offer {
         let video = self.plist(MODE_VIDEO, self.video_blob());
 
         let mut message = vec![0x1c, 0];
-        message.extend_from_slice(&((audio.len() + video.len() + 0xd8) as u16).to_be_bytes());
+        message.extend_from_slice(&length(audio.len() + video.len() + 0xd8).to_be_bytes());
         message.extend_from_slice(&VERSION.to_be_bytes());
         message.extend_from_slice(&FLAGS.to_be_bytes());
-        message.extend_from_slice(&(audio.len() as u16).to_be_bytes());
-        message.extend_from_slice(&(video.len() as u16).to_be_bytes());
+        message.extend_from_slice(&length(audio.len()).to_be_bytes());
+        message.extend_from_slice(&length(video.len()).to_be_bytes());
         message.extend_from_slice(&[0; 6]);
         message.extend_from_slice(&self.session_id);
         message.extend_from_slice(&self.keys.audio_send);
@@ -214,12 +213,10 @@ impl Offer {
 impl Answer {
     /// 미디어 스트림 사각형의 본문에서 비디오 응답을 찾습니다. 응답이 없으면 `None`입니다.
     pub fn find(body: &[u8]) -> Option<Self> {
-        const MARKER: &[u8] = b"bplist00";
-
         // 본문 안에 plist가 여러 개이거나 plist 뒤에 다른 바이트가 이어질 수 있습니다.
         // 바이너리 plist는 끝의 32바이트 트레일러로 해석하므로, 표식마다 트레일러로 보이는 끝 위치를 찾아 시도합니다.
         (0..body.len())
-            .filter(|&start| body[start..].starts_with(MARKER))
+            .filter(|&start| body[start..].starts_with(PLIST_MARKER))
             .flat_map(|start| trailer_ends(&body[start..]).map(move |end| &body[start..start + end]))
             .find_map(Self::parse)
     }
@@ -244,7 +241,6 @@ impl Answer {
                 .width
                 .zip(video.height)
                 .filter(|&(width, height)| width > 0 && height > 0),
-            tiles: video.tiles,
         })
     }
 }
@@ -259,6 +255,11 @@ fn trailer_ends(bytes: &[u8]) -> impl Iterator<Item = usize> + '_ {
             && (1..=8).contains(&trailer[7])
             && offsets < (end - 32) as u64
     })
+}
+
+// 오퍼의 길이 필드는 `u16`입니다. 오퍼는 이 크레이트가 정한 고정 내용이라 넘치지 않습니다.
+fn length(len: usize) -> u16 {
+    u16::try_from(len).expect("오퍼는 64KiB보다 작다")
 }
 
 fn random<const N: usize>() -> [u8; N] {
@@ -395,8 +396,6 @@ mod tests {
             video: Some(VideoAnswer {
                 width: Some(2560),
                 height: Some(1600),
-                tiles: Some(1),
-                ltr: Some(0),
             }),
         };
 
@@ -417,7 +416,6 @@ mod tests {
             Answer::find(&body),
             Some(Answer {
                 size: Some((2560, 1600)),
-                tiles: Some(1),
             })
         );
     }

@@ -6,7 +6,7 @@
 use crate::error::{Error, Result};
 use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority};
 use crate::message::gesture::Phase;
-use crate::message::{CursorImage, DisplayConfig, InputSource, Layout};
+use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, clipboard};
 use control::Control;
 use engine::Engine;
 pub use keyboard::Language;
@@ -43,11 +43,11 @@ pub struct Config {
     pub known_key: Option<Vec<u8>>,
     /// 가상 디스플레이 설정. 보내면 Mac의 실제 화면이 가려지고, 보내지 않으면 실제 화면을 그대로 받습니다.
     pub display: Option<DisplayConfig>,
-    /// 오디오 수신 여부. 디코더가 준비되기 전까지는 끕니다.
+    /// 소리를 받을지 여부. AAC-ELD 디코더가 없는 기기에서는 끕니다.
     pub audio: bool,
     /// 패킷을 잃었을 때 지연과 화질 중 무엇을 우선할지
     pub priority: Priority,
-    /// 로컬 UDP 포트(오디오, 비디오). 기본값은 서버와 같은 번호입니다.
+    /// 로컬 UDP 포트(오디오, 비디오). 기본값은 서버와 같은 번호입니다. 서버와 같은 기기에서 시험할 때처럼 그 번호를 쓸 수 없을 때만 정합니다.
     pub local_ports: Option<(u16, u16)>,
 }
 
@@ -208,7 +208,7 @@ enum Command {
     /// 입력과 그 입력이 일어난 시각. 관성 속도는 엔진이 처리한 시각이 아니라 이 시각으로 계산합니다.
     Input(input::Event, Instant),
     Language(Language),
-    Clipboard(String),
+    Clipboard(Vec<u8>),
     Keyframe,
     Resize(Vec<u8>),
 }
@@ -262,9 +262,9 @@ impl Session {
         self.input(input::Event::Magnify { phase, scale })
     }
 
-    /// Mac의 클립보드에 텍스트를 넣습니다.
-    pub fn clipboard(&self, text: String) -> Result<()> {
-        self.send(Command::Clipboard(text))
+    /// Mac의 클립보드에 텍스트를 넣습니다. 받을 때와 같은 크기 한도를 넘으면 보내지 않고 `TooLong`을 반환합니다.
+    pub fn clipboard(&self, text: &str) -> Result<()> {
+        self.send(Command::Clipboard(clipboard::message(text)?))
     }
 
     /// 키프레임을 요청합니다. 디코더를 새로 만들었거나 프레임을 버렸을 때 부릅니다. 키프레임이 오기 전의 프레임은 호출자가 버립니다.

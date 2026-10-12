@@ -214,6 +214,7 @@ impl Input {
         self.remainder = (total.0 - points.0, total.1 - points.1);
 
         Scroll {
+            // 실수에서 정수로의 `as`는 범위를 넘으면 끝에서 멈춥니다.
             points: (points.0 as i32, points.1 as i32),
             lines: (delta.0 / POINTS_PER_LINE, delta.1 / POINTS_PER_LINE),
             phase,

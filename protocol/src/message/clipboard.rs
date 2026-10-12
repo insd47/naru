@@ -64,14 +64,22 @@ pub fn text(message: &[u8]) -> Result<Option<String>> {
     Ok(None)
 }
 
-/// 텍스트 항목 하나로 된 클립보드 메시지를 만듭니다.
-pub fn message(text: &str) -> Vec<u8> {
-    let mut content = Vec::with_capacity(text.len() + TEXT.len() + 24);
+/// 텍스트 항목 하나로 된 클립보드 메시지를 만듭니다. 받을 때와 같은 크기 한도를 넘으면 `TooLong`입니다.
+pub fn message(text: &str) -> Result<Vec<u8>> {
+    let len = text.len() + TEXT.len() + 24;
+
+    if len > MAX_CONTENT_BYTES {
+        return Err(Error::TooLong {
+            what: "클립보드", len
+        });
+    }
+
+    let mut content = Vec::with_capacity(len);
     content.extend_from_slice(&1u32.to_be_bytes());
-    content.extend_from_slice(&(TEXT.len() as u32).to_be_bytes());
+    content.extend_from_slice(&length(TEXT.len()));
     content.extend_from_slice(TEXT.as_bytes());
     content.extend_from_slice(&[0; 8]);
-    content.extend_from_slice(&(text.len() as u32).to_be_bytes());
+    content.extend_from_slice(&length(text.len()));
     content.extend_from_slice(text.as_bytes());
 
     // Apple 클라이언트처럼 sync flush로 끝내고 스트림 종료 블록은 붙이지 않습니다. 종료 블록이 있으면 Mac이 내용을 버리고 클립보드만 비웁니다.
@@ -90,10 +98,15 @@ pub fn message(text: &str) -> Vec<u8> {
     }
 
     let mut message = vec![0x1f, 0, 0, 0, 0, 0, 0, 0];
-    message.extend_from_slice(&(content.len() as u32).to_be_bytes());
-    message.extend_from_slice(&(compressed.len() as u32).to_be_bytes());
+    message.extend_from_slice(&length(content.len()));
+    message.extend_from_slice(&length(compressed.len()));
     message.extend_from_slice(&compressed);
-    message
+    Ok(message)
+}
+
+// 길이 필드는 `u32`입니다. 내용은 [`MAX_CONTENT_BYTES`] 안으로 확인했고, 압축은 그보다 크게 늘지 않습니다.
+fn length(len: usize) -> [u8; 4] {
+    u32::try_from(len).expect("클립보드 크기 한도 안이다").to_be_bytes()
 }
 
 fn string<'a>(reader: &mut Reader<'a>) -> Result<&'a [u8]> {
@@ -107,13 +120,16 @@ mod tests {
 
     #[test]
     fn text_round_trips_through_a_message() {
-        assert_eq!(text(&message("안녕, Mac")).unwrap().as_deref(), Some("안녕, Mac"));
+        assert_eq!(
+            text(&message("안녕, Mac").unwrap()).unwrap().as_deref(),
+            Some("안녕, Mac")
+        );
     }
 
     // 2026-10-11 캡처의 Apple 클라이언트도 압축 본문을 sync flush(`00 00 ff ff`)로 끝냈습니다.
     #[test]
     fn content_ends_with_a_sync_flush() {
-        assert!(message("안녕, Mac").ends_with(&[0, 0, 0xff, 0xff]));
+        assert!(message("안녕, Mac").unwrap().ends_with(&[0, 0, 0xff, 0xff]));
     }
 
     #[test]

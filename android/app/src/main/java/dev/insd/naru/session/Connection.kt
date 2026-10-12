@@ -43,7 +43,8 @@ class Connection(config: Config, private val listener: Listener) {
 
     fun magnify(phase: Phase, scale: Float) = session.magnify(phase, scale)
 
-    fun clipboard(text: String) = session.clipboard(text)
+    /** 보냈으면 `true`. 크기 한도를 넘으면 보내지 않고 `false`입니다. */
+    fun clipboard(text: String): Boolean = session.clipboard(text)
 
     fun language(language: Language) = session.language(language)
 

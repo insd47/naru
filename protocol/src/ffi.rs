@@ -38,14 +38,19 @@ pub struct Config {
 }
 
 impl From<Config> for crate::Config {
+    // 코어 설정에 필드가 늘면 여기서 컴파일 오류가 나도록 빠짐없이 적습니다.
     fn from(config: Config) -> Self {
-        let mut core = Self::new(config.host, config.username, config.password);
-        core.port = config.port;
-        core.known_key = config.known_key;
-        core.display = config.display.map(Into::into);
-        core.audio = config.audio;
-        core.priority = config.priority;
-        core
+        Self {
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            password: config.password,
+            known_key: config.known_key,
+            display: config.display.map(Into::into),
+            audio: config.audio,
+            priority: config.priority,
+            local_ports: None,
+        }
     }
 }
 
@@ -276,8 +281,9 @@ impl Session {
         let _ = self.session.magnify(phase, scale);
     }
 
-    pub fn clipboard(&self, text: String) {
-        let _ = self.session.clipboard(text);
+    /// Mac의 클립보드에 텍스트를 넣습니다. 받을 때와 같은 크기 한도를 넘으면 보내지 않고 `false`를 반환합니다.
+    pub fn clipboard(&self, text: String) -> bool {
+        self.session.clipboard(&text).is_ok()
     }
 
     /// 키프레임을 요청합니다. 디코더를 새로 만들었거나 입력이 밀려 프레임을 버렸을 때 부릅니다.

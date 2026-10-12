@@ -4,12 +4,13 @@
 //! - 나머지 모듈은 I/O 없는 프로토콜 구현입니다. 서버가 보낸 길이는 모두 상한을 확인하며, 형식이 맞지 않으면 패닉하지 않고 에러를 반환합니다.
 //! - `unsafe`는 UniFFI가 만드는 FFI 경계(`ffi`)에만 허용합니다.
 //! - `record`, `RtpPacket`, `SrtpContext`는 서버 역할을 하는 통합 테스트가 레코드와 미디어를 만드는 데 쓰는 원시 요소입니다.
+//! - `auth`는 probe가 인증 없이 핸드셰이크만 시험할 때 RFB 버전 문자열을 씁니다.
 #![deny(unsafe_code)]
 
 pub use error::{Error, Result};
 pub use media::{AccessUnit, AudioFrame, DecoderConfig, Priority, RtpPacket, SrtpContext};
 pub use message::gesture::Phase;
-pub use message::{Area, CursorImage, Display, DisplayConfig, InputSource, Layout, Mode};
+pub use message::{CursorImage, DisplayConfig, InputSource, Layout, Mode};
 pub use session::{Config, Event, Language, MediaStats, Session, Stage};
 
 pub mod auth;

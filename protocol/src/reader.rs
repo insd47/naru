@@ -50,10 +50,6 @@ impl<'a> Reader<'a> {
         self.array().map(u64::from_be_bytes)
     }
 
-    pub fn f64(&mut self) -> Result<f64> {
-        self.array().map(f64::from_be_bytes)
-    }
-
     // 길이 접두 뒤의 본문을 읽습니다. 길이가 `max`를 넘으면 할당하지 않고 실패합니다.
     pub fn prefixed(&mut self, len: usize, max: usize) -> Result<&'a [u8]> {
         if len > max {

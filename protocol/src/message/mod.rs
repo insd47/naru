@@ -5,14 +5,14 @@
 pub use cursor::{CursorImage, Cursors};
 pub use display_config::{DisplayConfig, Mode};
 pub use input_source::InputSource;
-pub use layout::{Area, Display, Layout};
+pub use layout::Layout;
 pub use server::{Messages, Rect, ServerMessage};
 
 pub mod client;
 pub mod clipboard;
 mod cursor;
 mod display_config;
-pub mod encoding;
+mod encoding;
 pub mod gesture;
 mod input_source;
 mod layout;
