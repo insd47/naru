@@ -45,7 +45,7 @@ class Discovery(context: Context) {
 
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                 Log.w(TAG, "네트워크 찾기를 시작하지 못했습니다: $errorCode")
-                listener = null
+                main.post { if (listener === this) listener = null }
             }
 
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
