@@ -1,30 +1,30 @@
-//! H.264 RTP 페이로드(RFC 6184, 비인터리브 모드)와 디코더 설정입니다.
+//! H.264 RTP payload (RFC 6184, non-interleaved mode) and decoder config.
 //!
-//! - 서버는 SPS와 PPS를 별도 NAL로 보내지 않고, 첫 바이트가 `0x92`인 설정 패킷에 ISO BMFF `avcC` 상자로 담아 보냅니다. 이 바이트는 금지 비트가 켜져 있어 유효한 NAL 머리가 아니므로, NAL 유형보다 먼저 확인합니다.
-//! - 키프레임이 IDR(유형 5)이 아니라 유형 1 NAL 안의 I 슬라이스로 올 수 있습니다.
+//! - The server doesn't send SPS and PPS as separate NAL units; it sends them as an ISO BMFF `avcC` box in a config packet whose first byte is `0x92`. That byte has the forbidden bit set and isn't a valid NAL header, so it is checked before the NAL type.
+//! - A keyframe can arrive as an I slice inside a type 1 NAL unit instead of an IDR (type 5).
 use super::unit::{DecoderConfig, VideoCodec};
 use crate::error::Result;
 use crate::reader::Reader;
 
-/// 디코더 설정 패킷의 첫 바이트
+/// First byte of a decoder config packet
 pub const CONFIG_MARKER: u8 = 0x92;
 
 const NAL_SLICE: u8 = 1;
 const NAL_IDR: u8 = 5;
-/// SPS NAL 유형
+/// SPS NAL type
 pub const NAL_SPS: u8 = 7;
 const NAL_STAP_A: u8 = 24;
 const NAL_FU_A: u8 = 28;
 const NAL_FU_B: u8 = 29;
 
 impl DecoderConfig {
-    /// H.264 설정 패킷의 페이로드에서 `avcC` 상자를 찾아 디코더 설정을 만듭니다. 설정 패킷이 아니거나 형식이 맞지 않으면 `None`입니다.
+    /// Builds a decoder config from the `avcC` box in an H.264 config packet's payload. Returns `None` if it isn't a config packet or is malformed.
     pub fn from_h264(payload: &[u8]) -> Option<Self> {
         if payload.first() != Some(&CONFIG_MARKER) {
             return None;
         }
 
-        // `avc1` 샘플 항목 안의 `avcC` 상자를 찾습니다. 상자 크기는 유형 앞의 4바이트입니다.
+        // Finds the `avcC` box inside the `avc1` sample entry. The box size is the 4 bytes before the type.
         let search_from = find(payload, b"avc1").unwrap_or(0);
         let at = search_from + find(&payload[search_from..], b"avcC")?;
         let size = u32::from_be_bytes(payload.get(at.checked_sub(4)?..at)?.try_into().ok()?) as usize;
@@ -59,7 +59,7 @@ impl DecoderConfig {
     }
 }
 
-/// 한 접근 단위의 페이로드들을 NAL 목록으로 되돌립니다. 조각이 빠졌거나 형식이 맞지 않으면 `None`입니다.
+/// Turns one access unit's payloads back into a list of NAL units. Returns `None` if a fragment is missing or malformed.
 pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<Vec<Vec<u8>>> {
     let mut nals = Vec::new();
     let mut fragment: Option<Vec<u8>> = None;
@@ -106,7 +106,7 @@ pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<V
     fragment.is_none().then_some(nals)
 }
 
-/// IDR이거나, 첫 슬라이스의 `slice_type`이 I(2 또는 7)이면 키프레임입니다.
+/// An access unit is a keyframe if it is an IDR or its first slice's `slice_type` is I (2 or 7).
 pub fn is_keyframe(nals: &[Vec<u8>]) -> bool {
     let Some(slice) = nals
         .iter()
@@ -119,14 +119,14 @@ pub fn is_keyframe(nals: &[Vec<u8>]) -> bool {
         return true;
     }
 
-    // 슬라이스 머리의 first_mb_in_slice, slice_type은 모두 지수 골롬 부호입니다.
+    // first_mb_in_slice and slice_type in the slice header are both Exp-Golomb coded.
     let mut bits = Bits::new(&slice[1..]);
     bits.ue()
         .and_then(|_| bits.ue())
         .is_some_and(|slice_type| slice_type % 5 == 2)
 }
 
-// `u16` 길이 접두가 붙은 NAL `count`개를 읽습니다.
+// Reads `count` NAL units, each with a `u16` length prefix.
 fn units(reader: &mut Reader, count: u8) -> Result<Vec<Vec<u8>>> {
     (0..count)
         .map(|_| {
@@ -140,7 +140,7 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|window| window == needle)
 }
 
-// RBSP 비트를 앞에서부터 읽습니다. 에뮬레이션 방지 바이트(00 00 03의 03)는 건너뜁니다.
+// Reads RBSP bits front to back, skipping emulation prevention bytes (the 03 in 00 00 03).
 struct Bits<'a> {
     bytes: &'a [u8],
     at: usize,
@@ -209,7 +209,7 @@ mod tests {
     const SPS: &[u8] = &[0x67, 0x64, 0x00, 0x34, 0xac];
     const PPS: &[u8] = &[0x68, 0xee, 0x3c, 0x80];
 
-    // 설정 패킷: 표식 뒤에 임의의 머리, `avc1` 항목, 그 안의 `avcC` 상자가 옵니다.
+    // Config packet: the marker, an arbitrary header, then the `avc1` entry containing the `avcC` box.
     fn config_packet() -> Vec<u8> {
         let mut record = vec![1, 0x64, 0x00, 0x34, 0xff, 0xe1];
         record.extend_from_slice(&(SPS.len() as u16).to_be_bytes());
@@ -274,8 +274,8 @@ mod tests {
 
     #[test]
     fn emulation_prevention_bytes_are_skipped() {
-        // first_mb_in_slice = 2^23 − 1이라 RBSP 00 00 01 00 00 00 e0에 방지 바이트가 두 번 들어간 경우입니다.
-        // 방지 바이트를 건너뛰어야 slice_type 2('011')를 읽습니다.
+        // first_mb_in_slice = 2^23 - 1 gives the RBSP 00 00 01 00 00 00 e0, which needs two emulation prevention bytes.
+        // Only by skipping them does the reader get slice_type 2 ('011').
         let nal = vec![0x41, 0, 0, 3, 1, 0, 0, 3, 0, 0xe0];
         assert!(is_keyframe(&[nal]));
     }

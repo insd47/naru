@@ -2,7 +2,7 @@ use super::encoding;
 use crate::error::{Error, Result};
 use crate::reader::Reader;
 
-// 한 메시지의 크기 한도입니다. 가장 큰 메시지는 클립보드이며, 커서 이미지는 압축해서 수십 KiB입니다.
+// Per-message size limits. The clipboard is the largest message; a compressed cursor image is tens of KiB.
 const MAX_CLIPBOARD_BYTES: usize = 32 << 20;
 const MAX_CURSOR_BYTES: usize = 1 << 20;
 const MAX_STATUS_BYTES: usize = 1 << 10;
@@ -11,52 +11,52 @@ const MAX_PENDING_BYTES: usize = MAX_CLIPBOARD_BYTES + (1 << 20);
 
 const STATUS_CLIPBOARD_CHANGED: u16 = 2;
 
-/// 서버가 제어 채널로 보내는 메시지입니다.
+/// A message the server sends on the control channel.
 #[derive(Debug, PartialEq)]
 pub enum ServerMessage {
-    /// 프레임버퍼 갱신. High Performance에서는 화면 픽셀 대신 커서, 레이아웃, 미디어 응답 같은 사각형을 싣습니다.
+    /// Framebuffer update. In High Performance mode it carries rectangles such as cursor, layout, and media answers instead of screen pixels.
     FramebufferUpdate(Vec<Rect>),
-    /// Mac의 클립보드가 바뀌었다는 알림(상태 코드 2). `client::clipboard_request`로 내용을 요청합니다.
+    /// Notice that the Mac's clipboard changed (status code 2). Request the content with `client::clipboard_request`.
     ClipboardChanged,
-    /// 그 밖의 상태 알림. 12는 약 2초 주기 심장박동, 11은 사용자 세션 변경입니다.
+    /// Any other status notice, such as the periodic heartbeat (12)
     Status(u16),
-    /// 클립보드 전송 메시지 전체. `clipboard::text`로 텍스트를 꺼냅니다.
+    /// A whole clipboard transfer message. Extract the text with `clipboard::text`.
     Clipboard(Vec<u8>),
-    /// 표준 RFB의 벨과 ClientCutText 같은, 처리하지 않는 메시지
+    /// A message that is not handled, such as standard RFB Bell and ServerCutText
     Ignored(u8),
 }
 
-/// 프레임버퍼 갱신에 실린 사각형입니다.
+/// A rectangle carried in a framebuffer update.
 #[derive(Debug, PartialEq)]
 pub enum Rect {
-    /// 레코드 계층의 키 교체. `RecordKeys::unwrap`으로 풉니다.
+    /// Record layer key exchange. Unwrap it with `RecordKeys::unwrap`.
     KeyExchange([u8; 36]),
-    /// 커서 모양. 사각형의 위치는 핫스팟, 크기는 커서 크기입니다.
+    /// Cursor shape. The rectangle's position is the hotspot and its size is the cursor size.
     Cursor {
         hotspot: (u16, u16),
         size: (u16, u16),
         cache_id: u32,
-        /// zlib으로 압축한 이미지. 비어 있으면 이미 받은 `cache_id`의 모양으로 바꾸라는 뜻입니다.
+        /// zlib-compressed image. Empty means switch to the already received shape for `cache_id`.
         data: Vec<u8>,
     },
-    /// 디스플레이 레이아웃 본문. `Layout::parse`로 해석합니다.
+    /// Display layout body. Parse it with `Layout::parse`.
     Layout(Vec<u8>),
-    /// 미디어 스트림 사각형 본문. 미디어 오퍼의 응답이 실려 옵니다.
+    /// Media stream rectangle body, which carries the answer to the media offer
     MediaStream(Vec<u8>),
-    /// Mac의 현재 입력 소스. `u16` 길이 뒤의 본문입니다.
+    /// The Mac's current input source, as the body after the `u16` length
     InputSource(Vec<u8>),
-    /// 길이를 알고 건너뛴 사각형의 인코딩
+    /// Encoding of a rectangle with a known length that was skipped
     Skipped(i32),
-    /// 길이를 알 수 없는 인코딩. 이 사각형부터 메시지 끝까지를 `rest`로 남기고 순회를 멈춥니다.
+    /// Encoding with an unknown length. Everything from this rectangle to the end of the message is kept in `rest`, and the walk stops.
     Unknown { encoding: i32, rest: Vec<u8> },
 }
 
 impl ServerMessage {
-    /// 버퍼의 앞에서 메시지 하나를 해석해, 메시지와 소비한 길이를 반환합니다. 메시지가 아직 다 오지 않았으면 `None`입니다.
+    /// Parses one message from the front of the buffer, returning it with the consumed length, or `None` when it has not fully arrived.
     ///
-    /// - 형식을 알 수 없는 메시지와 사각형은 경계를 알 수 없으므로 버퍼의 나머지를 모두 소비합니다.
+    /// - An unknown message or rectangle has no known boundary, so it consumes the rest of the buffer.
     pub fn parse(buf: &[u8]) -> Result<Option<(Self, usize)>> {
-        let mut reader = Reader::new(buf, "제어 메시지");
+        let mut reader = Reader::new(buf, "control message");
 
         match Self::read(&mut reader) {
             Ok(message) => Ok(Some((message, buf.len() - reader.remaining()))),
@@ -91,7 +91,7 @@ impl ServerMessage {
                 let len = reader.u16()? as usize;
                 let body = reader.prefixed(len, MAX_STATUS_BYTES)?;
                 let Some(&[high, low]) = body.get(2..4) else {
-                    return Err(Error::Malformed("상태 알림"));
+                    return Err(Error::Malformed("status notice"));
                 };
 
                 match u16::from_be_bytes([high, low]) {
@@ -101,7 +101,7 @@ impl ServerMessage {
             }
             0x1f => {
                 let header = reader.bytes(15)?;
-                let len = u32::from_be_bytes(header[11..15].try_into().expect("4바이트다")) as usize;
+                let len = u32::from_be_bytes(header[11..15].try_into().expect("4 bytes")) as usize;
                 let data = reader.prefixed(len, MAX_CLIPBOARD_BYTES)?;
                 Self::Clipboard([&[kind], header, data].concat())
             }
@@ -162,9 +162,9 @@ impl Rect {
     }
 }
 
-/// 받은 바이트를 메시지 단위로 꺼냅니다.
+/// Splits received bytes into messages.
 ///
-/// - 평문 구간에서는 TCP로 받은 바이트를, 레코드 구간에서는 레코드 본문을 차례로 넣습니다. 큰 메시지는 이어지는 레코드에 유형 바이트 없이 나뉘어 오므로, 본문을 이어 붙이면 됩니다.
+/// - Push raw TCP bytes during the plaintext stretch and record bodies after it. A large message spans the following records without a type byte, so concatenating bodies is enough.
 #[derive(Default)]
 pub struct Messages {
     buffer: Vec<u8>,
@@ -183,7 +183,7 @@ impl Messages {
         let Some((message, consumed)) = ServerMessage::parse(&self.buffer)? else {
             if self.buffer.len() > MAX_PENDING_BYTES {
                 return Err(Error::TooLong {
-                    what: "제어 메시지",
+                    what: "control message",
                     len: self.buffer.len(),
                 });
             }
@@ -195,7 +195,7 @@ impl Messages {
         Ok(Some(message))
     }
 
-    /// 아직 꺼내지 않은 바이트를 넘겨줍니다. 평문 구간이 끝난 뒤 남은 바이트는 레코드입니다.
+    /// Hands over the bytes not yet popped. Whatever remains after the plaintext stretch is records.
     pub fn take(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.buffer)
     }
@@ -228,7 +228,7 @@ mod tests {
         std::iter::from_fn(|| messages.pop().unwrap()).collect()
     }
 
-    // 키 교체 앞에 미디어 스트림 사각형이 오고, 뒤에 상태 알림과 레코드가 이어 붙은 수신 묶음입니다.
+    // A received batch: a status notice, then a media stream rectangle before the key exchange, then records.
     fn prelude() -> (Vec<u8>, Vec<u8>) {
         let key = [0x5a; 36];
 
@@ -336,7 +336,7 @@ mod tests {
         message.extend_from_slice(&40u32.to_be_bytes());
         message.extend_from_slice(&[9; 40]);
 
-        // 이어지는 레코드에는 유형 바이트가 없습니다.
+        // The continuing record has no type byte.
         let mut messages = Messages::default();
         messages.push(&message[..20]);
         assert_eq!(messages.pop().unwrap(), None);

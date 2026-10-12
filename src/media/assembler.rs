@@ -4,55 +4,55 @@ use super::unit::{AccessUnit, DecoderConfig, VideoCodec};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-// 순번에 구멍이 생긴 접근 단위를 재전송이 올 때까지 붙잡아 두는 시간입니다. LAN에서는 보통 몇 ms 안에 옵니다.
+// How long an access unit with a sequence gap is held for retransmission. On a LAN it usually arrives within a few ms.
 const HOLD: Duration = Duration::from_millis(75);
 
-// 이보다 많은 패킷이 쌓이면 손실로 보고 모두 버립니다.
+// Beyond this many buffered packets, everything is treated as lost and dropped.
 const MAX_BUFFERED: usize = 4096;
 
-// 한 번에 재전송을 요청하는 순번의 수입니다. 이보다 큰 구멍은 키프레임 요청으로 복구합니다.
+// Most sequence numbers requested for retransmission at once. Larger gaps are recovered with a keyframe request.
 const MAX_NACK: u64 = 64;
 
-/// 조립 결과입니다.
+/// Output of the assembler.
 #[derive(Debug, PartialEq)]
 pub enum Assembled {
-    /// 새 디코더 설정. 크기가 바뀌었을 수 있으므로 디코더를 다시 설정합니다.
+    /// New decoder config. The size may have changed, so reconfigure the decoder.
     Config(DecoderConfig),
     Frame(AccessUnit),
-    /// 기한 안에 복구하지 못한 접근 단위를 버렸습니다. 키프레임을 요청해야 합니다.
+    /// An access unit that couldn't be recovered in time was dropped. Request a keyframe.
     Lost,
 }
 
-/// 복구하지 못한 손실 뒤에 무엇을 우선할지입니다. Screen Sharing 앱의 화질 설정과 같은 선택입니다.
+/// What to favor after an unrecoverable loss. This is the same choice as the Screen Sharing app's quality setting.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Enum)]
 pub enum Priority {
-    /// 잃은 단위만 버리고 다음 프레임을 계속 내보냅니다. 키프레임이 올 때까지 화면 일부가 깨질 수 있습니다.
+    /// Drops only the lost unit and keeps emitting frames. Parts of the screen may be corrupted until a keyframe arrives.
     Latency,
-    /// 키프레임이 올 때까지 내보내지 않습니다. 그동안 화면은 마지막 온전한 프레임에 멈춥니다.
+    /// Emits nothing until a keyframe arrives. The screen stays on the last intact frame meanwhile.
     #[default]
     Quality,
 }
 
-/// SSRC 하나의 RTP 패킷을 순번대로 모아 접근 단위로 조립합니다.
+/// Collects one SSRC's RTP packets in sequence order and assembles them into access units.
 ///
-/// - I/O와 시계를 갖지 않습니다. 호출자가 패킷과 현재 시각을 넣고, `deadline()`에 다시 `next()`를 부릅니다.
-/// - 시작할 때는 디코더 설정과 키프레임이 올 때까지 접근 단위를 내보내지 않습니다. 불완전한 단위는 언제나 버립니다.
-/// - HEVC는 파라미터 세트가 든 접근 단위마다 그 설정을 먼저 내보내고 단위를 이어서 내보냅니다. H.264의 설정 패킷과 같은 순서입니다.
-/// - 단위 하나를 잃은 뒤 참조를 잃은 단위를 내보낼지는 [`Priority`]가 정합니다. 버퍼가 넘치면 언제나 키프레임을 기다립니다.
+/// - Has no I/O or clock. The caller pushes packets with the current time and calls `next()` again at `deadline()`.
+/// - At startup, emits no access units until a decoder config and a keyframe have arrived. Incomplete units are always dropped.
+/// - For HEVC, every access unit carrying parameter sets emits that config first and then the unit, the same order as H.264's config packet.
+/// - [`Priority`] decides whether units whose reference was lost are emitted after a loss. A buffer overflow always waits for a keyframe.
 pub struct Assembler {
     codec: VideoCodec,
     ssrc: u32,
     priority: Priority,
     packets: BTreeMap<u64, RtpPacket>,
-    // 다음에 조립할 확장 순번과, 지금까지 받은 가장 큰 확장 순번
+    // Next extended sequence number to assemble, and the highest one received so far
     next: Option<u64>,
     highest: Option<u64>,
     stalled_since: Option<Instant>,
     configured: bool,
     awaiting_keyframe: bool,
-    // 구멍을 메운 패킷 수(재전송이나 순서 바뀜)
+    // Packets that filled a gap (retransmitted or reordered)
     filled: u64,
-    // 설정을 먼저 내보내고 이어서 내보낼 HEVC 단위
+    // HEVC unit to emit after its config
     pending: Option<AccessUnit>,
 }
 
@@ -73,12 +73,12 @@ impl Assembler {
         }
     }
 
-    /// 지금까지 구멍을 메운 패킷 수. 재전송이 실제로 오는지 볼 때 씁니다.
+    /// Packets that have filled a gap so far, for checking whether retransmissions actually arrive
     pub fn filled(&self) -> u64 {
         self.filled
     }
 
-    /// 패킷 하나를 넣고, 새로 구멍이 생긴 순번을 반환합니다. 반환한 순번은 재전송을 요청합니다.
+    /// Pushes one packet and returns the sequence numbers of any new gap, which should be requested for retransmission.
     pub fn push(&mut self, packet: RtpPacket) -> Vec<u16> {
         let sequence = self.extend(packet.sequence);
 
@@ -104,7 +104,7 @@ impl Assembler {
         missing
     }
 
-    /// 조립된 결과를 하나 꺼냅니다. 더 꺼낼 것이 없으면 `None`입니다.
+    /// Takes out one assembled output, or `None` if there is nothing more.
     pub fn next(&mut self, now: Instant) -> Option<Assembled> {
         if let Some(unit) = self.pending.take() {
             return Some(Assembled::Frame(unit));
@@ -118,8 +118,8 @@ impl Assembler {
             let next = self.next?;
 
             let Some(end) = self.unit_end(next) else {
-                // 다음 단위를 아직 완성할 수 없습니다. 받은 패킷이 빈틈없이 이어져 있으면 뒤의 패킷을 기다리면 되고,
-                // 구멍이 있으면 재전송을 기한까지 기다립니다.
+                // The next unit isn't complete yet. If the received packets are contiguous, wait for later packets;
+                // if there is a gap, wait for retransmission until the deadline.
                 let contiguous = self
                     .highest
                     .is_none_or(|highest| self.packets.len() as u64 == highest + 1 - next);
@@ -150,13 +150,13 @@ impl Assembler {
         }
     }
 
-    /// `next()`를 다시 불러야 하는 시각. 구멍을 기다리는 중이 아니면 `None`입니다.
+    /// When `next()` must be called again, or `None` when not waiting on a gap
     pub fn deadline(&self) -> Option<Instant> {
         self.stalled_since.map(|since| since + HOLD)
     }
 
-    // `start`에서 시작하는 단위의 마지막 순번을 찾습니다. 설정 패킷은 그 자체로 한 단위입니다.
-    // 마커 비트가 있는 패킷이 끝이며, 마커 없이 타임스탬프가 바뀌어도 앞 패킷에서 끝난 것으로 봅니다.
+    // Finds the last sequence number of the unit starting at `start`. A config packet is a unit by itself.
+    // A packet with the marker bit ends the unit; a timestamp change without a marker also ends it at the previous packet.
     fn unit_end(&self, start: u64) -> Option<u64> {
         let first = self.packets.get(&start)?;
 
@@ -180,7 +180,7 @@ impl Assembler {
         }
     }
 
-    // 구멍이 있는 단위를 버리고, 구멍 뒤의 첫 마커 다음부터 다시 조립합니다. 마커가 아직 없으면 더 기다립니다.
+    // Drops the unit with the gap and resumes after the first marker past the gap. If no marker has arrived yet, keeps waiting.
     fn skip_damaged(&mut self, next: u64) -> Option<Assembled> {
         let gap = (next..).find(|sequence| !self.packets.contains_key(sequence))?;
         let marker = self
@@ -203,7 +203,7 @@ impl Assembler {
         Assembled::Lost
     }
 
-    // 단위 하나를 잃었습니다. 화질을 우선하면 키프레임까지 기다립니다.
+    // A unit was lost. When favoring quality, wait for a keyframe.
     fn lose(&mut self) -> Assembled {
         self.awaiting_keyframe |= self.priority == Priority::Quality;
         Assembled::Lost
@@ -246,7 +246,7 @@ impl Assembler {
         }
     }
 
-    // 16비트 순번을 지금까지 받은 가장 큰 순번에 가장 가까운 확장 순번으로 바꿉니다.
+    // Maps a 16-bit sequence number to the extended sequence number closest to the highest one received.
     fn extend(&self, sequence: u16) -> u64 {
         let Some(highest) = self.highest else {
             return (1 << 32) + u64::from(sequence);
@@ -257,7 +257,7 @@ impl Assembler {
         [candidate - 0x1_0000, candidate, candidate + 0x1_0000]
             .into_iter()
             .min_by_key(|value| value.abs_diff(highest))
-            .expect("후보가 있다")
+            .expect("there is a candidate")
     }
 }
 
@@ -305,7 +305,7 @@ mod tests {
             .collect()
     }
 
-    // 설정, 두 조각의 IDR, P 프레임 두 장입니다.
+    // A config, an IDR in two fragments, and two P frames.
     fn stream(start: u16) -> Vec<RtpPacket> {
         let at = |offset: u16| start.wrapping_add(offset);
 
@@ -384,14 +384,14 @@ mod tests {
 
         drain(&mut assembler, now);
 
-        // 순번 15는 사라지고 16(P), 17(P), 18(IDR)이 옵니다.
+        // Sequence number 15 is lost, then 16 (P), 17 (P), and 18 (IDR) arrive.
         assembler.push(packet(16, 9000, true, P_SLICE));
         assembler.push(packet(17, 12000, true, P_SLICE));
         assembler.push(packet(18, 15000, true, IDR));
 
         assert!(drain(&mut assembler, now).is_empty());
 
-        // 16은 구멍 뒤 첫 마커이므로 손상된 단위의 끝으로 보고 함께 버립니다. 17은 키프레임이 아니라 버리고, 18부터 내보냅니다.
+        // 16 is the first marker after the gap, so it ends the damaged unit and is dropped with it. 17 is dropped as a non-keyframe, and output resumes at 18.
         let outputs = drain(&mut assembler, now + HOLD);
         assert_eq!(outputs[0], Assembled::Lost);
         assert_eq!(frames(&outputs), [(15000, true)]);
@@ -438,7 +438,7 @@ mod tests {
         assert!(drain(&mut assembler, now).is_empty());
     }
 
-    // HEVC는 파라미터 세트가 키프레임과 같은 단위로 오므로, 그 단위에서 설정을 먼저 내보내고 단위를 이어서 내보냅니다.
+    // HEVC parameter sets arrive in the same unit as the keyframe, so that unit emits the config first and then the unit.
     #[test]
     fn hevc_unit_with_parameter_sets_yields_config_then_frame() {
         const VPS: &[u8] = &[0x40, 0x01, 0x0c];
@@ -459,12 +459,12 @@ mod tests {
         assembler.push(packet(13, 3000, true, &[0x02, 0x01, 3]));
 
         let Some(Assembled::Config(config)) = assembler.next(now) else {
-            panic!("설정이 먼저 와야 합니다");
+            panic!("the config should come first");
         };
         assert_eq!((config.codec, config.level), (VideoCodec::Hevc, 0x96));
 
         let Some(Assembled::Frame(keyframe)) = assembler.next(now) else {
-            panic!("키프레임이 이어져야 합니다");
+            panic!("the keyframe should follow");
         };
         assert!(keyframe.keyframe);
         assert_eq!(keyframe.nals.last().unwrap(), &[0x28, 0x01, 1, 2]);

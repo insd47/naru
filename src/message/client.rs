@@ -1,30 +1,30 @@
-//! 클라이언트가 보내는 고정 형식의 제어 메시지입니다.
+//! Fixed-format control messages the client sends.
 use super::encoding;
 use crate::record::RecordKeys;
 use aes::Aes128;
 use aes::cipher::generic_array::GenericArray;
 use aes::cipher::{BlockEncrypt, KeyInit};
 
-/// ClientInit. 1바이트이며 공유 플래그 대신 서버가 정한 값을 보냅니다.
+/// ClientInit, a single byte carrying the value the server expects instead of a shared flag.
 pub const CLIENT_INIT: [u8; 1] = [0xc1];
 
-/// 암호화 시작 요청. ViewerInfo와 함께 보냅니다. 값을 0으로 바꾸면 핸드셰이크가 실패합니다.
+/// Encryption start request, sent along with ViewerInfo. Zeroing these values makes the handshake fail.
 pub const ENCRYPTION_START: [u8; 12] = [0x12, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1];
 
-/// 암호화 활성화 요청. 키 교체를 받은 뒤 평문으로 보내며, 이후 보내는 모든 메시지는 레코드로 감쌉니다.
+/// Encryption activation request, sent in plaintext after the key exchange. Every later message is wrapped in a record.
 pub const ENCRYPTION_ACTIVATE: [u8; 8] = [0x12, 0, 0, 2, 0, 1, 0, 0];
 
-/// 서버의 클립보드 감시를 켭니다. 세션마다 한 번 보냅니다.
+/// Turns on the server's clipboard monitoring. Sent once per session.
 pub const AUTO_CLIPBOARD: [u8; 8] = [0x15, 0, 0, 1, 0, 0, 0, 0];
 
-// 서버는 기능 비트맵으로 주기적 상태 메시지와 클립보드 변경 알림 같은 기능을 켭니다.
-// OS 버전은 실제 기기와 관계없이 15.3.0을 보냅니다. 서버가 이 값으로 처리 경로를 고릅니다.
+// The capability bitmap makes the server enable features such as periodic status messages and clipboard change notices.
+// The OS version is always 15.3.0 regardless of the device, because the server picks its code path from it.
 const APP_ID: u32 = 2;
 const APP_VERSION: [u32; 3] = [6, 1, 0];
 const OS_VERSION: [u32; 3] = [15, 3, 0];
 const CAPABILITIES: [(usize, u8); 5] = [(0, 0xb0), (2, 0x0c), (3, 0x03), (4, 0x90), (10, 0x40)];
 
-/// 클라이언트의 종류와 지원 기능을 알리는 ViewerInfo(66바이트)를 만듭니다.
+/// Builds the 66-byte ViewerInfo that announces the client kind and its capabilities.
 pub fn viewer_info() -> Vec<u8> {
     let mut message = vec![0x21, 0];
     message.extend_from_slice(&62u16.to_be_bytes());
@@ -45,7 +45,7 @@ pub fn viewer_info() -> Vec<u8> {
     message
 }
 
-/// 지원하는 사각형 인코딩 목록(SetEncodings)을 만듭니다.
+/// Builds the list of supported rectangle encodings (SetEncodings).
 pub fn set_encodings() -> Vec<u8> {
     let mut message = vec![0x02, 0];
     message.extend_from_slice(&(encoding::SUPPORTED.len() as u16).to_be_bytes());
@@ -57,10 +57,10 @@ pub fn set_encodings() -> Vec<u8> {
     message
 }
 
-/// 프레임버퍼 갱신 요청을 만듭니다.
+/// Builds a framebuffer update request.
 ///
-/// - 화면 픽셀은 UDP로 오므로, 이 요청은 서버가 TCP로 보내는 커서와 레이아웃 갱신을 깨워 두는 용도입니다.
-/// - 큰 영역을 증분으로 계속 요청하면 서버가 TCP로 영상을 보내기 시작하므로, 주기 요청은 1×1로 보냅니다.
+/// - Screen pixels arrive over UDP, so this request only keeps the server sending cursor and layout updates over TCP.
+/// - Repeated incremental requests for a large area make the server start sending video over TCP, so periodic requests are 1×1.
 pub fn framebuffer_request(incremental: bool, width: u16, height: u16) -> [u8; 10] {
     let [width_high, width_low] = width.to_be_bytes();
     let [height_high, height_low] = height.to_be_bytes();
@@ -78,18 +78,18 @@ pub fn framebuffer_request(incremental: bool, width: u16, height: u16) -> [u8; 1
     ]
 }
 
-/// 키 누름 또는 뗌(KeyEvent)을 만듭니다. 키는 X11 키심입니다.
+/// Builds a key press or release (KeyEvent). The key is an X11 keysym.
 pub fn key(keysym: u32, down: bool) -> [u8; 8] {
     let [first, second, third, fourth] = keysym.to_be_bytes();
     [4, down.into(), 0, 0, first, second, third, fourth]
 }
 
-/// 암호화된 포인터 이벤트를 만듭니다. 이 메시지도 다시 레코드로 감싸 보냅니다.
+/// Builds an encrypted pointer event. This message is still wrapped in a record when sent.
 ///
-/// - 좌표는 디코딩된 영상의 픽셀 좌표이며, 호출자가 영상 크기 안으로 자릅니다.
-/// - 버튼 마스크는 왼쪽 1, 오른쪽 2, 가운데 4입니다. 표준 RFB와 오른쪽, 가운데 비트의 위치가 다릅니다.
-/// - `elapsed_us`는 직전 포인터 이벤트로부터 지난 마이크로초입니다. Apple 클라이언트의 캡처에서 이 값의 합이 실제 경과 시간과 같았습니다.
-///   Mac은 이 값으로 이벤트 시각을 이어 가므로 더블 클릭 간격도 이 값으로 판단합니다.
+/// - Coordinates are pixels of the decoded video; the caller clamps them to the video size.
+/// - The button mask is left 1, right 2, middle 4. The right and middle bits are swapped relative to standard RFB.
+/// - `elapsed_us` is the microseconds since the previous pointer event, summing to real elapsed time.
+///   The Mac builds event timestamps from it, so it also decides double-click intervals.
 pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16, elapsed_us: u32) -> [u8; 18] {
     let mut plain = [0; 16];
     plain[6..10].copy_from_slice(&elapsed_us.to_be_bytes());
@@ -107,7 +107,7 @@ pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16, elapsed_us: u32) 
     message
 }
 
-/// 서버의 클립보드를 요청합니다. 정확히 8바이트여야 하며, 1바이트라도 더 보내면 이후 메시지의 경계가 어긋납니다.
+/// Requests the server's clipboard. It must be exactly 8 bytes; any extra byte misaligns every later message.
 pub fn clipboard_request() -> [u8; 8] {
     [0x0b, 0, 0, 0, 0, 0, 0, 0]
 }

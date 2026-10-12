@@ -1,4 +1,4 @@
-//! 프레임버퍼 갱신의 사각형 인코딩 번호입니다. 클라이언트가 지원 목록으로 알리고, 서버가 사각형마다 붙여 보냅니다.
+//! Rectangle encoding numbers for framebuffer updates. The client announces the ones it supports, and the server tags each rectangle with one.
 
 pub const ZLIB: i32 = 6;
 pub const ZRLE: i32 = 16;
@@ -16,7 +16,7 @@ pub const VENDOR_KEYSYMS: i32 = 0x453;
 pub const INPUT_SOURCE: i32 = 0x455;
 pub const DEVICE_INFO: i32 = 0x456;
 
-/// 클라이언트가 알리는 인코딩 목록. 순서도 서버에 전달됩니다.
+/// Encodings the client announces. The order is passed on to the server too.
 pub const SUPPORTED: [i32; 13] = [
     MEDIA_STREAM,
     STILL_IMAGE,

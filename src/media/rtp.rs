@@ -1,4 +1,4 @@
-/// 복호화한 RTP 패킷입니다.
+/// A decrypted RTP packet.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RtpPacket {
     pub marker: bool,
@@ -6,17 +6,17 @@ pub struct RtpPacket {
     pub sequence: u16,
     pub timestamp: u32,
     pub ssrc: u32,
-    /// CSRC, 확장 머리, 채움을 뗀 페이로드
+    /// Payload without CSRCs, header extension, or padding
     pub payload: Vec<u8>,
 }
 
 impl RtpPacket {
-    /// 평문 RTP 패킷을 해석합니다. 형식이 맞지 않으면 `None`입니다.
+    /// Parses a plaintext RTP packet. Returns `None` if malformed.
     pub fn parse(packet: &[u8]) -> Option<Self> {
         let header_len = Self::header_len(packet)?;
         let mut end = packet.len();
 
-        // 채움 비트가 있으면 마지막 바이트가 채움의 길이입니다.
+        // With the padding bit set, the last byte is the padding length.
         if packet[0] & 0x20 != 0 {
             let padding = usize::from(*packet.last()?);
             end = end.checked_sub(padding).filter(|&end| end >= header_len)?;
@@ -32,7 +32,7 @@ impl RtpPacket {
         })
     }
 
-    /// CSRC와 확장 머리가 없는 패킷을 만듭니다.
+    /// Builds a packet without CSRCs or a header extension.
     pub fn encode(&self) -> Vec<u8> {
         let mut packet = vec![0x80, u8::from(self.marker) << 7 | self.payload_type & 0x7f];
         packet.extend_from_slice(&self.sequence.to_be_bytes());
@@ -42,7 +42,7 @@ impl RtpPacket {
         packet
     }
 
-    /// 머리(고정 머리, CSRC, 확장 머리)의 길이. 버전이 2가 아니거나 잘렸으면 `None`입니다.
+    /// Length of the header (fixed header, CSRCs, header extension), or `None` if the version isn't 2 or the packet is truncated
     pub fn header_len(packet: &[u8]) -> Option<usize> {
         let first = *packet.first()?;
 
@@ -60,7 +60,7 @@ impl RtpPacket {
         (len <= packet.len()).then_some(len)
     }
 
-    /// 같은 포트로 오는 RTP와 RTCP를 구분합니다(RFC 5761). 둘째 바이트의 하위 7비트가 64 ~ 95이면 RTCP입니다.
+    /// Tells RTP and RTCP apart on a shared port (RFC 5761): it is RTCP if the low 7 bits of the second byte are 64 to 95.
     pub fn is_rtcp(packet: &[u8]) -> bool {
         matches!(packet, [first, second, ..] if first >> 6 == 2 && (64..=95).contains(&(second & 0x7f)))
     }

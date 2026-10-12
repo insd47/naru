@@ -6,26 +6,26 @@ mod languages;
 mod layout;
 mod tables;
 
-// Control, Option(Meta, Alt), Command(Super)의 왼쪽과 오른쪽. 이 키가 눌려 있으면 단축키이므로 글자를 바꾸지 않습니다.
+// Left and right Control, Option (Meta, Alt), and Command (Super). While one is held the key is a shortcut, so characters are not converted.
 const SHORTCUT_MODIFIERS: [u32; 8] = [0xffe3, 0xffe4, 0xffe7, 0xffe8, 0xffe9, 0xffea, 0xffeb, 0xffec];
 
-/// 키 입력을 태블릿의 입력 언어에 맞춰 보냅니다.
+/// Sends key input according to the tablet's input language.
 ///
-/// - 에이전트는 받은 글자를 Mac의 지금 배열에서 찾아 키 코드로 넣고, 찾지 못하면 글자를 그대로 넣습니다.
-///   그래서 Mac은 사용자의 모국어 입력기에 두고, 언어는 태블릿에서 바꿉니다. 2벌식이면 자모가 키가 되어 Mac 입력기가 조합하고,
-///   영어의 라틴 문자는 2벌식 배열에 없어 그대로 들어갑니다.
-/// - 글자는 태블릿 언어에 대응하는 Mac 배열의 같은 자리 글자로 바꿉니다. Mac이 같은 언어의 다른 배열(3벌식, 가나 입력)에 있으면 그 배열을 따릅니다.
-///   단축키와 보안 입력 중에는 바꾸지 않습니다.
-/// - Mac의 입력 소스는 지정하지 않습니다. `0x1a`로 바꾸면 입력 소스만 바뀌고 입력기가 쓰는 배열은 이전 것에 남았습니다.
-/// - 뗄 때는 누를 때 보낸 keysym을 보냅니다. 그 사이 언어가 바뀌어도 Mac에 눌린 키가 남지 않습니다.
+/// - The agent looks up each received character in the Mac's current layout and enters its key code, or enters the character as is when not found.
+///   So the Mac stays on the user's native-language input method and the language is switched on the tablet. With Dubeolsik, jamo become keys that the Mac input method composes,
+///   while English Latin letters are absent from the Dubeolsik layout and go in as is.
+/// - Characters are converted to the character at the same position in the Mac layout for the tablet language. If the Mac is on another layout of that language (Sebeolsik, Kana typing), that layout is used.
+///   Nothing is converted for shortcuts or during secure input.
+/// - The Mac's input source is never set. Switching it with `0x1a` changed only the input source, while the input method kept the previous layout.
+/// - A release sends the keysym sent on press, so no key stays held on the Mac when the language changes in between.
 pub struct Keyboard {
-    // 태블릿 언어(BCP 47 태그)
+    // Tablet language as a BCP 47 tag
     language: Option<String>,
-    // Mac이 알린 입력 소스. 같은 언어의 모드면 그 배열을 씁니다.
+    // Input source reported by the Mac. If it is a mode of the same language, its layout is used.
     mac: Option<InputSource>,
-    // 글자를 바꿀 배열. 라틴 문자를 그대로 보내는 언어면 없습니다.
+    // Layout to convert characters with, absent for languages that send Latin letters as is
     layout: Option<Layout>,
-    // 누른 키와 그때 보낸 keysym
+    // Pressed keys and the keysyms sent for them
     pressed: HashMap<u32, u32>,
     modifiers: HashSet<u32>,
 }
@@ -41,13 +41,13 @@ impl Keyboard {
         }
     }
 
-    /// 태블릿 언어를 바꿉니다. `language`는 BCP 47 태그(`ko-KR`, `en-US`)입니다.
+    /// Changes the tablet language. `language` is a BCP 47 tag (`ko-KR`, `en-US`).
     pub fn select(&mut self, language: &str) {
         self.language = Some(language.to_owned());
         self.refresh();
     }
 
-    /// Mac이 알린 입력 소스를 반영합니다. 보안 입력 여부와, 같은 언어일 때 따를 배열을 정합니다.
+    /// Applies the input source the Mac reported, which sets secure input and the layout to follow for the same language.
     pub fn observe(&mut self, source: &InputSource) {
         let changed = self.mac.as_ref().is_none_or(|mac| mac.id != source.id);
         self.mac = Some(source.clone());
@@ -57,7 +57,7 @@ impl Keyboard {
         }
     }
 
-    /// 키를 누르거나 뗄 메시지
+    /// The message that presses or releases a key
     pub fn key(&mut self, keysym: u32, down: bool) -> Vec<u8> {
         if !down {
             self.modifiers.remove(&keysym);
@@ -65,7 +65,7 @@ impl Keyboard {
             return client::key(sent, false).to_vec();
         }
 
-        // 길게 눌러 반복되는 누름은 처음 보낸 keysym을 그대로 씁니다.
+        // Auto-repeat presses reuse the keysym sent first.
         if let Some(&sent) = self.pressed.get(&keysym) {
             return client::key(sent, true).to_vec();
         }
@@ -74,7 +74,7 @@ impl Keyboard {
             self.modifiers.insert(keysym);
         }
 
-        // 보안 입력(비밀번호 칸) 중에는 Mac이 ABC를 강제합니다.
+        // During secure input (a password field) the Mac forces ABC.
         let secure = self.mac.as_ref().is_some_and(|mac| mac.secure);
         let sent = match &self.layout {
             Some(layout) if self.modifiers.is_empty() && !secure => layout.translate(keysym),
@@ -152,7 +152,7 @@ mod tests {
         assert_eq!(keyboard.key(R, false), key(GIYEOK, false));
     }
 
-    // 비밀번호 칸에서는 Mac이 ABC를 강제하므로 자모를 보내면 낱자로 들어갑니다.
+    // In a password field the Mac forces ABC, so sending jamo would enter them as separate letters.
     #[test]
     fn secure_input_sends_latin() {
         let mut keyboard = korean();
@@ -178,7 +178,7 @@ mod tests {
         assert_eq!(keyboard.key(R, true), key(R, true));
     }
 
-    // Mac이 가나 입력이면 일본어는 가나 배열 자리 글자로 보내 키가 되게 하고, 영어는 그대로 보냅니다.
+    // With a Kana typing Mac, Japanese sends the Kana layout character at that position so it maps to a key, and English goes as is.
     #[test]
     fn kana_typing_mac_receives_kana() {
         let mut keyboard = Keyboard::new();

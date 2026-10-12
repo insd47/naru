@@ -1,4 +1,4 @@
-//! SRTP와 SRTCP(RFC 3711)입니다. 암호는 AES-256 카운터 모드, 인증은 HMAC-SHA1 80비트입니다.
+//! SRTP and SRTCP (RFC 3711), with AES-256 counter mode encryption and 80-bit HMAC-SHA1 authentication.
 use super::RtpPacket;
 use crate::offer::KEY_BLOB_BYTES;
 use aes::cipher::{KeyIvInit, StreamCipher};
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 const TAG_BYTES: usize = 10;
 const MASTER_KEY_BYTES: usize = 32;
 
-// 키 유도 레이블입니다(RFC 3711 4.3.1). SRTCP는 3을 더한 레이블을 씁니다.
+// Key derivation labels (RFC 3711 4.3.1). SRTCP uses these plus 3.
 const LABEL_CIPHER: u8 = 0;
 const LABEL_AUTH: u8 = 1;
 const LABEL_SALT: u8 = 2;
@@ -18,9 +18,9 @@ const LABEL_RTCP: u8 = 3;
 
 type Ctr<C> = ctr::Ctr128BE<C>;
 
-/// 마스터 키 블롭 하나로 만든 SRTP와 SRTCP 암호 상태입니다.
+/// SRTP and SRTCP cipher state built from one master key blob.
 ///
-/// - 수신한 RTP의 롤오버 카운터(ROC)는 SSRC마다 따로 추적합니다. 공유하면 6만 5천 패킷 뒤에 스트림이 멈춥니다.
+/// - The rollover counter (ROC) of received RTP is tracked per SSRC. A shared one stalls the stream after 65,536 packets.
 pub struct SrtpContext {
     rtp: SessionKeys,
     rtcp: SessionKeys,
@@ -35,7 +35,7 @@ struct SessionKeys {
     salt: [u8; 14],
 }
 
-// 한 SSRC에서 지금까지 본 가장 큰 순번과 그때의 ROC입니다.
+// Highest sequence number seen so far on one SSRC, and the ROC at that point.
 #[derive(Clone, Copy)]
 struct Rollover {
     roc: u32,
@@ -45,7 +45,7 @@ struct Rollover {
 impl SrtpContext {
     pub fn new(blob: &[u8; KEY_BLOB_BYTES]) -> Self {
         let (key, salt) = blob.split_at(MASTER_KEY_BYTES);
-        let salt: &[u8; 14] = salt.try_into().expect("블롭은 32 + 14바이트다");
+        let salt: &[u8; 14] = salt.try_into().expect("the blob is 32 + 14 bytes");
 
         Self {
             rtp: SessionKeys::derive(key, salt, 0),
@@ -56,7 +56,7 @@ impl SrtpContext {
         }
     }
 
-    /// 받은 SRTP 패킷을 인증하고 풀어, 평문 RTP 패킷을 반환합니다. 인증에 실패하면 `None`이며 패킷을 버립니다.
+    /// Authenticates and decrypts a received SRTP packet into a plaintext RTP packet. Returns `None` on authentication failure, and the packet should be dropped.
     pub fn unprotect_rtp(&mut self, packet: &[u8]) -> Option<Vec<u8>> {
         let header_len = RtpPacket::header_len(packet)?;
         let body_len = packet.len().checked_sub(TAG_BYTES).filter(|&len| len >= header_len)?;
@@ -80,7 +80,7 @@ impl SrtpContext {
         Some(plain)
     }
 
-    /// 평문 RTP 패킷을 SRTP로 암호화합니다.
+    /// Encrypts a plaintext RTP packet with SRTP.
     pub fn protect_rtp(&mut self, packet: &[u8]) -> Option<Vec<u8>> {
         let header_len = RtpPacket::header_len(packet)?;
         let ssrc = u32::from_be_bytes(packet[8..12].try_into().ok()?);
@@ -101,7 +101,7 @@ impl SrtpContext {
         Some(protected)
     }
 
-    /// RTCP 복합 패킷을 SRTCP로 암호화합니다. 앞 8바이트(첫 패킷의 머리와 송신자 SSRC)는 평문으로 남습니다.
+    /// Encrypts an RTCP compound packet with SRTCP. The first 8 bytes (the first packet's header and sender SSRC) stay in plaintext.
     pub fn protect_rtcp(&mut self, compound: &[u8]) -> Option<Vec<u8>> {
         let ssrc = u32::from_be_bytes(compound.get(4..8)?.try_into().ok()?);
         let index = self.rtcp_index;
@@ -117,7 +117,7 @@ impl SrtpContext {
         Some(protected)
     }
 
-    /// 받은 SRTCP 패킷을 인증하고 풀어 RTCP 복합 패킷을 반환합니다.
+    /// Authenticates and decrypts a received SRTCP packet into an RTCP compound packet.
     pub fn unprotect_rtcp(&mut self, packet: &[u8]) -> Option<Vec<u8>> {
         let body_len = packet.len().checked_sub(TAG_BYTES).filter(|&len| len >= 12)?;
         let (body, tag) = packet.split_at(body_len);
@@ -138,7 +138,7 @@ impl SrtpContext {
         Some(plain)
     }
 
-    /// 이 SSRC에서 받은 확장 순번의 최댓값(`ROC × 65536 + 순번`). 수신 보고에 씁니다.
+    /// Highest extended sequence number received on this SSRC (`ROC × 65536 + sequence number`), for receiver reports
     pub fn highest_received(&self, ssrc: u32) -> Option<u32> {
         let state = self.received.get(&ssrc)?;
         Some(state.roc << 16 | u32::from(state.highest))
@@ -146,7 +146,7 @@ impl SrtpContext {
 }
 
 impl SessionKeys {
-    // 마스터 키와 솔트로 세션 키를 유도합니다. 키 유도 비율은 0입니다.
+    // Derives session keys from the master key and salt, with a key derivation rate of 0.
     fn derive(key: &[u8], salt: &[u8; 14], base: u8) -> Self {
         let mut keys = Self {
             cipher: [0; 32],
@@ -160,7 +160,7 @@ impl SessionKeys {
         keys
     }
 
-    // IV = (솔트 · 2^16) XOR (SSRC · 2^64) XOR (인덱스 · 2^16)
+    // IV = (salt · 2^16) XOR (SSRC · 2^64) XOR (index · 2^16)
     fn apply(&self, ssrc: u32, index: u64, data: &mut [u8]) {
         let mut iv = [0; 16];
         iv[..14].copy_from_slice(&self.salt);
@@ -177,12 +177,12 @@ impl SessionKeys {
     }
 
     fn mac(&self) -> Hmac<Sha1> {
-        Hmac::new_from_slice(&self.auth).expect("HMAC은 모든 키 길이를 받는다")
+        Hmac::new_from_slice(&self.auth).expect("HMAC accepts any key length")
     }
 }
 
 impl Rollover {
-    // 받은 순번이 어느 ROC에 속하는지 추정합니다(RFC 3711 부록 A).
+    // Estimates which ROC a received sequence number belongs to (RFC 3711 Appendix A).
     fn estimate(state: Option<Self>, sequence: u16) -> u32 {
         let Some(Self { roc, highest }) = state else {
             return 0;
@@ -209,8 +209,8 @@ impl Rollover {
     }
 }
 
-// AES 카운터 모드 PRF로 세션 키 하나를 만듭니다. x = 솔트 XOR (레이블 · 2^48)이며 IV는 x · 2^16입니다.
-// 마스터 키는 AES-256용 32바이트이며, 키 유도 테스트 벡터를 위해 AES-128용 16바이트도 받습니다.
+// Derives one session key with the AES counter mode PRF: x = salt XOR (label · 2^48), and the IV is x · 2^16.
+// The master key is 32 bytes for AES-256; 16-byte AES-128 keys are also accepted for the key derivation test vectors.
 fn prf(key: &[u8], salt: &[u8; 14], label: u8, output: &mut [u8]) {
     let mut iv = [0; 16];
     iv[..14].copy_from_slice(salt);
@@ -219,10 +219,10 @@ fn prf(key: &[u8], salt: &[u8; 14], label: u8, output: &mut [u8]) {
 
     match key.len() {
         16 => Ctr::<Aes128>::new_from_slices(key, &iv)
-            .expect("길이를 확인했다")
+            .expect("length was checked")
             .apply_keystream(output),
         _ => Ctr::<Aes256>::new_from_slices(key, &iv)
-            .expect("마스터 키는 32바이트다")
+            .expect("the master key is 32 bytes")
             .apply_keystream(output),
     }
 }
@@ -242,7 +242,7 @@ mod tests {
         std::array::from_fn(|at| at as u8)
     }
 
-    // RFC 3711 부록 B.3의 키 유도 테스트 벡터(AES-128)입니다.
+    // Key derivation test vectors from RFC 3711 Appendix B.3 (AES-128).
     #[test]
     fn key_derivation_matches_rfc_3711_vectors() {
         let key = hex("E1F97A0D3E018BE0D64FA32C06DE4139");
@@ -260,7 +260,7 @@ mod tests {
         assert_eq!(auth.to_vec(), hex("CEBE321F6FF7716B6FD4AB49AF256A156D38BAA4"));
     }
 
-    // 아래 두 패킷은 openssl의 AES-256과 Python의 hmac으로 따로 계산한 기대값입니다. 마스터 블롭은 0, 1, …, 45입니다.
+    // The two packets below were computed independently with OpenSSL's AES-256 and Python's hmac. The master blob is 0, 1, ..., 45.
     const RTP: &str =
         "8060123401020304deadbeef857bd59c5e9a1978315235b481e5749b10ebb1aea63b2b8200ddd2ba146775f2a80b858f6a983c8f13dd";
     const RTCP: &str = "80c9000111223344b73ebd2f6916ba139338494b800000058a5a24ca6e4543a3661f";

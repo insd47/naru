@@ -1,5 +1,5 @@
 .plan/
 .DS_Store
 /target
-# probe가 저장한 화면 캡처입니다.
+# Screen captures saved by probe.
 *.h264

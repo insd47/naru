@@ -1,23 +1,23 @@
 use super::tables::TABLES;
 
-/// 태블릿 언어와 그 언어로 칠 때 쓰는 Mac 배열
+/// A tablet language and the Mac layout used to type it
 struct Language {
-    /// BCP 47 주 언어. 지역이나 문자 체계에 따라 배열이 갈리는 언어는 그것까지(`zh-HK`, `zh-Hant`)
+    /// BCP 47 primary language, plus the region or script for languages whose layout depends on it (`zh-HK`, `zh-Hant`)
     tag: &'static str,
     layout: &'static str,
 }
 
-/// Mac 입력기의 모드와 그 모드가 덮어쓰는 배열
+/// A Mac input method mode and the layout it overrides
 struct Mode {
     id: &'static str,
-    /// 태블릿 언어와 견주는 언어. [`Language::tag`]와 같은 모양입니다.
+    /// Language compared against the tablet language, shaped like [`Language::tag`]
     language: &'static str,
     layout: &'static str,
 }
 
-// 입력기만 쓰는 배열(2벌식, 주음, 창힐, 타밀 99)과, Apple이 그 언어로 표시한 배열 가운데 첫 번째가 기본 배열이 아닌 언어만 둡니다.
-// 나머지 언어는 표의 언어 태그로 찾습니다. 2벌식, 주음, 창힐은 macOS 27.2에서 입력기가 쓰는 배열을 읽어 확인했고, 타밀 99는 이름으로 짝지은 것입니다.
-// 번체 중국어는 대만의 주음을 기본으로, 홍콩과 마카오는 창힐로 둡니다.
+// Only layouts used by input methods (Dubeolsik, Zhuyin, Cangjie, Tamil 99) and languages whose first Apple-tagged layout is not the default are listed.
+// Other languages are found by the tables' language tags. Dubeolsik, Zhuyin, and Cangjie were checked against the layout the input method uses; Tamil 99 is paired by name only.
+// Traditional Chinese defaults to Taiwan's Zhuyin, with Cangjie for Hong Kong and Macau.
 #[rustfmt::skip]
 const LANGUAGES: [Language; 7] = [
     Language { tag: "ko",      layout: "com.apple.keylayout.2SetHangul" },
@@ -29,9 +29,9 @@ const LANGUAGES: [Language; 7] = [
     Language { tag: "iu",      layout: "com.apple.keylayout.Inuktitut-Nunavut" },
 ];
 
-// Mac이 이 모드에 있으면 같은 언어의 태블릿 입력을 그 배열로 바꿉니다. 3벌식이나 가나 입력처럼 기본과 다른 배열을 쓰는 사용자를 위한 것입니다.
-// 모드는 배열을 실행 중에 고르므로 표에 담기지 않습니다. 로마자처럼 라틴 키를 받는 모드는 두지 않습니다.
-// 한국어, 번체 중국어, 일본어 가나 입력은 macOS 27.2에서 메뉴로 모드를 고른 뒤 지금 배열을 읽어 확인했습니다. 타밀 99는 이름으로 짝지은 것입니다.
+// When the Mac is in one of these modes, tablet input of the same language is converted with its layout. This serves users of non-default layouts such as Sebeolsik or Kana typing.
+// Modes pick their layout at runtime, so the tables cannot hold them. Modes that take Latin keys, like Romaji, are left out.
+// The Korean, Traditional Chinese, and Japanese Kana modes were checked by reading the current layout after selecting each mode; Tamil 99 is paired by name only.
 #[rustfmt::skip]
 const MODES: [Mode; 12] = [
     Mode { id: "com.apple.inputmethod.Korean.2SetKorean",                         language: "ko",      layout: "com.apple.keylayout.2SetHangul" },
@@ -48,17 +48,17 @@ const MODES: [Mode; 12] = [
     Mode { id: "com.apple.inputmethod.Tamil.Tamil99",                             language: "ta",      layout: "com.apple.keylayout.Tamil99" },
 ];
 
-/// 태블릿 언어(BCP 47 태그)로 칠 때 쓰는 Mac 배열의 ID. 라틴 문자를 그대로 보내는 언어면 `None`입니다.
+/// ID of the Mac layout used to type the tablet language (a BCP 47 tag), or `None` for languages that send Latin letters as is.
 ///
-/// - Mac이 알린 입력 소스(`mac`)가 같은 언어의 모드나 배열이면 그 배열을 씁니다. Mac의 배열 선택(3벌식, 가나 입력)을 따르기 위해서입니다.
-/// - 아니면 따로 정한 배열을, 없으면 Apple이 그 언어로 표시한 배열 가운데 첫 번째를 고릅니다.
-/// - 라틴 문자로 쓰는 언어(`sr-Latn`)와, 라틴 키로 조합하는 언어(일본어 로마자, 중국어 병음)는 배열이 없습니다.
+/// - When the Mac's reported input source (`mac`) is a mode or layout of the same language, that layout is used, to follow the Mac's layout choice (Sebeolsik, Kana typing).
+/// - Otherwise it picks the chosen layout, falling back to the first layout Apple tags with that language.
+/// - Languages written in Latin script (`sr-Latn`) and languages composed from Latin keys (Japanese Romaji, Chinese Pinyin) have no layout.
 pub fn layout(language: &str, mac: Option<&str>) -> Option<&'static str> {
     let mut subtags = language.split(['-', '_']);
     let primary = subtags.next()?.to_ascii_lowercase();
     let rest: Vec<&str> = subtags.collect();
 
-    // 중국어는 태그에 문자 체계가 없으면 지역으로 정합니다.
+    // Chinese without a script subtag takes its script from the region.
     let script = rest
         .iter()
         .find(|subtag| subtag.len() == 4 && subtag.chars().all(|char| char.is_ascii_alphabetic()))
@@ -76,7 +76,7 @@ pub fn layout(language: &str, mac: Option<&str>) -> Option<&'static str> {
         return None;
     }
 
-    // 지역으로 정한 대응(`zh-HK`)이 있으면 먼저 씁니다.
+    // A region-specific mapping (`zh-HK`) wins when present.
     let regional = rest
         .iter()
         .find(|subtag| subtag.len() == 2 && subtag.chars().all(|char| char.is_ascii_alphabetic()))
@@ -150,7 +150,7 @@ mod tests {
         assert_eq!(layout("", None), None);
     }
 
-    // Mac의 모드가 같은 언어면 그 배열을 따르고, 다른 언어면 태블릿 언어의 기본 배열을 씁니다.
+    // A Mac mode of the same language picks its layout; one of another language leaves the tablet language's default layout.
     #[test]
     fn mac_mode_of_the_same_language_picks_the_layout() {
         let three_set = Some("com.apple.inputmethod.Korean.3SetKorean");

@@ -1,22 +1,22 @@
-//! HEVC RTP 페이로드(RFC 7798, DONL 없음)입니다.
+//! HEVC RTP payload (RFC 7798, without DONL).
 //!
-//! - 띠 1개로 요청하면 서버는 DONL 없는 표준 형식으로 보냅니다. 띠 4개일 때만 모든 구조에 DONL 2바이트가 붙습니다(2026-10-12 실측).
-//! - 파라미터 세트(VPS, SPS, PPS)는 설정 패킷 없이 키프레임과 함께 스트림 안으로 옵니다.
+//! - When one tile is requested, the server sends the standard format without DONL. Only with four tiles does every structure carry a 2-byte DONL.
+//! - Parameter sets (VPS, SPS, PPS) arrive in-stream with the keyframe, not in a config packet.
 use super::unit::{DecoderConfig, VideoCodec};
 use crate::reader::Reader;
 
 const NAL_VPS: u8 = 32;
-/// SPS NAL 유형
+/// SPS NAL type
 pub const NAL_SPS: u8 = 33;
 const NAL_PPS: u8 = 34;
 const NAL_AP: u8 = 48;
 const NAL_FU: u8 = 49;
 
-// IRAP(BLA, IDR, CRA) 그림의 NAL 유형 범위입니다.
+// NAL type range of IRAP (BLA, IDR, CRA) pictures.
 const IRAP: std::ops::RangeInclusive<u8> = 16..=21;
 
 impl DecoderConfig {
-    /// 접근 단위에 든 파라미터 세트로 디코더 설정을 만듭니다. VPS, SPS, PPS 가운데 하나라도 없으면 `None`입니다.
+    /// Builds a decoder config from the parameter sets in an access unit. Returns `None` if any of VPS, SPS, or PPS is missing.
     pub fn from_hevc(nals: &[Vec<u8>]) -> Option<Self> {
         let of = |kind| -> Vec<Vec<u8>> { nals.iter().filter(|nal| nal_type(nal) == Some(kind)).cloned().collect() };
         let (vps, sps, pps) = (of(NAL_VPS), of(NAL_SPS), of(NAL_PPS));
@@ -25,7 +25,7 @@ impl DecoderConfig {
             return None;
         }
 
-        // SPS의 profile_tier_level에서 general_profile_idc는 둘째 바이트의 하위 5비트, general_level_idc는 열세째 바이트입니다.
+        // In the SPS profile_tier_level, general_profile_idc is the low 5 bits of the second byte and general_level_idc is the 13th byte.
         let rbsp = rbsp(sps.first()?.get(2..)?, 13);
         let profile = *rbsp.get(1)? & 0x1f;
         let level = *rbsp.get(12)?;
@@ -42,12 +42,12 @@ impl DecoderConfig {
     }
 }
 
-/// NAL 머리의 유형. 머리가 2바이트보다 짧으면 `None`입니다.
+/// Type from the NAL header, or `None` if the header is shorter than 2 bytes
 pub fn nal_type(nal: &[u8]) -> Option<u8> {
     (nal.len() >= 2).then(|| (nal[0] >> 1) & 0x3f)
 }
 
-/// 한 접근 단위의 페이로드들을 NAL 목록으로 되돌립니다. 조각이 빠졌거나 형식이 맞지 않으면 `None`입니다.
+/// Turns one access unit's payloads back into a list of NAL units. Returns `None` if a fragment is missing or malformed.
 pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<Vec<Vec<u8>>> {
     let mut nals = Vec::new();
     let mut fragment: Option<Vec<u8>> = None;
@@ -72,7 +72,7 @@ pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<V
                 let body = &payload[3..];
                 let (start, end) = (header & 0x80 != 0, header & 0x40 != 0);
 
-                // 원래 NAL 머리는 FU 머리의 유형으로 첫 바이트의 유형 자리만 바꾼 것입니다.
+                // The original NAL header is the payload header with its type bits replaced by the type from the FU header.
                 if start {
                     fragment.is_none().then_some(())?;
                     let mut nal = vec![(payload[0] & 0x81) | ((header & 0x3f) << 1), payload[1]];
@@ -93,13 +93,13 @@ pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<V
     fragment.is_none().then_some(nals)
 }
 
-/// IRAP 그림이 들어 있으면 키프레임입니다.
+/// An access unit is a keyframe if it contains an IRAP picture.
 pub fn is_keyframe(nals: &[Vec<u8>]) -> bool {
     nals.iter()
         .any(|nal| nal_type(nal).is_some_and(|kind| IRAP.contains(&kind)))
 }
 
-// 앞에서부터 `len`바이트까지 에뮬레이션 방지 바이트(00 00 03의 03)를 뗀 RBSP입니다.
+// RBSP of the first `len` bytes, with emulation prevention bytes (the 03 in 00 00 03) removed.
 fn rbsp(bytes: &[u8], len: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(len);
     let mut zeros = 0;
@@ -126,7 +126,7 @@ mod tests {
     use super::{depacketize, is_keyframe};
     use crate::media::unit::{AccessUnit, DecoderConfig, VideoCodec};
 
-    // macOS 27 Mac mini가 2420×1668 가상 디스플레이로 보낸 파라미터 세트입니다(2026-10-12 캡처).
+    // Parameter sets captured from a Mac streaming a 2420×1668 virtual display.
     const VPS: &[u8] = &[
         0x40, 0x01, 0x0c, 0x01, 0xff, 0xff, 0x04, 0x08, 0x00, 0x00, 0x03, 0x00, 0xbe, 0x08, 0x00, 0x00, 0x03, 0x00,
         0x00, 0x96, 0x0c, 0xc0, 0x90,
@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn fragments_rebuild_the_nal_header() {
-        // IDR_N_LP(20)을 셋으로 나눈 FU입니다. 첫 바이트의 유형 자리에는 49가 들어 있습니다.
+        // IDR_N_LP (20) split into three FUs. The type bits of the first byte hold 49.
         let nals = depacketize([
             &[0x62, 0x01, 0x94, 1, 2][..],
             &[0x62, 0x01, 0x14, 3][..],
@@ -197,7 +197,7 @@ mod tests {
         assert!(!is_keyframe(&[SPS.to_vec()]));
     }
 
-    // 캡처한 SPS의 profile_tier_level에는 에뮬레이션 방지 바이트가 두 번 들어 있어, 떼지 않으면 레벨 자리가 어긋납니다.
+    // The captured SPS profile_tier_level contains two emulation prevention bytes; without removing them the level offset is wrong.
     #[test]
     fn config_comes_from_in_band_parameter_sets() {
         let nals = [VPS.to_vec(), SPS.to_vec(), PPS.to_vec(), IDR.to_vec()];

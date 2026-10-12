@@ -4,14 +4,14 @@ use std::collections::HashMap;
 const ABC: &str = "com.apple.keylayout.ABC";
 const EMPTY: char = '\u{FFFD}';
 
-/// 라틴 문자를 칠 수 없는 Mac 배열에서, ABC 자리의 글자를 그 배열이 같은 자리에서 내는 글자로 바꿉니다.
+/// For a Mac layout that cannot type Latin letters, converts the character at an ABC position to the one that layout produces at the same position.
 ///
-/// - 에이전트는 받은 글자를 Mac의 지금 배열에서 키로 되돌려 입력기에 넣습니다. 2벌식이면 `r` 대신 `ㄱ`을 보내야 조합됩니다.
-/// - 라틴 배열(ABC, 독일어 등)은 표가 없습니다. 글자를 그대로 보내면 Mac이 그 글자를 내는 키를 찾습니다.
+/// - The agent maps each received character back to a key in the Mac's current layout and feeds it to the input method. With Dubeolsik, `ㄱ` must be sent instead of `r` to compose.
+/// - Latin layouts (ABC, German, and so on) have no table. Sent as is, the Mac finds the key that produces the character.
 pub struct Layout(HashMap<u32, u32>);
 
 impl Layout {
-    /// Mac 배열의 변환 표. 바꿀 글자가 없는 라틴 배열이거나 모르는 배열이면 `None`입니다.
+    /// Conversion table for a Mac layout, or `None` for a Latin layout with nothing to convert or an unknown layout.
     pub fn find(id: &str) -> Option<Self> {
         let abc = table(ABC)?;
         let target = table(id)?;
@@ -29,7 +29,7 @@ impl Layout {
         (!map.is_empty()).then_some(Self(map))
     }
 
-    /// 이 배열에서 보낼 keysym. 바꿀 것이 없으면 받은 그대로입니다.
+    /// The keysym to send in this layout, unchanged when there is nothing to convert
     pub fn translate(&self, keysym: u32) -> u32 {
         self.0.get(&keysym).copied().unwrap_or(keysym)
     }
@@ -39,7 +39,7 @@ fn table(id: &str) -> Option<&'static Table> {
     TABLES.iter().find(|table| table.id == id)
 }
 
-// 라틴-1은 문자 코드 그대로, 그 밖은 유니코드 keysym입니다.
+// Latin-1 maps to its character code; anything else is a Unicode keysym.
 fn keysym(char: char) -> u32 {
     match u32::from(char) {
         code @ (0x20..=0x7e | 0xa0..=0xff) => code,
@@ -52,7 +52,7 @@ mod tests {
     use super::{ABC, Layout, keysym, table};
     use crate::session::keyboard::tables::TABLES;
 
-    // 생성한 표가 예전에 손으로 쓴 2벌식 표와 같은 결과를 내는지 확인합니다.
+    // Checks that the generated table matches the earlier hand-written Dubeolsik chart.
     #[test]
     fn two_set_matches_the_dubeolsik_chart() {
         let layout = Layout::find("com.apple.keylayout.2SetHangul").unwrap();
@@ -79,7 +79,7 @@ mod tests {
         assert_eq!(layout.translate(u32::from(b'Q')), keysym('Й'));
     }
 
-    // 키릴 문자처럼 ABC에 없는 글자는 태블릿 배열이 이미 바꾼 것이므로 그대로 보냅니다.
+    // Characters outside ABC, like Cyrillic, were already converted by the tablet layout, so they pass through.
     #[test]
     fn characters_outside_abc_pass_through() {
         let layout = Layout::find("com.apple.keylayout.Russian").unwrap();

@@ -1,20 +1,20 @@
-//! 화면에 닿은 손가락을 Mac 트랙패드의 동작으로 바꿉니다.
+//! Turns fingers on the screen into Mac trackpad gestures.
 use crate::message::gesture::Phase;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-// 이 시간 안에 이만큼보다 덜 움직이고 떼면 탭입니다. 좌표는 레이아웃 픽셀입니다.
+// Lifting within this time after moving less than this distance is a tap. Distances are in layout pixels.
 const TAP: Duration = Duration::from_millis(250);
 const TAP_SLOP: f32 = 20.0;
 
-// 탭한 뒤 이 시간 안에 다시 누르면 버튼을 누른 채 끌기를 시작합니다. 바로 떼면 두 번째 클릭이 되어 Mac이 더블 클릭으로 받습니다.
+// Touching down again within this time after a tap starts a drag with the button held. Lifting right away makes a second click, which the Mac takes as a double click.
 const DRAG_AFTER_TAP: Duration = Duration::from_millis(300);
 
-// 두 손가락이 처음으로 이만큼 움직이면 확대인지 스크롤인지 정하고, 모두 뗄 때까지 바꾸지 않습니다.
+// Once two fingers first move this far, the gesture is fixed as magnify or scroll until all fingers lift.
 const PINCH_SLOP: f32 = 20.0;
 const SCROLL_SLOP: f32 = 10.0;
 
-/// 손가락 하나의 단계입니다.
+/// The phase of a single finger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum TouchPhase {
     Began,
@@ -23,7 +23,7 @@ pub enum TouchPhase {
     Cancelled,
 }
 
-/// 손가락 하나의 터치. 위치는 레이아웃 픽셀이며, 화면 밖이어도 자르지 않습니다.
+/// A single finger touch. The position is in layout pixels and is not clamped to the screen.
 #[derive(Debug, Clone, Copy)]
 pub struct Touch {
     pub id: u32,
@@ -31,46 +31,46 @@ pub struct Touch {
     pub at: (f32, f32),
 }
 
-/// 터치에서 나온 트랙패드 동작입니다.
+/// A trackpad gesture derived from touches.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Gesture {
-    /// 커서를 이만큼 옮깁니다(레이아웃 픽셀).
+    /// Moves the cursor by this much, in layout pixels.
     Move((f32, f32)),
-    /// 버튼 상태를 바꿉니다. 비트는 포인터 이벤트와 같습니다(왼쪽 1, 오른쪽 2).
+    /// Changes the button state. Bits match pointer events (left 1, right 2).
     Buttons(u8),
-    /// 트랙패드 스크롤. 이동량은 손가락이 움직인 레이아웃 픽셀입니다.
+    /// Trackpad scroll. The delta is the fingers' movement in layout pixels.
     Scroll { phase: Phase, delta: (f32, f32) },
-    /// 확대. 배율은 시작할 때 1.0이고 누적됩니다.
+    /// Magnify. The scale starts at 1.0 and is cumulative.
     Magnify { phase: Phase, scale: f32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Mode {
-    /// 한 손가락. 커서를 옮기고, 떼면 탭인지 봅니다.
+    /// One finger. Moves the cursor and checks for a tap on lift.
     Point,
-    /// 탭 직후 다시 누른 한 손가락. 왼쪽 버튼을 누른 채 옮깁니다.
+    /// One finger touching down right after a tap. Moves with the left button held.
     Drag,
-    /// 두 손가락이 아직 움직이지 않았습니다. 떼면 오른쪽 클릭입니다.
+    /// Two fingers that have not moved yet. Lifting is a right click.
     Pair,
     Scroll,
-    /// 시작할 때의 두 손가락 거리
+    /// Distance between the two fingers at the start
     Pinch(f32),
-    /// 세 손가락 이상. 시스템 제스처이므로 모두 뗄 때까지 아무것도 보내지 않습니다.
+    /// Three or more fingers. These are system gestures, so nothing is sent until all fingers lift.
     Ignore,
 }
 
-/// 손가락의 터치를 트랙패드 동작으로 바꿉니다. 화면 전체가 하나의 트랙패드입니다.
+/// Turns finger touches into trackpad gestures. The whole screen is one trackpad.
 ///
-/// - 한 손가락은 커서를 옮기고, 탭하면 왼쪽 클릭입니다. 탭한 직후 다시 누른 채 움직이면 끌기입니다.
-/// - 두 손가락은 탭하면 오른쪽 클릭, 움직이면 스크롤이나 확대입니다. 손가락을 하나만 떼어도 모두 뗄 때까지 그 동작을 이어 갑니다.
-/// - 세 손가락 이상은 iPadOS나 Android의 시스템 제스처이므로, 하던 동작을 끝내고 무시합니다.
+/// - One finger moves the cursor and taps to left-click. Touching down right after a tap and moving drags.
+/// - Two fingers tap to right-click and move to scroll or magnify. Lifting one finger keeps the gesture going until all fingers lift.
+/// - Three or more fingers are iPadOS or Android system gestures, so the current gesture ends and they are ignored.
 pub struct Touchpad {
     fingers: HashMap<u32, (f32, f32)>,
     mode: Option<Mode>,
-    // 첫 손가락이 닿은 시각과, 그 뒤로 움직인 거리
+    // When the first finger touched down, and how far it has moved since
     began: Instant,
     travel: f32,
-    // 두 손가락 제스처의 직전 중심과, 두 손가락이 닿았을 때의 거리
+    // Previous center of the two-finger gesture, and the distance when both fingers touched down
     origin: (f32, f32),
     base_spread: f32,
     last_tap: Option<Instant>,
@@ -157,7 +157,7 @@ impl Touchpad {
             return Vec::new();
         }
 
-        // 손가락이 남아 있으면 동작을 이어 갑니다. 중심이 남은 손가락으로 건너뛰지 않도록 기준을 옮깁니다.
+        // With a finger remaining, the gesture continues. Move the reference so the center does not jump to the remaining finger.
         if !self.fingers.is_empty() {
             self.origin = self.centroid();
             return Vec::new();
@@ -177,7 +177,7 @@ impl Touchpad {
         gestures
     }
 
-    // 두 손가락이 처음 움직인 정도로 확대인지 스크롤인지 정합니다.
+    // Decides between magnify and scroll from how the two fingers first moved.
     fn classify(&mut self) -> Vec<Gesture> {
         let center = self.centroid();
         let moved = (center.0 - self.origin.0).hypot(center.1 - self.origin.1);
@@ -204,7 +204,7 @@ impl Touchpad {
         Vec::new()
     }
 
-    // 중심이 움직인 만큼 스크롤합니다. 손가락을 아래로 내리면 양수이고, iPad 트랙패드 스크롤과 같은 방향입니다.
+    // Scrolls by how far the center moved. Moving fingers down is positive, the same direction as iPad trackpad scrolling.
     fn scroll(&mut self, phase: Phase) -> Vec<Gesture> {
         let center = self.centroid();
         let delta = (center.0 - self.origin.0, center.1 - self.origin.1);
@@ -212,7 +212,7 @@ impl Touchpad {
         vec![Gesture::Scroll { phase, delta }]
     }
 
-    // 하던 동작을 끝냅니다. 누른 버튼은 떼고, 스크롤과 확대는 끝을 알립니다.
+    // Ends the current gesture, releasing held buttons and ending any scroll or magnify.
     fn finish(&mut self) -> Vec<Gesture> {
         match self.mode {
             Some(Mode::Drag) => vec![Gesture::Buttons(0)],
@@ -237,7 +237,7 @@ impl Touchpad {
         (x / count, y / count)
     }
 
-    // 두 손가락 사이의 거리. 두 손가락이 아니면 0입니다.
+    // Distance between two fingers, or 0 when there are not exactly two.
     fn spread(&self) -> f32 {
         let mut points = self.fingers.values();
 
@@ -329,7 +329,7 @@ mod tests {
         );
     }
 
-    // 손가락 하나를 먼저 떼도 남은 손가락으로 커서를 옮기거나 중심이 건너뛰어 스크롤이 튀지 않습니다.
+    // Lifting one finger first neither moves the cursor with the remaining finger nor makes the scroll jump from a shifted center.
     #[test]
     fn two_fingers_scroll_until_both_lift() {
         let mut fingers = Fingers::new();

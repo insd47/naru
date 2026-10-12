@@ -1,6 +1,6 @@
-// 오퍼의 MediaBlob protobuf 형식입니다. 의미가 확인되지 않은 필드는 번호로 이름을 붙입니다.
+// The offer's MediaBlob protobuf format. Fields whose meaning is unconfirmed are named by number.
 //
-// 값이 0인 필드도 서버에 보이도록 보내기 위해, 스칼라 필드는 `Option`으로 선언해 명시적으로 인코딩합니다.
+// Scalar fields are declared as `Option` so they are encoded explicitly, letting zero values reach the server.
 
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct MediaBlob {
@@ -112,7 +112,7 @@ pub struct EndpointInfo {
     pub build: Option<String>,
 }
 
-// 서버의 응답에서 읽는 필드만 선언합니다. 나머지 필드는 prost가 건너뜁니다.
+// Declares only the fields read from the server's answer; prost skips the rest.
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct AnswerBlob {
     #[prost(message, optional, tag = "5")]

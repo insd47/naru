@@ -1,8 +1,8 @@
 use crate::error::{Error, Result};
 use flate2::{Decompress, FlushDecompress, Status};
 
-// 서버의 zlib 데이터는 종료 블록 없이 동기 플러시로 끝납니다. 한 번에 푸는 함수는 이를 잘린 스트림으로 거부하므로,
-// 스트림 해제기에 넣고 정해진 길이가 나오면 성공으로 봅니다. 출력은 `len`을 넘지 않습니다.
+// The server's zlib data ends with a sync flush and no final block. One-shot inflate rejects that as a truncated stream,
+// so this feeds a streaming decompressor and succeeds once the expected length comes out. Output never exceeds `len`.
 pub fn inflate(stream: &mut Decompress, input: &[u8], len: usize, what: &'static str) -> Result<Vec<u8>> {
     let mut output = Vec::with_capacity(len);
     let start = stream.total_in();
@@ -27,7 +27,7 @@ pub fn inflate(stream: &mut Decompress, input: &[u8], len: usize, what: &'static
     Ok(output)
 }
 
-// zlib 머리(CMF, FLG)로 시작하는지 확인합니다. 새 스트림인지, 이전 스트림에 이어지는 데이터인지 가릴 때 씁니다.
+// Checks for a zlib header (CMF, FLG), telling a new stream from data that continues the previous one.
 pub fn starts_stream(data: &[u8]) -> bool {
     matches!(data, [cmf, flg, ..] if cmf & 0x0f == 8 && (u16::from(*cmf) << 8 | u16::from(*flg)) % 31 == 0)
 }
@@ -37,7 +37,7 @@ mod tests {
     use super::{inflate, starts_stream};
     use flate2::{Compress, Compression, Decompress, FlushCompress};
 
-    // 서버처럼 동기 플러시로 끝나는 스트림을 만듭니다.
+    // Builds a stream that ends with a sync flush, like the server's.
     fn sync_flushed(compress: &mut Compress, data: &[u8]) -> Vec<u8> {
         let mut output = Vec::with_capacity(data.len() + 64);
         compress.compress_vec(data, &mut output, FlushCompress::Sync).unwrap();

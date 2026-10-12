@@ -2,17 +2,17 @@ use super::RtpPacket;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-// 새 SSRC로 넘어가는 조건입니다. 현재 스트림에서 이 시간 동안 프레임이 나오지 않았고, 새 SSRC에서 패킷이 이만큼 왔어야 합니다.
+// Conditions for switching to a new SSRC: the current stream produced no frame for this long, and the new SSRC sent at least this many packets.
 const SWITCH_AFTER: Duration = Duration::from_secs(2);
 const MIN_PACKETS: usize = 5;
 
-// 후보 SSRC마다 붙잡아 두는 패킷 수입니다. 넘어갈 때 설정 패킷을 잃지 않도록, 고른 SSRC의 앞부분을 조립기에 다시 넣습니다.
+// Packets held per candidate SSRC. On a switch they are replayed into the assembler so the config packet isn't lost.
 const MAX_HELD: usize = 256;
 
-/// 받은 비디오 패킷 가운데 디코딩할 SSRC를 고릅니다.
+/// Picks which SSRC of the received video packets to decode.
 ///
-/// - 타일 1개를 요청하므로 한 묶음은 SSRC 하나입니다. 해상도 변경이나 세션 전환 뒤에는 서버가 새 SSRC로 보냅니다.
-/// - 한 번 버린 SSRC로는 돌아가지 않습니다. 서버가 두 스트림을 잠시 함께 보낼 때 왔다 갔다 하는 것을 막습니다.
+/// - One tile is requested, so one stream is one SSRC. After a resolution change or session switch, the server sends on a new SSRC.
+/// - An abandoned SSRC is never picked again, which prevents flip-flopping while the server briefly sends both streams.
 #[derive(Default)]
 pub struct Streams {
     current: Option<u32>,
@@ -21,14 +21,14 @@ pub struct Streams {
     last_frame: Option<Instant>,
 }
 
-/// 패킷을 어디로 보낼지 정한 결과입니다.
+/// Where a packet should go.
 #[derive(Debug, PartialEq)]
 pub enum Routed {
-    /// 현재 스트림의 패킷
+    /// Packet of the current stream
     Current(RtpPacket),
-    /// 이 SSRC로 넘어갔습니다. 새 조립기를 만들고 `packets`를 순서대로 넣습니다.
+    /// Switched to this SSRC. Create a new assembler and push `packets` in order.
     Switched { ssrc: u32, packets: Vec<RtpPacket> },
-    /// 후보 SSRC의 패킷을 붙잡아 두었거나 버렸습니다.
+    /// The packet belonged to a candidate SSRC and was held or dropped.
     Held,
 }
 
@@ -67,7 +67,7 @@ impl Streams {
         Routed::Switched { ssrc, packets }
     }
 
-    /// 현재 스트림에서 프레임이 나왔음을 알립니다.
+    /// Reports that the current stream produced a frame.
     pub fn mark_frame(&mut self, now: Instant) {
         self.last_frame = Some(now);
     }
@@ -76,7 +76,7 @@ impl Streams {
         self.current
     }
 
-    /// 넘어갈지 지켜보는 다른 SSRC의 수
+    /// Number of other SSRCs being watched as switch candidates
     pub fn candidates(&self) -> usize {
         self.held.len()
     }

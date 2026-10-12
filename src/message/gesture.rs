@@ -1,8 +1,8 @@
-//! 스크롤과 제스처를 싣는 네이티브 입력 메시지(`0x17`)입니다.
+//! The native input message (`0x17`) that carries scrolls and gestures.
 //!
-//! - `17 00, u16 길이(전체 − 4), u16 버전, u16 하위 유형, 본문`. 다른 메시지와 달리 레코드 안에서 평문입니다.
-//! - 본문은 macOS의 스크롤, 제스처 이벤트 필드를 그대로 옮긴 것입니다. 단계 값은 `CGScrollPhase`, `CGGesturePhase`,
-//!   `CGMomentumScrollPhase`와 같고, 스크롤 방향도 CGEvent를 따릅니다(양수가 위, 왼쪽).
+//! - Unlike other messages, it is plaintext inside the record.
+//! - The body mirrors macOS scroll and gesture event fields. Phase values match `CGScrollPhase`, `CGGesturePhase`,
+//!   and `CGMomentumScrollPhase`, and scroll direction follows CGEvent (positive is up and left).
 
 const TYPE: u8 = 0x17;
 
@@ -10,7 +10,7 @@ const SCROLL: u16 = 0x0b;
 const SCROLL_VERSION: u16 = 1;
 const SCROLL_BYTES: usize = 58;
 
-// 스크롤 이벤트의 종류. 트랙패드처럼 연속적인 스크롤과 마우스 휠을 가릅니다.
+// Scroll event kind, telling continuous trackpad-like scrolling from a mouse wheel.
 const CONTINUOUS: u32 = 6;
 const DISCRETE: u32 = 2;
 
@@ -18,7 +18,7 @@ const MAGNIFY: u16 = 0x03;
 const MAGNIFY_VERSION: u16 = 2;
 const MAGNIFY_BYTES: usize = 36;
 
-/// 제스처의 단계입니다. 스크롤과 확대가 같은 값을 씁니다.
+/// A gesture phase. Scroll and magnify share the same values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum Phase {
     Began = 1,
@@ -27,7 +27,7 @@ pub enum Phase {
     Cancelled = 8,
 }
 
-/// 손을 뗀 뒤 클라이언트가 이어 보내는 관성 스크롤의 단계입니다.
+/// Phase of the momentum scroll the client keeps sending after the fingers lift.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Momentum {
     Began = 1,
@@ -35,18 +35,18 @@ pub enum Momentum {
     Ended = 3,
 }
 
-/// 스크롤 이벤트입니다. 트랙패드는 단계나 관성 단계를 싣고, 마우스 휠은 둘 다 없습니다.
+/// A scroll event. A trackpad carries a phase or momentum phase; a mouse wheel carries neither.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Scroll {
-    /// 가로, 세로 이동량(포인트). 앱이 실제로 스크롤하는 값입니다.
+    /// Horizontal and vertical distance in points. This is what apps actually scroll by.
     pub points: (i32, i32),
-    /// 같은 이동을 줄 단위로 나타낸 값. 줄 단위로 스크롤하는 앱이 씁니다.
+    /// The same distance in lines, used by apps that scroll line by line
     pub lines: (f32, f32),
     pub phase: Option<Phase>,
     pub momentum: Option<Momentum>,
-    /// 트랙패드처럼 연속적인 스크롤이면 참, 마우스 휠이면 거짓
+    /// True for continuous trackpad-like scrolling, false for a mouse wheel
     pub continuous: bool,
-    /// 포인터 위치(픽셀)
+    /// Pointer position in pixels
     pub at: (u16, u16),
 }
 
@@ -55,7 +55,6 @@ impl Scroll {
         let mut message = [0; SCROLL_BYTES];
         message[..8].copy_from_slice(&header(SCROLL_BYTES, SCROLL_VERSION, SCROLL));
 
-        // 가로가 앞, 세로가 뒤입니다. 정수 줄, 16.16 줄, 정수 포인트 순으로 놓입니다.
         message[8..10].copy_from_slice(&whole_lines(self.lines.0).to_be_bytes());
         message[10..12].copy_from_slice(&whole_lines(self.lines.1).to_be_bytes());
         message[14..18].copy_from_slice(&fixed(self.lines.0));
@@ -74,13 +73,13 @@ impl Scroll {
     }
 }
 
-/// 확대 제스처입니다.
+/// A magnify gesture.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Magnify {
-    /// 직전 이벤트 이후의 확대량. 양수가 확대, 음수가 축소이며 배율은 `1 + magnification`배씩 바뀝니다.
+    /// Magnification since the previous event. Positive zooms in, negative zooms out, and the scale changes by a factor of `1 + magnification`.
     pub magnification: f64,
     pub phase: Phase,
-    /// 확대의 중심(픽셀)
+    /// Center of the magnification in pixels
     pub at: (u16, u16),
 }
 
@@ -112,7 +111,7 @@ fn header(len: usize, version: u16, kind: u16) -> [u8; 8] {
     ]
 }
 
-// 정수 줄 수. 0으로 버리지 않고, 조금이라도 움직였으면 그 방향으로 한 줄입니다(macOS와 같음).
+// Whole lines. Any movement counts as at least one line in its direction instead of truncating to zero, as macOS does.
 fn whole_lines(lines: f32) -> i16 {
     let whole = lines.trunc();
     let whole = if whole == 0.0 && lines != 0.0 {
@@ -123,7 +122,7 @@ fn whole_lines(lines: f32) -> i16 {
     whole.clamp(f32::from(i16::MIN), f32::from(i16::MAX)) as i16
 }
 
-// 16.16 고정소수. 범위를 넘는 값은 끝에서 멈춥니다.
+// 16.16 fixed point. Out-of-range values saturate.
 fn fixed(value: f32) -> [u8; 4] {
     let scaled = (f64::from(value) * 65536.0)
         .round()
@@ -146,7 +145,7 @@ mod tests {
         }
     }
 
-    // Apple 클라이언트가 보낸 트랙패드 스크롤 하나(세로 -14포인트, -1.3줄)
+    // A trackpad scroll sent by Apple's client (vertical -14 points, -1.3 lines)
     #[test]
     fn trackpad_scroll_matches_the_apple_client_bytes() {
         let message = scroll((0, -14), (0.0, -1.3)).encode();
@@ -204,7 +203,7 @@ mod tests {
         assert_eq!(&momentum.encode()[38..46], [0, 0, 0, 0, 0, 0, 0, 3]);
     }
 
-    // Apple 클라이언트가 보낸 확대 하나(0.020996, 진행 중)
+    // A magnify sent by Apple's client (0.020996, changed)
     #[test]
     fn magnify_carries_a_double_increment() {
         let message = Magnify {

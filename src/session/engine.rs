@@ -15,12 +15,12 @@ use tokio::time::MissedTickBehavior;
 
 const TICK: Duration = Duration::from_millis(500);
 
-// 응답을 받은 뒤 이 시간 안에 디코더 설정이 오지 않으면 서버의 인코더가 멈춘 것으로 보고 다시 접속합니다.
+// If no decoder config arrives this long after the answer, the server's encoder is treated as stuck and the session reconnects.
 const MEDIA_START: Duration = Duration::from_secs(3);
 
-/// 레코드 계층이 켜진 뒤의 세션 상태입니다. 한 task에서 제어 채널, UDP, 타이머, 명령을 모두 처리합니다.
+/// Session state once the record layer is on. One task handles the control channel, UDP, timers, and commands.
 ///
-/// - 레코드의 순번과 CBC 상태는 보낸 순서에 묶이므로, 제어 채널로 보내는 일은 이 task에서만 합니다.
+/// - Record sequence numbers and CBC state are tied to send order, so only this task sends on the control channel.
 pub struct Engine {
     control: Control,
     sockets: Sockets,
@@ -30,11 +30,11 @@ pub struct Engine {
     negotiation: Negotiation,
     messages: Messages,
     cursors: Cursors,
-    // 마지막 레이아웃의 픽셀 크기. 바뀌면 오퍼를 다시 보냅니다.
+    // Pixel size of the last layout. A change resends the offer.
     pixels: Option<(u16, u16)>,
 }
 
-// 대기하던 일 가운데 먼저 끝난 것
+// Whichever awaited source finished first
 enum Wake {
     Tcp(Result<Vec<Vec<u8>>>),
     Video(std::io::Result<(usize, SocketAddr)>),
@@ -47,7 +47,7 @@ enum Wake {
 }
 
 impl Engine {
-    /// `codec`은 이번 시도에서 요청할 코덱입니다. HEVC가 시작되지 않으면 세션이 H.264로 바꿔 다시 시도합니다.
+    /// `codec` is the codec to request in this attempt. If HEVC does not start, the session retries with H.264.
     pub fn new(control: Control, sockets: Sockets, config: &Config, codec: VideoCodec) -> Self {
         let offer = Offer::new(config.audio, codec);
 
@@ -123,9 +123,9 @@ impl Engine {
         }
     }
 
-    // 레코드 계층이 켜진 직후의 요청입니다. 오퍼를 보낸 뒤 전체 영역을 비증분으로 요청해 TCP 쪽 송신을 깨웁니다.
+    // Requests sent right after the record layer turns on. After the offer, a non-incremental full-area request wakes the TCP side.
     async fn start(&mut self, outgoing: &mut Vec<Event>) -> Result<()> {
-        // 인코딩 목록은 평문 프렐류드에서 보냈어도 레코드 계층에서 한 번 더 보냅니다. 원 클라이언트의 순서입니다.
+        // The encoding list is sent again over the record layer even though the plaintext prelude had it, matching Apple's client order.
         self.control.send(&client::set_encodings()).await?;
         self.control.send(&client::AUTO_CLIPBOARD).await?;
         self.control.send(&self.negotiation.start(Instant::now())).await?;
@@ -152,7 +152,7 @@ impl Engine {
             match message {
                 ServerMessage::FramebufferUpdate(rects) => self.rects(rects, now, outgoing).await?,
                 ServerMessage::ClipboardChanged => self.control.send(&client::clipboard_request()).await?,
-                // 클립보드 내용의 형식 오류는 경계가 어긋난 것이 아니므로 세션을 끊지 않고 그 내용만 버립니다.
+                // A malformed clipboard body does not misalign message boundaries, so only that content is dropped and the session stays up.
                 ServerMessage::Clipboard(message) => {
                     if let Ok(Some(text)) = clipboard::text(&message) {
                         outgoing.push(Event::Clipboard(text));
@@ -165,7 +165,7 @@ impl Engine {
         Ok(())
     }
 
-    // 사각형 본문의 형식 오류(커서 이미지, 레이아웃)는 그 사각형만 버립니다. 메시지 경계는 이미 확인했습니다.
+    // A malformed rectangle body (cursor image, layout) drops only that rectangle; message boundaries were already checked.
     async fn rects(&mut self, rects: Vec<Rect>, now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
         for rect in rects {
             match rect {
@@ -180,7 +180,7 @@ impl Engine {
                         outgoing.push(Event::Cursor(image));
                     }
 
-                    // 커서 사각형을 받은 직후에 요청해야 다음 모양 갱신이 이어집니다.
+                    // Requesting right after a cursor rectangle keeps the next shape updates coming.
                     self.control.send(&client::framebuffer_request(true, 1, 1)).await?;
                 }
                 Rect::Layout(body) => {
@@ -195,7 +195,7 @@ impl Engine {
                     self.input.resize(layout.logical, layout.pixels);
                     outgoing.push(Event::Layout(layout));
 
-                    // 크기가 같은 레이아웃(로그인, 잠금, 세션 전환)에서도 요청하지 않으면 커서 모양이 굳습니다.
+                    // Request even for a same-size layout (login, lock, session switch), or the cursor shape freezes.
                     self.control
                         .send(&client::framebuffer_request(false, u16::MAX, u16::MAX))
                         .await?;
@@ -204,7 +204,7 @@ impl Engine {
                         self.control.send(&offer).await?;
                     }
                 }
-                // 크기가 있는 미디어 응답이 오면 미디어 수신 단계로 넘어갑니다.
+                // A media answer with a size moves on to the media stage.
                 Rect::MediaStream(body) | Rect::Unknown { rest: body, .. } => {
                     if self.negotiation.answer(&body, now) {
                         outgoing.push(Event::Progress(Stage::Media));
@@ -242,7 +242,7 @@ impl Engine {
             return Ok(());
         }
 
-        // 첫 키프레임이 오는 동안에는 프레임버퍼를 요청하지 않습니다. 파라미터 세트가 빠진 갱신으로 시작이 꼬입니다.
+        // No framebuffer requests until the first keyframe, since an update without parameter sets derails the start.
         if self.media.last_frame().is_some() {
             self.control.send(&client::framebuffer_request(true, 1, 1)).await?;
         }
@@ -258,7 +258,7 @@ impl Engine {
                 self.keyboard.select(&language);
                 Ok(())
             }
-            // 터치는 커서를 상대 이동으로 옮기므로, 옮긴 위치를 네이티브 계층에 알려 커서를 그 자리에 그리게 합니다.
+            // Touch moves the cursor relatively, so report the new position for the native layer to draw the cursor there.
             Command::Input(event @ input::Event::Touch(_), at) => {
                 self.control.send_all(self.input.handle(event, at)).await?;
                 let (x, y) = self.input.cursor();
@@ -267,8 +267,8 @@ impl Engine {
             }
             Command::Input(event, at) => self.control.send_all(self.input.handle(event, at)).await,
             Command::Clipboard(message) => self.control.send(&message).await,
-            // 화면이 멈춰 서버가 조용하면 키프레임 요청에 답하지 않습니다(2026-10-12 실측, 26초 동안 응답 없음).
-            // 이때는 오퍼를 다시 보냅니다. 서버는 새 스트림을 열며 화면이 멈춰 있어도 설정과 키프레임을 보냅니다.
+            // A server gone quiet on a still screen ignores keyframe requests.
+            // Resend the offer instead; the server opens a new stream and sends a config and keyframe even for a still screen.
             Command::Keyframe if !self.media.active(now) => match self.negotiation.reoffer(now) {
                 Some(offer) => self.control.send(&offer).await,
                 None => Ok(()),
@@ -286,7 +286,7 @@ impl Engine {
         }
     }
 
-    // 크기가 있는 응답을 받을 때까지 같은 오퍼를 다시 보내고, 횟수를 넘으면 포기합니다. 협상 뒤에는 미뤄 둔 재전송을 보냅니다.
+    // Resend the same offer until an answer with a size arrives, giving up past the limit. After negotiation, send the deferred resend.
     async fn retry(&mut self, now: Instant) -> Result<()> {
         match self.negotiation.expire(now) {
             Some(offer) => self.control.send(&offer).await,
@@ -294,7 +294,7 @@ impl Engine {
         }
     }
 
-    // 미디어가 시작되지 않으면 연결을 즉시 끊습니다(RST). 서버 쪽 세션이 남지 않게 해야 다시 접속할 수 있습니다.
+    // When media does not start, reset the connection immediately (RST). Reconnecting only works once no session lingers on the server.
     fn abort(&self) -> Error {
         self.control.abort();
         let stats = self.media.stats(self.negotiation.offers());

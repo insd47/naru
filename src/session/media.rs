@@ -13,24 +13,24 @@ use tokio::net::UdpSocket;
 const RECEIVE_BUFFER_BYTES: usize = 4 << 20;
 const PUNCH_INTERVAL: Duration = Duration::from_millis(100);
 
-// 오디오 keepalive는 페이로드 유형 101, 20ms(480 샘플)마다 한 패킷인 것처럼 타임스탬프를 늘립니다.
+// The audio keepalive uses payload type 101 and advances the timestamp as if one packet went out every 20 ms (480 samples).
 const KEEPALIVE_PAYLOAD_TYPE: u8 = 101;
 const KEEPALIVE_PAYLOAD: [u8; 4] = [0x00, 0x68, 0x34, 0x00];
 const KEEPALIVE_TIMESTAMP_STEP: u32 = 480;
 
-// 빈 송신 보고를 수신 보고 앞에 붙이는 주기입니다.
+// How often an empty sender report is prepended to the receiver report.
 const SENDER_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 
-// 키프레임 요청의 최소 간격입니다. 서버가 이보다 오래 조용하면 화면이 멈춰 인코딩을 쉬는 중이므로 요청하지 않습니다.
+// Minimum interval between keyframe requests. A server quiet for longer than `QUIET_AFTER` is idling on a still screen, so no request is sent.
 const KEYFRAME_INTERVAL: Duration = Duration::from_millis(250);
 const QUIET_AFTER: Duration = Duration::from_millis(1500);
 
-// 프레임이 나오지 않을 때의 조치입니다. 화면이 정지하면 서버가 영상을 보내지 않으므로, 최근에 패킷이 온 경우에만 조치합니다.
+// Frame stall recovery. The server sends no video for a still screen, so recovery only runs when packets arrived recently.
 const STALL_KEYFRAME: Duration = Duration::from_secs(3);
 const STALL_KEYFRAME_REPEAT: Duration = Duration::from_millis(1500);
 const STALL_RESETS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(15)];
 
-/// 오디오(P)와 비디오(P+1) UDP 소켓입니다. 인증보다 먼저 열어 둡니다.
+/// Audio (P) and video (P+1) UDP sockets, opened before authentication.
 #[derive(Clone)]
 pub struct Sockets {
     pub audio: Arc<UdpSocket>,
@@ -51,7 +51,7 @@ impl Sockets {
         })
     }
 
-    /// 핸드셰이크가 끝날 때까지 두 소켓에서 서버의 대응 포트로 1바이트를 보냅니다. 서버는 이 패킷을 무시합니다.
+    /// Sends one byte from each socket to the server's matching port until the handshake ends. The server ignores these packets.
     pub async fn punch(self) {
         let mut interval = tokio::time::interval(PUNCH_INTERVAL);
 
@@ -62,13 +62,13 @@ impl Sockets {
         }
     }
 
-    // RTCP와 오디오 keepalive는 모두 서버의 오디오 포트로 보냅니다.
+    // RTCP and the audio keepalive both go to the server's audio port.
     fn audio_address(&self) -> SocketAddr {
         (self.server, self.audio_port).into()
     }
 }
 
-/// 비디오와 오디오 수신, RTCP 송신 상태입니다.
+/// Video and audio reception and RTCP sending state.
 pub struct Media {
     sockets: Sockets,
     codec: VideoCodec,
@@ -77,7 +77,7 @@ pub struct Media {
     audio_ssrc: u32,
     receive: SrtpContext,
     audio: SrtpContext,
-    // 첫 오디오 앞에 디코더 설정을 알렸는지 여부
+    // Whether the decoder config was announced before the first audio
     audio_started: bool,
     rtcp: SrtpContext,
     keepalive: SrtpContext,
@@ -88,10 +88,10 @@ pub struct Media {
     last_sender_report: Option<Instant>,
     last_keyframe_request: Option<Instant>,
     fir_sequence: u8,
-    // 미디어가 시작되지 않았을 때 원인을 가리기 위한 수입니다.
+    // Counts for diagnosing why media did not start.
     datagrams: u64,
     authenticated: u64,
-    // 재전송을 요청한 순번 수, 이전 조립기들이 메운 패킷 수, 복구하지 못한 손실 수
+    // Sequence numbers NACKed, packets filled by previous assemblers, and unrecovered losses
     nacked: u64,
     filled: u64,
     losses: u64,
@@ -101,7 +101,7 @@ pub struct Media {
     stall: Stall,
 }
 
-// 프레임 정지 감시 상태입니다. 프레임이 나오면 초기화합니다.
+// Frame stall watch state, reset whenever a frame comes out.
 #[derive(Default)]
 struct Stall {
     last_request: Option<Instant>,
@@ -140,7 +140,7 @@ impl Media {
         }
     }
 
-    /// 비디오 포트로 받은 데이터그램을 처리하고, 내보낼 이벤트를 `events`에 더합니다.
+    /// Handles a datagram received on the video port and appends outgoing events to `events`.
     pub async fn receive(&mut self, datagram: &[u8], from: SocketAddr, now: Instant, events: &mut Vec<Event>) {
         if from.ip() != self.sockets.server {
             return;
@@ -167,7 +167,7 @@ impl Media {
         let packets = match self.streams.route(packet, now) {
             Routed::Current(packet) => vec![packet],
             Routed::Switched { ssrc, packets } => {
-                // 새 SSRC는 새 디코더 세대입니다. 이전 세대의 참조와 섞이지 않도록 새 설정과 키프레임을 기다립니다.
+                // A new SSRC is a new decoder generation. Wait for a new config and keyframe so it never mixes with the previous generation's references.
                 self.filled += self.assembler.as_ref().map_or(0, Assembler::filled);
                 self.assembler = Some(Assembler::new(self.codec, ssrc, self.priority));
                 self.configured = false;
@@ -192,7 +192,7 @@ impl Media {
         self.drain(now, events).await;
     }
 
-    /// 오디오 포트로 받은 데이터그램을 처리합니다. 같은 포트로 오는 서버 RTCP는 건너뜁니다.
+    /// Handles a datagram received on the audio port, skipping server RTCP that arrives on the same port.
     pub fn receive_audio(&mut self, datagram: &[u8], from: SocketAddr, events: &mut Vec<Event>) {
         if from.ip() != self.sockets.server || RtpPacket::is_rtcp(datagram) {
             return;
@@ -214,7 +214,7 @@ impl Media {
         events.push(Event::Audio(frame));
     }
 
-    /// 조립기에서 꺼낼 수 있는 결과를 모두 꺼냅니다. 재전송 대기 기한이 지났을 때도 부릅니다.
+    /// Takes every available output from the assembler. Also called when the retransmission deadline passes.
     pub async fn drain(&mut self, now: Instant, events: &mut Vec<Event>) {
         let mut lost = false;
 
@@ -242,25 +242,25 @@ impl Media {
         }
     }
 
-    /// 디코더 설정이나 프레임이 한 번이라도 왔는지 여부
+    /// Whether a decoder config or frame has ever arrived
     pub fn started(&self) -> bool {
         self.configured || self.last_frame.is_some()
     }
 
-    /// 마지막으로 프레임을 내보낸 시각
+    /// When the last frame went out
     pub fn last_frame(&self) -> Option<Instant> {
         self.last_frame
     }
 
-    /// 서버가 지금 패킷을 보내고 있는지 여부. 화면이 정지하면 서버는 보내지 않습니다.
+    /// Whether the server is currently sending packets. It stops for a still screen.
     pub fn active(&self, now: Instant) -> bool {
         self.last_packet
             .is_some_and(|last| now.duration_since(last) <= QUIET_AFTER)
     }
 
-    /// 프레임이 나오지 않는지 지켜봅니다. 패킷은 오는데 프레임이 멈추면 키프레임을 요청하고, 오래 가면 디코더를 다시 만들게 합니다.
+    /// Watches for frame stalls. When packets arrive but frames stop, it requests a keyframe, and if that lasts, has the decoder recreated.
     ///
-    /// - `answered`는 미디어 응답을 받은 시각입니다. 프레임이 한 번도 나오지 않았으면 그때부터 잽니다.
+    /// - `answered` is when the media answer arrived. Until the first frame, the stall is measured from then.
     pub async fn watch(&mut self, now: Instant, answered: Instant, events: &mut Vec<Event>) {
         let since = self.last_frame.unwrap_or(answered);
 
@@ -309,7 +309,7 @@ impl Media {
         self.assembler.as_ref()?.deadline()
     }
 
-    /// 0.5초마다 보내는 오디오 keepalive와 수신 보고입니다. 5초마다 빈 송신 보고를 앞에 붙입니다.
+    /// The audio keepalive and receiver report sent every 0.5 seconds, with an empty sender report prepended every 5 seconds.
     pub async fn tick(&mut self, now: Instant) {
         let keepalive = RtpPacket {
             marker: false,
@@ -348,9 +348,9 @@ impl Media {
         self.send_rtcp(&compound).await;
     }
 
-    /// 키프레임을 요청합니다. 최소 간격 안이거나, 서버가 조용하거나, 아직 스트림이 없으면 보내지 않습니다.
+    /// Requests a keyframe, unless within the minimum interval, the server is quiet, or there is no stream yet.
     ///
-    /// - 키프레임이 올 때까지 프레임을 버릴지는 정하지 않습니다. 손실 뒤에는 조립기가, 디코더를 새로 만든 뒤에는 네이티브 계층이 정합니다.
+    /// - It does not decide whether to drop frames until the keyframe. The assembler decides after a loss, and the native layer after recreating the decoder.
     pub async fn request_keyframe(&mut self, now: Instant) {
         let recent = self
             .last_keyframe_request
@@ -375,7 +375,7 @@ impl Media {
 fn bind(port: u16) -> Result<UdpSocket> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, None)?;
 
-    // 키프레임 하나가 수백 패킷이므로 수신 버퍼를 크게 잡습니다. 운영체제가 더 작게 잡아도 계속합니다.
+    // A keyframe is hundreds of packets, so ask for a large receive buffer. Carry on if the OS grants less.
     let _ = socket.set_recv_buffer_size(RECEIVE_BUFFER_BYTES);
     socket.set_nonblocking(true)?;
     socket.bind(&SocketAddr::from(([0, 0, 0, 0], port)).into())?;

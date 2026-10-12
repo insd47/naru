@@ -1,10 +1,10 @@
-//! macOS 화면 공유 High Performance 모드 클라이언트의 프로토콜 코어입니다.
+//! Protocol core of a client for macOS Screen Sharing's High Performance mode.
 //!
-//! - `session`이 소켓을 쥐고 접속부터 미디어 수신까지 처리하며, 네이티브 계층에는 완성된 접근 단위와 디코더 설정만 넘깁니다.
-//! - 나머지 모듈은 I/O 없는 프로토콜 구현입니다. 서버가 보낸 길이는 모두 상한을 확인하며, 형식이 맞지 않으면 패닉하지 않고 에러를 반환합니다.
-//! - `unsafe`는 UniFFI가 만드는 FFI 경계(`ffi`)에만 허용합니다.
-//! - `record`, `RtpPacket`, `SrtpContext`는 서버 역할을 하는 통합 테스트가 레코드와 미디어를 만드는 데 쓰는 원시 요소입니다.
-//! - `auth`는 probe가 인증 없이 핸드셰이크만 시험할 때 RFB 버전 문자열을 씁니다.
+//! - `session` owns the sockets and handles everything from connecting to receiving media; the native layer only gets complete access units and decoder configs.
+//! - The other modules are I/O-free protocol code. Every length the server sends is checked against a limit, and malformed input returns an error instead of panicking.
+//! - `unsafe` is allowed only at the FFI boundary that UniFFI generates (`ffi`).
+//! - `record`, `RtpPacket`, and `SrtpContext` are primitives that integration tests acting as the server use to build records and media.
+//! - `auth` exposes the RFB version string so the probe can test the handshake without authenticating.
 #![deny(unsafe_code)]
 
 pub use error::{Error, Result};

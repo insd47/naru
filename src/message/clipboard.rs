@@ -1,7 +1,7 @@
-//! 클립보드 전송 메시지(`0x1f`)입니다.
+//! The clipboard transfer message (`0x1f`).
 //!
-//! - 내용은 zlib으로 압축한 항목 목록이며, 항목마다 유형 식별자(UTI), 별칭, 데이터가 있습니다.
-//! - 텍스트는 `public.utf8-plain-text` 항목으로 주고받습니다. 표준 RFB의 ClientCutText는 요즘 앱에서 붙여넣기가 되지 않습니다.
+//! - The content is a zlib-compressed list of items, each with a type identifier (UTI), aliases, and data.
+//! - Text travels as a `public.utf8-plain-text` item, because standard RFB ClientCutText does not paste in current apps.
 use super::zlib;
 use crate::error::{Error, Result};
 use crate::reader::Reader;
@@ -13,9 +13,9 @@ const MAX_CONTENT_BYTES: usize = 64 << 20;
 const MAX_ITEMS: u32 = 256;
 const MAX_ALIASES: u32 = 64;
 
-/// 클립보드 메시지에서 텍스트 항목을 꺼냅니다. 텍스트 항목이 없거나 클립보드가 비어 있으면 `None`입니다.
+/// Extracts the text item from a clipboard message, or `None` when there is no text item or the clipboard is empty.
 pub fn text(message: &[u8]) -> Result<Option<String>> {
-    let mut reader = Reader::new(message, "클립보드");
+    let mut reader = Reader::new(message, "clipboard");
     reader.skip(8)?;
 
     let len = reader.u32()? as usize;
@@ -27,17 +27,15 @@ pub fn text(message: &[u8]) -> Result<Option<String>> {
     }
 
     if len > MAX_CONTENT_BYTES {
-        return Err(Error::TooLong {
-            what: "클립보드", len
-        });
+        return Err(Error::TooLong { what: "clipboard", len });
     }
 
-    let content = zlib::inflate(&mut Decompress::new(true), compressed, len, "클립보드")?;
-    let mut reader = Reader::new(&content, "클립보드");
+    let content = zlib::inflate(&mut Decompress::new(true), compressed, len, "clipboard")?;
+    let mut reader = Reader::new(&content, "clipboard");
     let count = reader.u32()?;
 
     if count > MAX_ITEMS {
-        return Err(Error::Malformed("클립보드"));
+        return Err(Error::Malformed("clipboard"));
     }
 
     for _ in 0..count {
@@ -47,7 +45,7 @@ pub fn text(message: &[u8]) -> Result<Option<String>> {
         let aliases = reader.u32()?;
 
         if aliases > MAX_ALIASES {
-            return Err(Error::Malformed("클립보드"));
+            return Err(Error::Malformed("clipboard"));
         }
 
         for _ in 0..aliases * 2 {
@@ -64,14 +62,12 @@ pub fn text(message: &[u8]) -> Result<Option<String>> {
     Ok(None)
 }
 
-/// 텍스트 항목 하나로 된 클립보드 메시지를 만듭니다. 받을 때와 같은 크기 한도를 넘으면 `TooLong`입니다.
+/// Builds a clipboard message with a single text item, failing with `TooLong` past the same size limit used when receiving.
 pub fn message(text: &str) -> Result<Vec<u8>> {
     let len = text.len() + TEXT.len() + 24;
 
     if len > MAX_CONTENT_BYTES {
-        return Err(Error::TooLong {
-            what: "클립보드", len
-        });
+        return Err(Error::TooLong { what: "clipboard", len });
     }
 
     let mut content = Vec::with_capacity(len);
@@ -82,7 +78,7 @@ pub fn message(text: &str) -> Result<Vec<u8>> {
     content.extend_from_slice(&length(text.len()));
     content.extend_from_slice(text.as_bytes());
 
-    // Apple 클라이언트처럼 sync flush로 끝내고 스트림 종료 블록은 붙이지 않습니다. 종료 블록이 있으면 Mac이 내용을 버리고 클립보드만 비웁니다.
+    // End with a sync flush and no final block, like Apple's client. With a final block the Mac drops the content and just clears the clipboard.
     let mut compressor = Compress::new(Compression::default(), true);
     let mut compressed = Vec::with_capacity(content.len() + 64);
 
@@ -94,7 +90,7 @@ pub fn message(text: &str) -> Result<Vec<u8>> {
                 &mut compressed,
                 FlushCompress::Sync,
             )
-            .expect("메모리 안의 압축은 실패하지 않는다");
+            .expect("in-memory compression does not fail");
     }
 
     let mut message = vec![0x1f, 0, 0, 0, 0, 0, 0, 0];
@@ -104,9 +100,11 @@ pub fn message(text: &str) -> Result<Vec<u8>> {
     Ok(message)
 }
 
-// 길이 필드는 `u32`입니다. 내용은 [`MAX_CONTENT_BYTES`] 안으로 확인했고, 압축은 그보다 크게 늘지 않습니다.
+// Length fields are `u32`. The content was checked against [`MAX_CONTENT_BYTES`], and compression does not grow it past that.
 fn length(len: usize) -> [u8; 4] {
-    u32::try_from(len).expect("클립보드 크기 한도 안이다").to_be_bytes()
+    u32::try_from(len)
+        .expect("within the clipboard size limit")
+        .to_be_bytes()
 }
 
 fn string<'a>(reader: &mut Reader<'a>) -> Result<&'a [u8]> {
@@ -126,7 +124,7 @@ mod tests {
         );
     }
 
-    // 2026-10-11 캡처의 Apple 클라이언트도 압축 본문을 sync flush(`00 00 ff ff`)로 끝냈습니다.
+    // Apple's client also ends the compressed body with a sync flush (`00 00 ff ff`).
     #[test]
     fn content_ends_with_a_sync_flush() {
         assert!(message("안녕, Mac").unwrap().ends_with(&[0, 0, 0xff, 0xff]));

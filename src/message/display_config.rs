@@ -1,31 +1,31 @@
 use crate::error::{Error, Result};
 
-// 서버는 이보다 큰 픽셀 크기를 받으면 임의의 크기로 바꿉니다. 세로 화면은 폭과 높이를 바꾼 한도를 씁니다.
+// The server replaces any larger pixel size with one of its own choosing. Portrait displays use the limit with width and height swapped.
 const MAX_PIXELS: (u32, u32) = (3840, 2160);
 
 const NAME_BYTES: usize = 120;
 const DESCRIPTOR_BYTES: usize = 0x9c;
 const MODE_BYTES: usize = 28;
 
-// 동적 해상도 플래그와 가상 디스플레이 종류가 있어야 세션 중의 크기 변경 요청으로 받아들여집니다.
+// The dynamic resolution flag and the virtual display kind are required for a mid-session resize to be accepted.
 const DYNAMIC: u32 = 1;
 const VIRTUAL: u32 = 4;
 const ROTATION: u32 = 7;
 
-/// 가상 디스플레이 설정(SetDisplayConfiguration)입니다.
+/// Virtual display configuration (SetDisplayConfiguration).
 ///
-/// - 이 설정을 보내면 Mac의 실제 화면이 가려지고, 서버는 이 크기의 가상 디스플레이를 스트리밍합니다.
-/// - 세션 중에 다시 보내면 해상도 변경 요청이 됩니다. 실제로 적용된 크기는 `Layout`으로 확인합니다.
+/// - Sending it hides the Mac's physical screen, and the server streams a virtual display of this size.
+/// - Sending it again mid-session requests a resolution change. The size actually applied arrives as a `Layout`.
 pub struct DisplayConfig {
-    /// Mac의 디스플레이 목록에 보이는 이름. 119바이트를 넘으면 자릅니다.
+    /// Name shown in the Mac's display list. Truncated past 119 bytes.
     pub name: String,
-    /// 물리 크기(mm). 서버가 DPI를 계산하는 데 씁니다.
+    /// Physical size in millimeters. The server uses it to compute DPI.
     pub physical_mm: (f32, f32),
-    /// 모드 표. 첫 모드를 현재 모드와 선호 모드로 씁니다.
+    /// Mode table. The first mode is used as both the current and the preferred mode.
     pub modes: Vec<Mode>,
 }
 
-/// 디스플레이 모드 하나입니다.
+/// A single display mode.
 #[derive(Clone, Copy)]
 pub struct Mode {
     pub pixels: (u32, u32),
@@ -35,17 +35,17 @@ pub struct Mode {
 }
 
 impl DisplayConfig {
-    /// 메시지를 만듭니다. 모드가 없거나 픽셀 크기가 서버의 한도를 넘으면 실패합니다.
+    /// Builds the message, failing when there are no modes or a pixel size exceeds the server's limit.
     pub fn encode(&self) -> Result<Vec<u8>> {
         let Some(first) = self.modes.first() else {
-            return Err(Error::Invalid("디스플레이 설정"));
+            return Err(Error::Invalid("display config"));
         };
 
         let (max_width, max_height) = limit(first.pixels);
         let fits = |mode: &Mode| mode.pixels.0 <= max_width && mode.pixels.1 <= max_height;
 
         if !self.modes.iter().all(fits) || self.modes.len() > 64 {
-            return Err(Error::Invalid("디스플레이 설정"));
+            return Err(Error::Invalid("display config"));
         }
 
         let descriptor_len = DESCRIPTOR_BYTES + MODE_BYTES * self.modes.len();
@@ -87,7 +87,7 @@ impl DisplayConfig {
     }
 }
 
-// 이 앱의 가상 디스플레이입니다. 이름과 실제 크기는 Mac의 디스플레이 설정 화면에만 쓰입니다.
+// This app's virtual display. The name and physical size only show up in the Mac's display settings.
 impl From<Mode> for DisplayConfig {
     fn from(mode: Mode) -> Self {
         Self {
@@ -99,7 +99,7 @@ impl From<Mode> for DisplayConfig {
 }
 
 impl Mode {
-    /// 논리 크기와 배율로 60Hz SDR 모드를 만듭니다. 배율 2는 Retina입니다.
+    /// Builds a 60 Hz SDR mode from a logical size and scale. A scale of 2 is Retina.
     pub fn new(logical: (u32, u32), scale: f64) -> Self {
         let scaled = |value: u32| (f64::from(value) * scale).round().clamp(1.0, f64::from(u32::MAX)) as u32;
 
@@ -111,7 +111,7 @@ impl Mode {
         }
     }
 
-    /// 픽셀 크기가 서버 한도(가로 3840×2160, 세로 2160×3840)에 들어가도록, 비율을 유지한 채 논리 크기를 줄인 모드를 만듭니다.
+    /// Builds a mode whose logical size is shrunk, keeping the aspect ratio, until its pixels fit the server's limit (3840×2160 landscape, 2160×3840 portrait).
     pub fn fitting(logical: (u32, u32), scale: f64) -> Self {
         let (max_width, max_height) = limit(logical);
         let ratio = (f64::from(max_width) / (f64::from(logical.0) * scale))
@@ -123,7 +123,7 @@ impl Mode {
     }
 }
 
-// 이 방향의 픽셀 한도
+// Pixel limit for this orientation
 fn limit((width, height): (u32, u32)) -> (u32, u32) {
     let (long, short) = MAX_PIXELS;
     if height > width { (short, long) } else { (long, short) }
@@ -165,8 +165,8 @@ mod tests {
         assert!(config(Vec::new()).encode().is_err());
     }
 
-    // 세로로 세운 iPad Pro 11형(834×1210@2)이 가로 한도의 높이를 넘는다며 접속하지 못했습니다(2026-10-12 TestFlight).
-    // 서버는 세로 1668×2420을 그대로 받습니다(2026-10-13 macOS 27 실측).
+    // A portrait iPad (834×1210@2) failed to connect because it exceeded the landscape height limit.
+    // The server accepts a portrait 1668×2420 as is.
     #[test]
     fn portrait_modes_use_the_rotated_limit() {
         let portrait = Mode::fitting((834, 1210), 2.0);

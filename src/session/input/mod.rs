@@ -8,54 +8,54 @@ pub use touch::{Touch, TouchPhase};
 
 mod touch;
 
-// 줄 단위 값 하나가 몇 포인트인지입니다. Apple 클라이언트의 트랙패드 스크롤에서 약 10이고, 휠 한 칸도 이만큼 스크롤합니다.
+// Points per line. Apple's client uses about 10 for trackpad scrolls, and one wheel notch scrolls the same amount.
 const POINTS_PER_LINE: f32 = 10.0;
 
-// 관성 스크롤입니다. 손을 떼기 직전의 이동으로 속도를 정하고, UIScrollView의 기본 감속(1ms마다 0.998배)으로 줄여 가며 보냅니다.
+// Momentum scrolling. The velocity comes from the movement just before the fingers lift and decays at UIScrollView's default deceleration (×0.998 per ms).
 const VELOCITY_WINDOW: Duration = Duration::from_millis(100);
 const FRAME: Duration = Duration::from_millis(16);
 const DECELERATION_PER_MS: f32 = 0.998;
 const FLING_POINTS_PER_SEC: f32 = 100.0;
 const STOP_POINTS_PER_SEC: f32 = 10.0;
 
-/// 네이티브 계층이 보내는 입력입니다.
+/// Input sent by the native layer.
 #[derive(Debug, Clone, Copy)]
 pub enum Event {
-    /// 포인터 위치(레이아웃 픽셀)와 버튼
+    /// Pointer position in layout pixels and buttons
     Pointer { buttons: u8, x: u16, y: u16 },
-    /// 트랙패드 스크롤. 이동량은 포인트이고 방향은 CGEvent를 따릅니다(양수가 위, 왼쪽).
+    /// Trackpad scroll. The delta is in points, and the direction follows CGEvent (positive is up and left).
     Scroll { phase: Phase, delta: (f32, f32) },
-    /// 마우스 휠. 칸 수이며 방향은 스크롤과 같습니다.
+    /// Mouse wheel, in notches, with the same direction as scroll
     Wheel { lines: (f32, f32) },
-    /// 확대. 배율은 시작할 때 1.0이고 누적됩니다.
+    /// Magnify. The scale starts at 1.0 and is cumulative.
     Magnify { phase: Phase, scale: f32 },
-    /// 화면에 닿은 손가락. 화면 전체를 트랙패드로 씁니다.
+    /// A finger on the screen. The whole screen acts as a trackpad.
     Touch(Touch),
 }
 
-/// 입력을 Mac에 보낼 메시지로 바꿉니다.
+/// Turns input into messages for the Mac.
 ///
-/// - 스크롤과 확대는 마지막 포인터 위치에서 일어나므로, 포인터 위치를 기억해 함께 싣습니다.
-/// - 트랙패드 스크롤이 끝나면 관성을 직접 만들어 [`Self::tick`]으로 이어 보냅니다. Mac은 관성을 클라이언트에게 맡깁니다.
-/// - 손가락 터치는 상대 이동으로 커서를 옮기므로, 커서 위치를 이곳이 정합니다. 네이티브 계층은 [`Self::cursor`]로 받아 그립니다.
+/// - Scroll and magnify happen at the last pointer position, so it remembers the position and includes it.
+/// - When a trackpad scroll ends, it generates momentum itself and continues it through [`Self::tick`], because the Mac leaves momentum to the client.
+/// - Finger touches move the cursor relatively, so this owns the cursor position. The native layer reads it with [`Self::cursor`] and draws it.
 pub struct Input {
     keys: RecordKeys,
-    // 직전 포인터 이벤트의 시각
+    // When the previous pointer event was sent
     pointed: Instant,
     bounds: (u16, u16),
-    // 레이아웃 픽셀이 Mac 포인트의 몇 배인지. 터치 스크롤의 이동량을 포인트로 바꿉니다.
+    // Layout pixels per Mac point, used to convert touch scroll distances to points
     pixels_per_point: f32,
     at: (u16, u16),
-    // 터치로 옮기는 커서의 소수 위치와 누른 버튼
+    // Fractional position of the touch-driven cursor and the pressed buttons
     cursor: (f32, f32),
     buttons: u8,
     touchpad: Touchpad,
-    // 관성 속도를 정하려고 남기는 최근 스크롤 이동
+    // Recent scroll movements kept to compute momentum velocity
     recent: VecDeque<(Instant, (f32, f32))>,
     fling: Option<Fling>,
-    // 정수 포인트로 보내고 남은 이동. 천천히 움직여도 이동을 잃지 않게 다음 이벤트에 더합니다.
+    // Movement left over after sending whole points, added to the next event so slow movement is not lost
     remainder: (f32, f32),
-    // 확대 제스처에서 마지막으로 보낸 배율. 서버는 이벤트마다의 증분을 받습니다.
+    // Last scale sent in the magnify gesture. The server takes per-event increments.
     scale: f32,
 }
 
@@ -83,7 +83,7 @@ impl Input {
         }
     }
 
-    /// 레이아웃의 논리 크기와 픽셀 크기. 포인터 위치를 픽셀 크기 안으로 자릅니다.
+    /// Sets the layout's logical and pixel sizes. Pointer positions are clamped to the pixel size.
     pub fn resize(&mut self, logical: (u16, u16), pixels: (u16, u16)) {
         self.bounds = pixels;
         self.pixels_per_point = f32::from(pixels.0) / f32::from(logical.0.max(1));
@@ -91,7 +91,7 @@ impl Input {
         self.cursor = (f32::from(self.at.0), f32::from(self.at.1));
     }
 
-    /// 지금 커서 위치(레이아웃 픽셀)
+    /// Current cursor position in layout pixels
     pub fn cursor(&self) -> (u16, u16) {
         self.at
     }
@@ -132,7 +132,7 @@ impl Input {
                     (self.cursor.0 + dx).clamp(0.0, max.0),
                     (self.cursor.1 + dy).clamp(0.0, max.1),
                 );
-                // 범위 안으로 자른 양수라 `as`가 값을 잃지 않습니다.
+                // Clamped and non-negative, so `as` loses nothing.
                 self.at = (self.cursor.0.round() as u16, self.cursor.1.round() as u16);
                 vec![self.pointer(self.buttons, now)]
             }
@@ -148,19 +148,19 @@ impl Input {
         }
     }
 
-    // 포인터 이벤트에는 직전 포인터 이벤트로부터 지난 시간을 싣습니다. 더블 클릭 판정에 쓰입니다.
+    // Pointer events carry the time since the previous pointer event, which decides double clicks.
     fn pointer(&mut self, buttons: u8, now: Instant) -> Vec<u8> {
         let elapsed_us = u32::try_from(now.saturating_duration_since(self.pointed).as_micros()).unwrap_or(u32::MAX);
         self.pointed = now;
         client::pointer(&self.keys, buttons, self.at.0, self.at.1, elapsed_us).to_vec()
     }
 
-    /// 다음 관성 프레임을 보낼 시각
+    /// When to send the next momentum frame
     pub fn deadline(&self) -> Option<Instant> {
         self.fling.as_ref().map(|fling| fling.last + FRAME)
     }
 
-    /// 관성 프레임 하나를 보냅니다. 속도가 충분히 줄면 관성을 끝냅니다.
+    /// Sends one momentum frame, ending momentum once the velocity has decayed enough.
     pub fn tick(&mut self, now: Instant) -> Option<Vec<u8>> {
         let fling = self.fling.as_mut()?;
         let elapsed_ms = now.duration_since(fling.last).as_secs_f32() * 1000.0;
@@ -188,7 +188,7 @@ impl Input {
     fn scroll(&mut self, phase: Phase, delta: (f32, f32), now: Instant) -> Vec<Vec<u8>> {
         let mut messages = Vec::new();
 
-        // 관성 중에 손가락이 다시 닿으면 관성을 끝내고 새 스크롤을 시작합니다.
+        // Fingers touching down during momentum end it and start a new scroll.
         if phase == Phase::Began {
             messages.extend(self.stop());
             self.recent.clear();
@@ -220,7 +220,7 @@ impl Input {
         messages
     }
 
-    // 최근 이동의 합을 그 이동이 걸린 시간으로 나눈 속도(포인트/초)
+    // Velocity in points per second: recent movement divided by the time it took
     fn velocity(&self, now: Instant) -> (f32, f32) {
         let Some(&(first, _)) = self.recent.front() else {
             return (0.0, 0.0);
@@ -234,7 +234,7 @@ impl Input {
         (x / seconds, y / seconds)
     }
 
-    // 진행 중인 관성을 끝냅니다. 아직 한 프레임도 보내지 않았으면 끝도 보내지 않습니다.
+    // Ends momentum in progress. If no frame went out yet, no end is sent either.
     fn stop(&mut self) -> Option<Vec<u8>> {
         let fling = self.fling.take()?;
         fling
@@ -242,7 +242,7 @@ impl Input {
             .then(|| self.scroll_message((0.0, 0.0), None, Some(Momentum::Ended), true))
     }
 
-    // 시작할 때 배율은 1이고, 이후로는 직전 배율에 대한 증분을 보냅니다.
+    // The scale starts at 1, and each event sends the increment over the previous scale.
     fn magnify(&mut self, phase: Phase, scale: f32) -> Vec<u8> {
         let magnification = match phase {
             Phase::Began => {
@@ -278,7 +278,7 @@ impl Input {
         self.remainder = (total.0 - points.0, total.1 - points.1);
 
         Scroll {
-            // 실수에서 정수로의 `as`는 범위를 넘으면 끝에서 멈춥니다.
+            // Float-to-int `as` saturates out of range.
             points: (points.0 as i32, points.1 as i32),
             lines: (delta.0 / POINTS_PER_LINE, delta.1 / POINTS_PER_LINE),
             phase,
@@ -317,12 +317,12 @@ mod tests {
         })
     }
 
-    // 스크롤 메시지의 (스크롤 단계, 관성 단계)
+    // (scroll phase, momentum phase) of a scroll message
     fn phases(message: &[u8]) -> (u8, u8) {
         (message[41], message[45])
     }
 
-    // 손가락을 움직이다 `pause` 뒤에 뗍니다. 뗀 시각을 반환합니다.
+    // Moves a finger, then lifts it after `pause`. Returns when it lifted.
     fn swipe(input: &mut Input, start: Instant, step: (f32, f32), pause: Duration) -> Instant {
         input.handle(
             Event::Scroll {
@@ -365,7 +365,7 @@ mod tests {
 
         while let Some(deadline) = input.deadline() {
             momentum.extend(input.tick(deadline).map(|message| phases(&message)));
-            assert!(momentum.len() < 1000, "관성이 끝나지 않습니다");
+            assert!(momentum.len() < 1000, "momentum never ends");
         }
 
         assert_eq!(momentum.first(), Some(&(0, 1)));
@@ -418,7 +418,7 @@ mod tests {
         assert_eq!(&messages[0][54..], [0x03, 0x1f, 0, 10]);
     }
 
-    // 0.4포인트씩 세 번 움직이면 합한 1.2포인트에 가깝게, 정수 포인트 1을 보냅니다.
+    // Three 0.4-point moves send one whole point, close to their 1.2-point sum.
     #[test]
     fn slow_scroll_carries_fractions_instead_of_dropping_them() {
         let mut input = input();
@@ -480,7 +480,7 @@ mod tests {
         assert!(magnification(&narrower[0]) < 0.0);
     }
 
-    // 더블 클릭이 세션 시간과 관계없이 실제 간격으로 판단되도록, 시각은 직전 이벤트로부터의 마이크로초로 보냅니다.
+    // Time is sent as microseconds since the previous event, so double clicks are judged by the real interval regardless of session time.
     #[test]
     fn pointer_carries_microseconds_since_the_previous_event() {
         let mut input = input();
@@ -499,7 +499,7 @@ mod tests {
         );
     }
 
-    // 터치는 마지막 포인터 위치에서부터 상대 이동으로 커서를 옮기고, 화면 끝에서 멈춥니다.
+    // Touch moves the cursor relatively from the last pointer position and stops at the screen edge.
     #[test]
     fn touch_moves_the_cursor_from_the_last_pointer_and_stops_at_the_edge() {
         let mut input = input();

@@ -1,13 +1,13 @@
 use crate::error::{Error, Result};
 
-// 서버가 보낸 바이트를 앞에서부터 읽습니다. 모든 읽기는 남은 길이를 먼저 확인하므로 패닉하지 않습니다.
+// Reads server bytes front to back. Every read checks the remaining length first, so it never panics.
 pub struct Reader<'a> {
     buf: &'a [u8],
     what: &'static str,
 }
 
 impl<'a> Reader<'a> {
-    // `what`은 잘렸을 때 에러에 실을 메시지 이름입니다.
+    // `what` names the message in the error when the input is truncated.
     pub fn new(buf: &'a [u8], what: &'static str) -> Self {
         Self { buf, what }
     }
@@ -23,7 +23,7 @@ impl<'a> Reader<'a> {
 
     pub fn array<const N: usize>(&mut self) -> Result<[u8; N]> {
         let bytes = self.bytes(N)?;
-        Ok(bytes.try_into().expect("길이를 확인했다"))
+        Ok(bytes.try_into().expect("length was checked"))
     }
 
     pub fn skip(&mut self, len: usize) -> Result<()> {
@@ -50,7 +50,7 @@ impl<'a> Reader<'a> {
         self.array().map(u64::from_be_bytes)
     }
 
-    // 길이 접두 뒤의 본문을 읽습니다. 길이가 `max`를 넘으면 할당하지 않고 실패합니다.
+    // Reads a length-prefixed body. Fails without allocating if the length exceeds `max`.
     pub fn prefixed(&mut self, len: usize, max: usize) -> Result<&'a [u8]> {
         if len > max {
             return Err(Error::TooLong { what: self.what, len });

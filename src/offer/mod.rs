@@ -1,9 +1,9 @@
-//! 미디어 오퍼(`0x1c`)와 그 응답입니다.
+//! The media offer (`0x1c`) and its answer.
 //!
-//! - 오퍼는 오디오와 비디오 각각의 바이너리 plist이며, 그 안에 zlib으로 압축한 protobuf(MediaBlob)가 있습니다.
-//! - 비디오는 기본으로 코덱 뱅크 123만 넣고 타일 1개를 요청해 H.264 4:2:0 단일 스트림을 받습니다. 뱅크 100을 넣으면 서버가 HEVC 4:4:4를 보내는데, 일반적인 모바일 하드웨어 디코더는 이를 풀지 못합니다.
-//! - 오디오 오퍼는 생략할 수 없습니다. 오디오를 끌 때는 요청 비트레이트를 낮춰 서버가 오디오를 보내지 않게 합니다.
-//! - SRTP 마스터 키는 클라이언트가 만들어 오퍼에 실어 보냅니다. 제어 채널이 뚫리면 미디어도 함께 뚫립니다.
+//! - The offer is one binary plist each for audio and video, holding a zlib-compressed protobuf (MediaBlob).
+//! - By default the video offer lists only codec bank 123 and requests one tile, which yields a single H.264 4:2:0 stream. Listing bank 100 makes the server send HEVC 4:4:4, which typical mobile hardware decoders can't decode.
+//! - The audio offer can't be omitted. To turn audio off, a low requested bitrate stops the server from sending it.
+//! - The client generates the SRTP master keys and sends them in the offer, so compromising the control channel also compromises the media.
 use crate::media::VideoCodec;
 use blob::{AnswerBlob, AudioStream, AudioTier, CodecBank, EndpointInfo, MediaBlob, Resolution, VideoStream};
 use flate2::Compression;
@@ -17,30 +17,30 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod blob;
 
-/// SRTP 마스터 키(32바이트)와 마스터 솔트(14바이트)를 이은 키 블롭의 길이
+/// Length of a key blob: the SRTP master key (32 bytes) followed by the master salt (14 bytes)
 pub const KEY_BLOB_BYTES: usize = 46;
 
-// 플래그: 두 스트림의 60fps와, 커서를 영상에 넣지 않는 비트입니다. 서버는 이 필드를 빅엔디언으로 읽습니다.
+// Flags: 60 fps for both streams, and keep the cursor out of the video. The server reads this field as big-endian.
 const FLAGS: u32 = 0x01 | 0x02 | 0x04;
 const VERSION: u16 = 3;
 
 const MODE_VIDEO: i64 = 7;
 const MODE_AUDIO: i64 = 8;
 
-// H.264를 받을 때는 LTR을 끄고 기능 문자열에서도 뺍니다. 이름은 HEVC용처럼 보이지만 서버는 이 뱅크로 H.264를 보냅니다.
+// For H.264, LTR is off and left out of the feature string.
 const H264_BANK: u32 = 123;
 const H264_FEATURES: &str = "FLS;MS:-1;LF:-1;CABAC;POS:0;EOD:1;HTS:2;RR:3;AR:16/9,5/8;XR:16/9,5/8;";
 
-// HEVC 4:4:4는 Apple 클라이언트가 LTR과 피드백을 켜고 보내는 값을 그대로 쓰되, 띠는 1개로 요청합니다.
-// Apple 클라이언트는 띠 4개로 받지만 서버는 띠 1개도 보내고, 띠 4개는 움직이는 화면에서 1.8초 만에 멈췄습니다(2026-10-12 실측).
+// HEVC 4:4:4 uses the values Apple's client sends with LTR and feedback on, except that it requests one tile.
+// Apple's client receives four tiles, but four tiles stalled on moving content.
 const HEVC_BANK: u32 = 100;
 const HEVC_FEATURES: &str = "FLS;LF:-1;POS:5;EOD:1;HTS:2;RR:3;POSE:4;AR:16/9,5/8;XR:16/9,5/8;";
 
-// 요청 비트레이트는 비례 값이 아니라 계층 선택자입니다. 약 5000 미만이면 서버가 오디오를 보내지 않습니다.
+// The requested bitrate is a tier selector, not a proportional value. Below about 5000 the server sends no audio.
 const AUDIO_ON: u32 = 24191;
 const AUDIO_OFF: u32 = 1000;
 
-// 서버가 기대하는 오디오 계층 표입니다. 비디오 오퍼에도 똑같이 넣습니다.
+// Audio tier table the server expects. The video offer carries the same table.
 const AUDIO_TIERS: [(u32, u32, Option<u32>); 10] = [
     (0, 40_000_000, Some(12_288)),
     (0, 6_000_000, Some(131_072)),
@@ -56,45 +56,45 @@ const AUDIO_TIERS: [(u32, u32, Option<u32>); 10] = [
 
 const CLIENT_NAME: &str = "Naru";
 
-// 응답은 프레임버퍼 갱신 본문 안의 바이너리 plist입니다. 압축을 풀었을 때의 크기 한도를 둡니다.
+// The answer is a binary plist inside a framebuffer update body. Its decompressed size is capped.
 const PLIST_MARKER: &[u8] = b"bplist00";
 const MAX_ANSWER_BYTES: u64 = 1 << 20;
 
-/// 한 세션의 미디어 오퍼입니다. 재전송과 해상도 변경 때 같은 오퍼를 다시 보냅니다.
+/// Media offer for one session. The same offer is resent on retransmission and resolution changes.
 pub struct Offer {
     session_id: [u8; 16],
-    /// SRTP 키 블롭
+    /// SRTP key blobs
     pub keys: MediaKeys,
-    /// 클라이언트의 오디오 SSRC. 오디오 keepalive의 SSRC입니다.
+    /// Client audio SSRC, used for the audio keepalive
     pub audio_ssrc: u32,
-    /// 클라이언트의 비디오 SSRC. 클라이언트가 보내는 RTCP의 송신자 SSRC입니다.
+    /// Client video SSRC, used as the sender SSRC of the client's RTCP
     pub video_ssrc: u32,
     audio: bool,
     codec: VideoCodec,
 }
 
-/// 오퍼에 싣는 SRTP 키 블롭 네 개입니다.
+/// The four SRTP key blobs carried in the offer.
 #[derive(Clone)]
 pub struct MediaKeys {
-    /// 클라이언트가 보내는 오디오 keepalive
+    /// Audio keepalive sent by the client
     pub audio_send: [u8; KEY_BLOB_BYTES],
-    /// 서버가 보내는 오디오
+    /// Audio sent by the server
     pub audio_receive: [u8; KEY_BLOB_BYTES],
-    /// 클라이언트가 보내는 RTCP
+    /// RTCP sent by the client
     pub video_send: [u8; KEY_BLOB_BYTES],
-    /// 서버가 보내는 비디오와 RTCP
+    /// Video and RTCP sent by the server
     pub video_receive: [u8; KEY_BLOB_BYTES],
 }
 
-/// 서버가 돌려준 비디오 협상 결과입니다.
+/// Video negotiation result returned by the server.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Answer {
-    /// 캔버스 크기(픽셀). 서버의 인코더가 아직 준비되지 않으면 없습니다.
+    /// Canvas size in pixels; absent while the server's encoder isn't ready yet
     pub size: Option<(u32, u32)>,
 }
 
 impl Offer {
-    /// 새 키와 SSRC로 오퍼를 만듭니다.
+    /// Builds an offer with fresh keys and SSRCs.
     pub fn new(audio: bool, codec: VideoCodec) -> Self {
         Self {
             keys: MediaKeys {
@@ -111,7 +111,7 @@ impl Offer {
         }
     }
 
-    /// `0x1c` 메시지를 만듭니다.
+    /// Builds the `0x1c` message.
     pub fn encode(&self) -> Vec<u8> {
         let audio = self.plist(MODE_AUDIO, self.audio_blob());
         let video = self.plist(MODE_VIDEO, self.video_blob());
@@ -157,7 +157,7 @@ impl Offer {
             field_4: Some(0),
         };
 
-        // H.264는 LTR과 피드백을 끄고, HEVC는 켭니다.
+        // LTR and feedback are off for H.264 and on for HEVC.
         let (id, kinds, features, field_4, ltr): (_, &[u32], _, _, _) = match self.codec {
             VideoCodec::H264 => (H264_BANK, &[1, 2, 1, 2], H264_FEATURES, 1, 0),
             VideoCodec::Hevc => (HEVC_BANK, &[1, 2], HEVC_FEATURES, 14, 1),
@@ -188,10 +188,10 @@ impl Offer {
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
         encoder
             .write_all(&blob.encode_to_vec())
-            .expect("Vec에 쓰는 압축은 실패하지 않는다");
-        let compressed = encoder.finish().expect("Vec에 쓰는 압축은 실패하지 않는다");
+            .expect("compressing into a Vec cannot fail");
+        let compressed = encoder.finish().expect("compressing into a Vec cannot fail");
 
-        // 끝점 정보는 서버가 참고만 하므로 값이 자유롭습니다.
+        // The server treats the endpoint info as informational only, so any values work.
         let endpoint = EndpointInfo {
             field_1: Some(0),
             field_2: Some(1),
@@ -217,17 +217,17 @@ impl Offer {
 
         plist::Value::Dictionary(dict)
             .to_writer_binary(&mut bytes)
-            .expect("Vec에 쓰는 plist 직렬화는 실패하지 않는다");
+            .expect("serializing a plist into a Vec cannot fail");
 
         bytes
     }
 }
 
 impl Answer {
-    /// 미디어 스트림 사각형의 본문에서 비디오 응답을 찾습니다. 응답이 없으면 `None`입니다.
+    /// Finds the video answer in a media stream rectangle's body. Returns `None` if there is no answer.
     pub fn find(body: &[u8]) -> Option<Self> {
-        // 본문 안에 plist가 여러 개이거나 plist 뒤에 다른 바이트가 이어질 수 있습니다.
-        // 바이너리 plist는 끝의 32바이트 트레일러로 해석하므로, 표식마다 트레일러로 보이는 끝 위치를 찾아 시도합니다.
+        // The body may hold several plists, or other bytes may follow a plist.
+        // A binary plist is parsed from its trailing 32-byte trailer, so for each marker every end position that looks like a trailer is tried.
         (0..body.len())
             .filter(|&start| body[start..].starts_with(PLIST_MARKER))
             .flat_map(|start| trailer_ends(&body[start..]).map(move |end| &body[start..start + end]))
@@ -258,11 +258,11 @@ impl Answer {
     }
 }
 
-// 바이너리 plist 트레일러는 0 여섯 바이트, 오프셋 크기, 참조 크기, 객체 수, 최상위 객체, 오프셋 표 위치(각 8바이트)입니다.
+// End positions where the preceding 32 bytes look like a binary plist trailer.
 fn trailer_ends(bytes: &[u8]) -> impl Iterator<Item = usize> + '_ {
     (40..=bytes.len()).filter(move |&end| {
         let trailer = &bytes[end - 32..end];
-        let offsets = u64::from_be_bytes(trailer[24..32].try_into().expect("8바이트다"));
+        let offsets = u64::from_be_bytes(trailer[24..32].try_into().expect("8 bytes"));
         trailer[..6] == [0; 6]
             && (1..=8).contains(&trailer[6])
             && (1..=8).contains(&trailer[7])
@@ -270,9 +270,9 @@ fn trailer_ends(bytes: &[u8]) -> impl Iterator<Item = usize> + '_ {
     })
 }
 
-// 오퍼의 길이 필드는 `u16`입니다. 오퍼는 이 크레이트가 정한 고정 내용이라 넘치지 않습니다.
+// Offer length fields are `u16`. The offer's contents are fixed by this crate, so they never overflow.
 fn length(len: usize) -> u16 {
-    u16::try_from(len).expect("오퍼는 64KiB보다 작다")
+    u16::try_from(len).expect("the offer is smaller than 64 KiB")
 }
 
 fn random<const N: usize>() -> [u8; N] {
@@ -308,7 +308,7 @@ fn common_blob() -> MediaBlob {
     }
 }
 
-// 대문자 UUID 문자열(8-4-4-4-12)입니다.
+// Uppercase UUID string (8-4-4-4-12).
 fn call_id(id: &[u8; 16]) -> String {
     let hex: String = id.iter().map(|byte| format!("{byte:02X}")).collect();
     format!(
@@ -413,7 +413,7 @@ mod tests {
         let message = Offer::new(false, VideoCodec::H264).encode();
         let encoded = audio_blob(&message).encode_to_vec();
 
-        // 필드 8과 16(값 0)이 각각 태그 바이트 0x40, 0x80 0x01로 들어 있어야 합니다.
+        // Fields 8 and 16 (value 0) must be present with tag bytes 0x40 and 0x80 0x01.
         assert!(encoded.windows(2).any(|pair| pair == [0x40, 0]));
         assert!(encoded.windows(3).any(|triple| triple == [0x80, 0x01, 0]));
     }

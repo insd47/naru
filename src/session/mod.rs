@@ -1,8 +1,8 @@
-//! 서버 하나와의 세션입니다. 소켓을 쥐고 접속, 인증, 미디어 협상, 수신, 재접속을 처리합니다.
+//! A session with one server. It owns the sockets and handles connecting, authentication, media negotiation, reception, and reconnecting.
 //!
-//! - `Session::start`는 곧바로 반환하고, 진행 상황과 결과는 이벤트로 알립니다. 마지막 이벤트는 항상 `Closed`입니다.
-//! - 네이티브 계층은 완성된 접근 단위와 디코더 설정만 받습니다. 디코더 오류는 `request_keyframe`로 알려 주십시오.
-//! - 미디어가 시작되지 않으면 연결을 끊고 처음부터 다시 접속합니다. 접속 시도는 합쳐서 세 번까지입니다.
+//! - `Session::start` returns immediately and reports progress and results as events. The last event is always `Closed`.
+//! - The native layer only receives complete access units and decoder configs. Report decoder errors with `request_keyframe`.
+//! - When media does not start, the session disconnects and connects again from scratch, up to three attempts in total.
 use crate::error::{Error, Result};
 use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority, VideoCodec};
 use crate::message::gesture::Phase;
@@ -28,33 +28,33 @@ mod negotiation;
 const ATTEMPTS: u32 = 3;
 const RETRY_DELAY: Duration = Duration::from_millis(800);
 
-// 이벤트를 받는 쪽이 느리면 세션이 기다립니다. 영상 프레임이 쌓여 메모리가 늘어나지 않게 합니다.
+// The session waits when the event receiver is slow, so video frames do not pile up in memory.
 const EVENT_CAPACITY: usize = 256;
 
-/// 접속 설정입니다.
+/// Connection settings.
 pub struct Config {
-    /// 호스트 이름 또는 주소. IPv4로 풀어 TCP와 UDP에 같은 주소를 씁니다.
+    /// Host name or address. It is resolved to IPv4, and the same address is used for TCP and UDP.
     pub host: String,
-    /// 서버의 TCP 포트. 오디오는 같은 번호, 비디오는 다음 번호의 UDP 포트로 옵니다.
+    /// The server's TCP port. Audio arrives on the UDP port with the same number and video on the next one.
     pub port: u16,
     pub username: String,
     pub password: String,
-    /// 이전 접속에서 저장한 서버 공개키(DER). 다르면 `KeyChanged`로 접속을 멈춥니다.
+    /// Server public key (DER) saved from a previous connection. A mismatch stops the connection with `KeyChanged`.
     pub known_key: Option<Vec<u8>>,
-    /// 가상 디스플레이 설정. 보내면 Mac의 실제 화면이 가려지고, 보내지 않으면 실제 화면을 그대로 받습니다.
+    /// Virtual display config. With one the Mac's physical screen is hidden; without one the physical screen is streamed as is.
     pub display: Option<DisplayConfig>,
-    /// 소리를 받을지 여부. AAC-ELD 디코더가 없는 기기에서는 끕니다.
+    /// Whether to receive audio. Turn it off on devices without an AAC-ELD decoder.
     pub audio: bool,
-    /// 패킷을 잃었을 때 지연과 화질 중 무엇을 우선할지
+    /// Whether latency or quality wins when packets are lost
     pub priority: Priority,
-    /// 서버에 요청할 영상 코덱. HEVC 4:4:4는 기기의 하드웨어 디코더가 풀 수 있을 때만 요청합니다. 영상이 시작되지 않으면 H.264로 다시 시도합니다.
+    /// Video codec to request. Request HEVC 4:4:4 only when the device's hardware decoder supports it. If video does not start, the retry uses H.264.
     pub codec: VideoCodec,
-    /// 로컬 UDP 포트(오디오, 비디오). 기본값은 서버와 같은 번호입니다. 서버와 같은 기기에서 시험할 때처럼 그 번호를 쓸 수 없을 때만 정합니다.
+    /// Local UDP ports (audio, video). They default to the server's numbers; set them only when those are unavailable, such as when testing on the server's own machine.
     pub local_ports: Option<(u16, u16)>,
 }
 
 impl Config {
-    /// 기본 포트(5900)에 오디오와 가상 디스플레이 없이 접속하는 설정을 만듭니다.
+    /// Builds settings for the default port (5900) without audio or a virtual display.
     pub fn new(host: impl Into<String>, username: impl Into<String>, password: impl Into<String>) -> Self {
         Self {
             host: host.into(),
@@ -71,99 +71,99 @@ impl Config {
     }
 }
 
-/// 접속 단계입니다. 실패한 단계를 사용자에게 구분해 보여 주면 원인을 찾기 쉽습니다.
+/// A connection stage. Showing the user which stage failed makes the cause easier to find.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 #[non_exhaustive]
 pub enum Stage {
-    /// 예열 TCP 연결
+    /// Warm-up TCP connection
     Warmup,
-    /// RFB 버전과 보안 유형 교환
+    /// RFB version and security type exchange
     Handshake,
-    /// RSA-SRP 인증
+    /// RSA-SRP authentication
     Auth,
-    /// 평문 프렐류드와 레코드 계층 활성화
+    /// Plaintext prelude and record layer activation
     KeyExchange,
-    /// 미디어 오퍼 교환
+    /// Media offer exchange
     Offer,
-    /// 미디어 수신 대기
+    /// Waiting for media
     Media,
 }
 
 impl fmt::Display for Stage {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str(match self {
-            Self::Warmup => "예열",
-            Self::Handshake => "핸드셰이크",
-            Self::Auth => "인증",
-            Self::KeyExchange => "키 교체",
-            Self::Offer => "미디어 협상",
-            Self::Media => "미디어 수신",
+            Self::Warmup => "warm-up",
+            Self::Handshake => "handshake",
+            Self::Auth => "authentication",
+            Self::KeyExchange => "key exchange",
+            Self::Offer => "media negotiation",
+            Self::Media => "media reception",
         })
     }
 }
 
-/// 세션이 알리는 사건입니다.
+/// An event the session reports.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Event {
-    /// 이 단계를 시작했습니다.
+    /// This stage has started.
     Progress(Stage),
-    /// 서버의 공개키(DER). 처음 접속했다면 저장해 두고 다음 접속의 `known_key`로 넘깁니다.
+    /// The server's public key (DER). On a first connection, save it and pass it as `known_key` next time.
     ServerKey(Vec<u8>),
-    /// 인증에 성공했습니다. `server_proof`는 서버의 SRP 증명(M2)을 확인했는지 여부입니다.
+    /// Authentication succeeded. `server_proof` tells whether the server's SRP proof (M2) was verified.
     Authenticated { server_proof: bool },
-    /// 디스플레이 레이아웃. 포인터 좌표와 디코더 출력의 기준입니다.
+    /// Display layout, the reference for pointer coordinates and decoder output
     Layout(Layout),
-    /// 새 디코더 설정. 디코더를 이 설정으로 다시 만듭니다.
+    /// New decoder config. Recreate the decoder with it.
     DecoderConfig(DecoderConfig),
-    /// 오디오 디코더 설정(AudioSpecificConfig). 첫 오디오 앞에 한 번 옵니다.
+    /// Audio decoder config (AudioSpecificConfig). Arrives once before the first audio.
     AudioConfig(Vec<u8>),
-    /// 오디오 접근 단위
+    /// Audio access unit
     Audio(AudioFrame),
-    /// 디코더에 넣을 접근 단위. 디코더 설정 뒤에만 오며, 손실 뒤에는 키프레임부터 옵니다.
+    /// Access unit for the decoder. Only arrives after a decoder config, and resumes from a keyframe after a loss.
     Frame(AccessUnit),
-    /// 커서 모양. 포인터 아이콘으로 씁니다. 위치는 손가락 터치로 옮겼을 때만 `Pointer`로 옵니다.
+    /// Cursor shape, used as the pointer icon. The position arrives as `Pointer` only when finger touches moved it.
     Cursor(Arc<CursorImage>),
-    /// 터치로 옮긴 커서 위치(레이아웃 픽셀). 이 자리에 커서를 그립니다.
+    /// Cursor position moved by touch, in layout pixels. Draw the cursor here.
     Pointer { x: u16, y: u16 },
-    /// Mac의 컴퓨터 이름. 인증 뒤에 한 번 옵니다.
+    /// The Mac's computer name. Arrives once after authentication.
     ServerName(String),
-    /// Mac의 현재 입력 소스. 글자 변환은 세션이 하므로 기록과 표시에만 씁니다.
+    /// The Mac's current input source. The session does character conversion itself, so this is only for logging and display.
     InputSource(InputSource),
-    /// Mac의 클립보드 텍스트
+    /// The Mac's clipboard text
     Clipboard(String),
-    /// 프레임이 오래 나오지 않아 디코더를 다시 만들어야 합니다. 키프레임은 세션이 요청합니다.
+    /// No frame has come out for too long, so the decoder must be recreated. The session requests the keyframe.
     ResetDecoder,
-    /// 미디어 수신 통계. 미디어 협상이 끝난 뒤 0.5초마다 옵니다.
+    /// Media reception stats. Arrives every 0.5 seconds after media negotiation.
     Stats(MediaStats),
-    /// 세션이 끝났습니다. `close()`로 닫았으면 `None`입니다.
+    /// The session ended. `None` when it was closed with `close()`.
     Closed(Option<Error>),
 }
 
-/// 미디어 수신 통계입니다. 화면이 멈췄을 때 서버가 보내지 않는 것인지, 받았는데 버린 것인지 가립니다.
+/// Media reception stats. When the screen freezes, they tell whether the server stopped sending or received packets were dropped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
 pub struct MediaStats {
-    /// 서버 주소에서 비디오 포트로 받은 데이터그램(RTCP 포함)
+    /// Datagrams received on the video port from the server address, including RTCP
     pub datagrams: u64,
-    /// 그중 SRTP 인증을 통과한 RTP 패킷
+    /// RTP packets among them that passed SRTP authentication
     pub authenticated: u64,
-    /// 지금 디코딩하는 SSRC
+    /// SSRC currently being decoded
     pub ssrc: Option<u32>,
-    /// 그 SSRC에서 받은 확장 순번의 최댓값
+    /// Highest extended sequence number received on that SSRC
     pub highest: Option<u32>,
-    /// 넘어갈지 지켜보는 다른 SSRC의 수
+    /// Number of other SSRCs being watched as switch candidates
     pub candidates: u32,
-    /// 보낸 오퍼의 수. 협상 뒤 크기 변경과 키프레임을 위한 재전송도 셉니다.
+    /// Number of offers sent, including those resent after negotiation for resizes and keyframes
     pub offers: u32,
-    /// 재전송을 요청한 순번의 수
+    /// Number of sequence numbers for which retransmission was requested
     pub nacked: u64,
-    /// 구멍을 메운 패킷의 수. 재전송이 오면 늘어납니다.
+    /// Number of packets that filled a gap. Grows as retransmissions arrive.
     pub filled: u64,
-    /// 복구하지 못해 키프레임을 기다리게 된 손실의 수
+    /// Number of unrecovered losses that forced a wait for a keyframe
     pub losses: u64,
 }
 
-/// 세션이 사건을 보내는 통로입니다. 마지막으로 알린 단계를 기억해, 실패를 그 단계의 실패로 알립니다.
+/// The channel the session sends events through. It remembers the last announced stage and reports failures as failures of that stage.
 struct Events {
     sender: mpsc::Sender<Event>,
     stage: Stage,
@@ -177,7 +177,7 @@ impl Events {
         }
     }
 
-    /// 사건을 보냅니다. 받는 쪽이 사라졌으면 `Closed`입니다.
+    /// Sends an event, failing with `Closed` when the receiver is gone.
     async fn send(&mut self, event: Event) -> Result<()> {
         if let Event::Progress(stage) = event {
             self.stage = stage;
@@ -186,7 +186,7 @@ impl Events {
         self.sender.send(event).await.map_err(|_| Error::Closed)
     }
 
-    /// 쌓인 사건을 순서대로 모두 보냅니다.
+    /// Sends all queued events in order.
     async fn publish(&mut self, outgoing: &mut Vec<Event>) -> Result<()> {
         for event in outgoing.drain(..) {
             self.send(event).await?;
@@ -195,7 +195,7 @@ impl Events {
         Ok(())
     }
 
-    /// 실패를 마지막으로 알린 단계의 실패로 감쌉니다.
+    /// Wraps a failure as a failure of the last announced stage.
     fn failed(&self, source: Error) -> Error {
         Error::Failed {
             stage: self.stage,
@@ -204,13 +204,13 @@ impl Events {
     }
 }
 
-/// 네이티브 계층이 세션에 보내는 명령입니다.
+/// A command the native layer sends to the session.
 enum Command {
     Key {
         keysym: u32,
         down: bool,
     },
-    /// 입력과 그 입력이 일어난 시각. 관성 속도는 엔진이 처리한 시각이 아니라 이 시각으로 계산합니다.
+    /// An input and when it happened. Momentum velocity is computed from this time, not from when the engine handled it.
     Input(input::Event, Instant),
     Language(String),
     Clipboard(Vec<u8>),
@@ -218,16 +218,16 @@ enum Command {
     Resize(Vec<u8>),
 }
 
-/// 실행 중인 세션에 입력과 명령을 보냅니다. 복제하면 같은 세션을 가리킵니다.
+/// Sends input and commands to a running session. Clones refer to the same session.
 #[derive(Clone)]
 pub struct Session {
     commands: mpsc::UnboundedSender<Command>,
-    // 닫기는 명령과 따로 알립니다. 명령은 엔진이 돌 때만 읽으므로, 접속 중이나 재시도 대기 중에도 닫히게 합니다.
+    // Closing is signaled separately from commands, which are only read while the engine runs, so it also works while connecting or waiting to retry.
     closed: Arc<Notify>,
 }
 
 impl Session {
-    /// 세션을 시작합니다. 현재 tokio 런타임에서 실행되며, 진행 상황은 반환한 수신기로 받습니다.
+    /// Starts a session on the current tokio runtime. Progress arrives on the returned receiver.
     pub fn start(config: Config) -> (Self, mpsc::Receiver<Event>) {
         let (commands, receiver) = mpsc::unbounded_channel();
         let (events, events_receiver) = mpsc::channel(EVENT_CAPACITY);
@@ -237,70 +237,70 @@ impl Session {
         (Self { commands, closed }, events_receiver)
     }
 
-    /// 키를 누르거나 뗍니다. 키는 X11 키심이며, Command는 Super(`0xffeb`), Option은 Alt(`0xffe9`)입니다.
+    /// Presses or releases a key. The key is an X11 keysym; Command is Super (`0xffeb`) and Option is Alt (`0xffe9`).
     ///
-    /// - 글자 키는 물리 키의 라틴 문자로 보냅니다. Mac의 입력 소스가 한국어면 세션이 2벌식 자모로 바꿉니다.
+    /// - Send character keys as the Latin letter of the physical key. When the Mac's input source is Korean, the session converts them to Dubeolsik jamo.
     pub fn key(&self, keysym: u32, down: bool) -> Result<()> {
         self.send(Command::Key { keysym, down })
     }
 
-    /// 포인터 위치와 버튼 상태를 보냅니다. 좌표는 `Layout.pixels` 기준의 픽셀 좌표입니다.
+    /// Sends the pointer position and button state. Coordinates are pixels in `Layout.pixels`.
     pub fn pointer(&self, buttons: u8, x: u16, y: u16) -> Result<()> {
         self.input(input::Event::Pointer { buttons, x, y })
     }
 
-    /// 트랙패드 스크롤. 이동량은 포인트이고, 방향은 CGEvent를 따릅니다(양수가 위, 왼쪽).
+    /// Trackpad scroll. The delta is in points, and the direction follows CGEvent (positive is up and left).
     ///
-    /// - 스크롤은 마지막 포인터 위치에서 일어납니다.
-    /// - `Ended`를 보내면 손을 떼기 직전의 속도로 관성을 이어 보냅니다. 끝낼 때의 이동량은 보통 0입니다.
+    /// - The scroll happens at the last pointer position.
+    /// - After `Ended`, momentum continues at the velocity just before the fingers lifted. The delta with `Ended` is usually zero.
     pub fn scroll(&self, phase: Phase, delta: (f32, f32)) -> Result<()> {
         self.input(input::Event::Scroll { phase, delta })
     }
 
-    /// 마우스 휠. 칸 수이며 방향은 [`Self::scroll`]과 같습니다.
+    /// Mouse wheel, in notches, with the same direction as [`Self::scroll`].
     pub fn wheel(&self, lines: (f32, f32)) -> Result<()> {
         self.input(input::Event::Wheel { lines })
     }
 
-    /// 확대 제스처. 배율은 시작할 때 1.0이고 누적됩니다. 중심은 마지막 포인터 위치입니다.
+    /// Magnify gesture. The scale starts at 1.0 and is cumulative. The center is the last pointer position.
     pub fn magnify(&self, phase: Phase, scale: f32) -> Result<()> {
         self.input(input::Event::Magnify { phase, scale })
     }
 
-    /// 화면에 닿은 손가락 하나. 위치는 포인터와 같은 레이아웃 픽셀이며, 화면 밖이어도 자르지 않습니다.
+    /// One finger on the screen. The position is in layout pixels like the pointer and is not clamped to the screen.
     ///
-    /// - 화면 전체를 트랙패드로 씁니다. 한 손가락은 커서 이동과 탭 클릭, 탭 직후 누른 채 끌기, 두 손가락은 오른쪽 클릭, 스크롤, 확대입니다.
-    /// - 커서는 손가락 자리가 아니라 상대 이동으로 움직이며, 옮긴 위치는 [`Event::Pointer`]로 옵니다.
+    /// - The whole screen acts as a trackpad. One finger moves the cursor, taps to click, and drags after a tap; two fingers right-click, scroll, and magnify.
+    /// - The cursor moves by relative motion rather than to the finger, and its new position arrives as [`Event::Pointer`].
     pub fn touch(&self, id: u32, phase: TouchPhase, at: (f32, f32)) -> Result<()> {
         self.input(input::Event::Touch(input::Touch { id, phase, at }))
     }
 
-    /// Mac의 클립보드에 텍스트를 넣습니다. 받을 때와 같은 크기 한도를 넘으면 보내지 않고 `TooLong`을 반환합니다.
+    /// Puts text on the Mac's clipboard. Past the same size limit used when receiving, nothing is sent and `TooLong` is returned.
     pub fn clipboard(&self, text: &str) -> Result<()> {
         self.send(Command::Clipboard(clipboard::message(text)?))
     }
 
-    /// 키프레임을 요청합니다. 디코더를 새로 만들었거나 프레임을 버렸을 때 부릅니다. 키프레임이 오기 전의 프레임은 호출자가 버립니다.
+    /// Requests a keyframe. Call it after recreating the decoder or dropping frames. The caller discards frames until the keyframe arrives.
     pub fn request_keyframe(&self) -> Result<()> {
         self.send(Command::Keyframe)
     }
 
-    /// 가상 디스플레이의 크기를 바꿉니다. 실제로 적용된 크기는 `Event::Layout`으로 옵니다.
+    /// Resizes the virtual display. The size actually applied arrives as `Event::Layout`.
     ///
-    /// - 모드가 없거나 픽셀 크기가 서버의 한도를 넘으면 보내지 않고 `Invalid`를 반환합니다.
+    /// - With no modes or a pixel size past the server's limit, nothing is sent and `Invalid` is returned.
     pub fn resize(&self, display: &DisplayConfig) -> Result<()> {
         self.send(Command::Resize(display.encode()?))
     }
 
-    /// 태블릿의 입력 언어를 알립니다. 언어가 바뀌면 BCP 47 태그(`ko-KR`)로 부릅니다.
+    /// Reports the tablet's input language. Call it with a BCP 47 tag (`ko-KR`) whenever the language changes.
     ///
-    /// - 글자를 그 언어에 대응하는 Mac 배열의 글자로 바꿔 보냅니다. Mac의 입력 소스는 바꾸지 않으므로 Mac은 모국어 입력기에 둡니다.
-    /// - 키가 물리 자리의 라틴 문자만 주는 플랫폼(Android)용입니다. 시스템이 배열을 적용한 글자를 주는 플랫폼(iPadOS)은 부르지 않고 그 글자를 그대로 보냅니다.
+    /// - Characters are converted to the matching Mac layout's characters before sending. The Mac's input source is not changed, so leave the Mac on the native-language input method.
+    /// - Meant for platforms whose keys only give the Latin letter of the physical position (Android). Platforms that give layout-applied characters (iPadOS) do not call it and send those characters as is.
     pub fn language(&self, language: &str) -> Result<()> {
         self.send(Command::Language(language.to_owned()))
     }
 
-    /// 세션을 닫습니다. 접속 중이어도 곧바로 멈추고, `Event::Closed(None)`이 마지막으로 옵니다.
+    /// Closes the session. It stops immediately even while connecting, and `Event::Closed(None)` arrives last.
     pub fn close(&self) {
         self.closed.notify_one();
     }
@@ -322,7 +322,7 @@ async fn run(
 ) {
     let mut events = Events::new(events);
 
-    // 닫으면 진행 중인 시도를 그 자리에서 버립니다. 소켓은 함께 닫힙니다.
+    // Closing drops the attempt in progress on the spot, along with its sockets.
     let result = tokio::select! {
         result = attempts(&config, &mut commands, &mut events) => result,
         () = closed.notified() => Ok(()),
@@ -343,7 +343,7 @@ async fn attempts(config: &Config, commands: &mut mpsc::UnboundedReceiver<Comman
             return result;
         }
 
-        // HEVC로 영상이 시작되지 않으면 다음 시도부터 H.264로 받습니다. 실기기에서 HEVC 띠 1개를 어떤 Mac이 받아 주는지 다 확인하지 못했습니다.
+        // If HEVC video does not start, later attempts use H.264, because not every Mac has been confirmed to accept single-tile HEVC.
         if codec == VideoCodec::Hevc {
             codec = VideoCodec::H264;
         }
@@ -364,8 +364,8 @@ async fn attempt_session(
     let local_ports = config.local_ports.unwrap_or((config.port, config.port + 1));
     let sockets = Sockets::bind(server, config.port, local_ports)?;
 
-    // 핸드셰이크 동안 로컬 방화벽이 서버의 미디어를 응답으로 받아들이도록 UDP를 보냅니다. 레코드 계층이 켜지면 멈춥니다.
-    // 시도가 중간에 버려져도 멈추도록 JoinSet에 둡니다.
+    // Send UDP during the handshake so the local firewall accepts the server's media as replies. It stops once the record layer is on.
+    // It lives in a JoinSet so it also stops when the attempt is dropped midway.
     let mut punch = JoinSet::new();
     punch.spawn(sockets.clone().punch());
     let control = Control::connect(config, server, events).await;
@@ -377,7 +377,7 @@ async fn attempt_session(
 }
 
 async fn resolve(host: &str, port: u16) -> Result<IpAddr> {
-    // `.local` 이름이 IPv6로만 풀리면 TCP는 붙지만 UDP 미디어가 오지 않으므로 IPv4로 고정합니다.
+    // Resolve to IPv4 only, because a `.local` name resolved to IPv6 connects over TCP but UDP media never arrives.
     let mut addresses = tokio::net::lookup_host((host, port)).await?;
     let address = addresses.find(|address| address.is_ipv4());
     address

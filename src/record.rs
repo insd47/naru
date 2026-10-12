@@ -1,8 +1,7 @@
-//! 인증 뒤 제어 채널을 감싸는 레코드 계층입니다.
+//! Record layer that wraps the control channel after authentication.
 //!
-//! - 레코드는 `u16` 암호문 길이와 AES-128-CBC 암호문입니다. 평문은 `u16` 본문 길이, 본문, 채움, SHA-1 태그 20바이트입니다.
-//! - CBC 상태는 방향마다 세션 내내 이어집니다. 한 레코드의 마지막 암호문 블록이 다음 레코드의 IV입니다.
-//! - 태그는 `SHA-1(u32 순번 || 태그 앞까지의 평문)`이며 HMAC이 아닙니다. 순번은 방향마다 0부터 셉니다.
+//! - Records are AES-128-CBC, and the CBC state carries over between records for the whole session in each direction.
+//! - The integrity tag is a plain SHA-1 over a per-direction sequence number and the plaintext, not an HMAC.
 use crate::error::{Error, Result};
 use crate::reader::Reader;
 use aes::Aes128;
@@ -13,26 +12,26 @@ use sha1::{Digest, Sha1};
 const BLOCK_BYTES: usize = 16;
 const TAG_BYTES: usize = 20;
 
-// 암호문 길이는 `u16`이므로 한 레코드의 평문은 65520바이트(16의 배수)를 넘지 못합니다.
+// The ciphertext length is a `u16`, so one record's plaintext can't exceed 65520 bytes (a multiple of 16).
 const MAX_CIPHERTEXT_BYTES: usize = u16::MAX as usize / BLOCK_BYTES * BLOCK_BYTES;
 const MAX_BODY_BYTES: usize = MAX_CIPHERTEXT_BYTES - 2 - TAG_BYTES;
 
-// 태그가 맞지 않으면 기대한 순번의 앞뒤를 이 순서로 시도합니다. 서버의 순번이 어긋나는 경우가 관측되었습니다.
+// When the tag doesn't match, nearby sequence numbers are tried in this order, because the server's sequence number has been seen to drift.
 const SEQUENCE_WINDOW: [i64; 7] = [0, -1, 1, 2, 3, 4, 5];
 
-/// 키 교체 메시지에서 푼 레코드 계층의 키입니다. 양방향이 같은 키와 같은 IV로 시작합니다.
+/// Record layer keys unwrapped from the key exchange message. Both directions start with the same key and IV.
 #[derive(Clone)]
 pub struct RecordKeys {
-    /// AES-128 키. 포인터 이벤트의 암호화에도 씁니다.
+    /// AES-128 key, also used to encrypt pointer events
     pub content_key: [u8; 16],
-    /// 두 방향의 첫 IV
+    /// Initial IV for both directions
     pub iv: [u8; 16],
 }
 
 impl RecordKeys {
-    /// 키 교체 사각형의 36바이트 본문을 인증에서 얻은 래핑 키로 풉니다.
+    /// Unwraps the 36-byte body of the key exchange rectangle with the wrapping key from authentication.
     ///
-    /// - 본문은 `u32` 세대 번호, 암호화된 키, 암호화된 IV이며, 키와 IV는 각각 AES-128-ECB로 암호화되어 있습니다.
+    /// - The key and IV after the `u32` generation number are each encrypted with AES-128-ECB.
     pub fn unwrap(body: &[u8; 36], wrap_key: &[u8; 16]) -> Self {
         let cipher = Aes128::new(wrap_key.into());
 
@@ -49,9 +48,9 @@ impl RecordKeys {
     }
 }
 
-/// 보내는 메시지를 레코드로 감쌉니다.
+/// Wraps outgoing messages in records.
 ///
-/// - 순번과 CBC 상태가 이어지므로, 만든 레코드는 만든 순서대로 보내야 합니다.
+/// - Sequence numbers and CBC state carry over, so records must be sent in the order they were sealed.
 pub struct Sealer {
     cipher: cbc::Encryptor<Aes128>,
     sequence: u32,
@@ -65,11 +64,11 @@ impl Sealer {
         }
     }
 
-    /// 메시지 하나를 전송할 바이트로 만듭니다. 한 레코드에 담을 수 없으면 이어지는 레코드로 나눕니다.
+    /// Turns one message into wire bytes, splitting it across consecutive records if it doesn't fit in one.
     pub fn seal(&mut self, message: &[u8]) -> Vec<u8> {
         let mut wire = Vec::with_capacity(message.len() + 64);
 
-        // 빈 메시지도 레코드 하나로 보냅니다.
+        // An empty message still goes out as one record.
         let empty: &[&[u8]] = if message.is_empty() { &[&[]] } else { &[] };
 
         for body in message.chunks(MAX_BODY_BYTES).chain(empty.iter().copied()) {
@@ -94,7 +93,7 @@ impl Sealer {
     }
 }
 
-/// 받은 바이트를 TCP 읽기 경계와 관계없이 레코드 단위로 풉니다.
+/// Opens received bytes record by record, regardless of TCP read boundaries.
 pub struct Opener {
     cipher: cbc::Decryptor<Aes128>,
     sequence: u32,
@@ -114,9 +113,9 @@ impl Opener {
         self.buffer.extend_from_slice(chunk);
     }
 
-    /// 완성된 레코드가 있으면 본문을 꺼냅니다.
+    /// Takes out the body of the next complete record, if any.
     ///
-    /// - 태그가 기대한 순번 근처의 어느 값과도 맞지 않으면 `Integrity`이며, 연결을 끊어야 합니다.
+    /// - Returns `Integrity` when the tag matches no sequence number near the expected one; the connection must be dropped.
     pub fn pop(&mut self) -> Result<Option<Vec<u8>>> {
         let Some(&[high, low]) = self.buffer.get(..2) else {
             return Ok(None);
@@ -125,7 +124,7 @@ impl Opener {
         let len = u16::from_be_bytes([high, low]) as usize;
 
         if len == 0 || !len.is_multiple_of(BLOCK_BYTES) || len < 2 + TAG_BYTES {
-            return Err(Error::Malformed("레코드"));
+            return Err(Error::Malformed("record"));
         }
 
         if self.buffer.len() < 2 + len {
@@ -134,7 +133,7 @@ impl Opener {
 
         let mut plain: Vec<u8> = self.buffer.drain(..2 + len).skip(2).collect();
 
-        // 태그 결과와 관계없이 CBC 상태는 항상 전진해야 다음 레코드를 풀 수 있습니다.
+        // CBC state must advance whatever the tag result, or the next record can't be decrypted.
         for block in plain.as_chunks_mut::<BLOCK_BYTES>().0 {
             self.cipher.decrypt_block_mut(GenericArray::from_mut_slice(block));
         }
@@ -152,7 +151,7 @@ impl Opener {
 
         self.sequence = sequence.wrapping_add(1);
 
-        let mut reader = Reader::new(content, "레코드");
+        let mut reader = Reader::new(content, "record");
         let body_len = reader.u16()? as usize;
         Ok(Some(reader.bytes(body_len)?.to_vec()))
     }
@@ -223,7 +222,7 @@ mod tests {
         opener.push(&second);
         assert_eq!(open_all(&mut opener), [b"first".to_vec(), b"second".to_vec()]);
 
-        // 두 번째 레코드를 처음 IV로 풀면 첫 블록이 깨져 태그가 맞지 않습니다.
+        // Decrypting the second record with the initial IV corrupts its first block, so the tag fails.
         let mut restarted = Opener::new(&keys());
         restarted.push(&second);
         assert!(matches!(restarted.pop(), Err(Error::Integrity)));
@@ -251,7 +250,7 @@ mod tests {
 
     #[test]
     fn sequence_skew_within_the_window_resynchronizes() {
-        // 수신 측은 순번 0을 기대하는데 서버가 3부터 보낸 경우입니다.
+        // The receiver expects sequence number 0, but the server starts at 3.
         let mut sealer = Sealer::new(&keys());
         sealer.sequence = 3;
         let wire: Vec<u8> = (0..4).flat_map(|index| sealer.seal(&[index])).collect();

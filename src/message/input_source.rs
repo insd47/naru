@@ -1,24 +1,24 @@
 use crate::reader::Reader;
 
-// 알림의 플래그 비트입니다. 비밀번호 칸처럼 보안 입력 중이면 Mac이 ABC를 강제합니다.
+// Notice flag bit. During secure input, such as a password field, the Mac forces ABC.
 const SECURE: u32 = 1;
 
-/// Mac의 키보드 입력 소스입니다.
+/// The Mac's keyboard input source.
 ///
-/// - 서버는 바뀔 때마다 `0x455` 사각형으로 알립니다.
-/// - 클라이언트가 `0x1a`로 지정할 수도 있지만 입력기가 쓰는 배열은 이전 것에 남으므로 쓰지 않습니다.
+/// - The server announces every change with a `0x455` rectangle.
+/// - The client could set it with `0x1a`, but input methods keep the previous layout, so that is not used.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct InputSource {
-    /// 입력 소스 ID(예: `com.apple.inputmethod.Korean.2SetKorean`)
+    /// Input source ID, e.g. `com.apple.inputmethod.Korean.2SetKorean`
     pub id: String,
-    /// 보안 입력(비밀번호 칸) 중인지 여부
+    /// Whether secure input (a password field) is active
     pub secure: bool,
 }
 
 impl InputSource {
-    /// 알림 본문을 해석합니다. `u16` 버전, `u32` 플래그, `u16` 길이, ID 순입니다.
+    /// Parses the notice body.
     pub fn parse(body: &[u8]) -> Option<Self> {
-        let mut reader = Reader::new(body, "입력 소스");
+        let mut reader = Reader::new(body, "input source");
         reader.skip(2).ok()?;
         let flags = reader.u32().ok()?;
         let len = reader.u16().ok()? as usize;

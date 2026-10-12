@@ -10,14 +10,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 
-// 예열 연결을 닫은 뒤 기다리는 시간입니다. 예열해 두면 잠금 화면에서 데스크톱으로 넘어갈 때 서버가 TCP를 끊지 않습니다.
+// Wait after closing the warm-up connection. With a warm-up, the server does not drop TCP when moving from the lock screen to the desktop.
 const WARMUP_DELAY: Duration = Duration::from_millis(1400);
 
-// 서버는 ViewerInfo와 암호화 시작 요청을 받은 뒤, 활성화 요청을 받은 뒤 잠시 시간이 필요합니다.
+// The server needs a moment after ViewerInfo with the encryption start request, and again after the activation request.
 const PRELUDE_DELAY: Duration = Duration::from_millis(100);
 const ACTIVATE_DELAY: Duration = Duration::from_millis(200);
 
-// 다른 사용자가 로그인해 있으면 ServerInit 뒤에 세션 선택 프롬프트가 곧바로 옵니다.
+// When another user is logged in, a session selection prompt follows ServerInit right away.
 const PROMPT_WAIT: Duration = Duration::from_millis(300);
 const PROMPT_MARKER: [u8; 4] = [0, 0x4a, 0, 1];
 const PROMPT_BYTES: usize = 76;
@@ -26,20 +26,20 @@ const STEP_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_NAME_BYTES: usize = 1 << 10;
 const READ_BYTES: usize = 64 << 10;
 
-/// 레코드 계층까지 활성화된 제어 채널입니다.
+/// A control channel with the record layer active.
 pub struct Control {
     stream: TcpStream,
     keys: RecordKeys,
     sealer: Sealer,
     opener: Opener,
-    // 평문 구간에서 키 교체와 함께 온 사각형. 커서나 레이아웃일 수 있습니다.
+    // Rectangles that came with the key exchange during the plaintext stretch, such as cursor or layout.
     early: Vec<Rect>,
 }
 
 impl Control {
-    /// 예열 연결, 핸드셰이크, 인증, 평문 프렐류드를 거쳐 레코드 계층을 활성화합니다.
+    /// Activates the record layer after the warm-up connection, handshake, authentication, and plaintext prelude.
     ///
-    /// - TCP는 UDP와 같은 IPv4 주소로 연결합니다. 호스트 이름으로 연결하면 TCP만 IPv6로 붙어 미디어가 오지 않을 수 있습니다.
+    /// - TCP connects to the same IPv4 address as UDP. Connecting by host name may put only TCP on IPv6, and then media never arrives.
     pub async fn connect(config: &Config, server: IpAddr, events: &mut Events) -> Result<Self> {
         let address = SocketAddr::from((server, config.port));
 
@@ -65,17 +65,17 @@ impl Control {
         within(prelude(stream, &wrap_key, config, events)).await
     }
 
-    /// 레코드 계층의 키. 포인터 이벤트의 암호화에도 씁니다.
+    /// Record layer keys, also used to encrypt pointer events
     pub fn keys(&self) -> &RecordKeys {
         &self.keys
     }
 
-    /// 접속 과정에서 이미 받은 것: 평문 구간의 사각형과, 키 교체 직후 같은 읽기에 붙어 온 레코드의 본문
+    /// What already arrived while connecting: rectangles from the plaintext stretch and bodies of records that came in the same read right after the key exchange
     pub fn backlog(&mut self) -> Result<(Vec<Rect>, Vec<Vec<u8>>)> {
         Ok((std::mem::take(&mut self.early), self.opened()?))
     }
 
-    /// 다음으로 읽은 바이트에서 완성된 레코드의 본문을 꺼냅니다. 서버가 연결을 닫았으면 `Closed`입니다.
+    /// Returns the bodies of records completed by the next read, or `Closed` when the server closed the connection.
     pub async fn receive(&mut self, buffer: &mut [u8]) -> Result<Vec<Vec<u8>>> {
         let read = self.stream.read(buffer).await?;
 
@@ -87,7 +87,7 @@ impl Control {
         self.opened()
     }
 
-    /// 닫을 때 연결을 곧바로 끊게 합니다(RST). 서버 쪽 세션이 남지 않아야 다시 접속할 수 있습니다.
+    /// Makes closing reset the connection immediately (RST). Reconnecting only works once no session lingers on the server.
     pub fn abort(&self) {
         let _ = SockRef::from(&self.stream).set_linger(Some(Duration::ZERO));
     }
@@ -96,14 +96,14 @@ impl Control {
         std::iter::from_fn(|| self.opener.pop().transpose()).collect()
     }
 
-    /// 메시지를 레코드로 감싸 보냅니다.
+    /// Sends a message wrapped in records.
     pub async fn send(&mut self, message: &[u8]) -> Result<()> {
         let records = self.sealer.seal(message);
         self.stream.write_all(&records).await?;
         Ok(())
     }
 
-    /// 메시지들을 차례로 보냅니다.
+    /// Sends messages in order.
     pub async fn send_all(&mut self, messages: Vec<Vec<u8>>) -> Result<()> {
         for message in messages {
             self.send(&message).await?;
@@ -130,7 +130,7 @@ async fn handshake(stream: &mut TcpStream) -> Result<()> {
     within(stream.read_exact(&mut version)).await?;
 
     if !version.starts_with(b"RFB ") {
-        return Err(Error::Malformed("RFB 버전"));
+        return Err(Error::Malformed("RFB version"));
     }
 
     stream.write_all(VERSION).await?;
@@ -156,13 +156,13 @@ async fn server_key(stream: &mut TcpStream) -> Result<ServerKey> {
     ServerKey::parse(&message(stream).await?)
 }
 
-// 래핑 키와, 서버 증명(M2)을 결과 블록에서 찾았는지를 반환합니다.
+// Returns the wrap key and whether the server proof (M2) was found in the result block.
 async fn authenticate(stream: &mut TcpStream, key: &ServerKey, config: &Config) -> Result<([u8; 16], bool)> {
     stream.write_all(&key.identity(&config.username)?).await?;
 
     let challenge = Challenge::parse(&message(stream).await?)?;
 
-    // PBKDF2 반복은 수백 밀리초가 걸리므로 런타임의 다른 작업을 막지 않게 합니다.
+    // PBKDF2 takes hundreds of milliseconds, so keep it off the runtime's other tasks.
     let password = config.password.clone();
     let proof = tokio::task::spawn_blocking(move || challenge.respond(&password))
         .await
@@ -170,7 +170,7 @@ async fn authenticate(stream: &mut TcpStream, key: &ServerKey, config: &Config) 
 
     stream.write_all(&proof.packet).await?;
 
-    // 증명 블록 뒤에 결과가 옵니다. 서버 증명의 위치가 확정되지 않았으므로 검증 결과로 접속을 막지는 않습니다.
+    // The result follows the proof block. The server proof's position is not certain, so a failed check does not block the connection.
     let block = message(stream).await?;
 
     if stream.read_u32().await? != 0 {
@@ -200,7 +200,7 @@ async fn prelude(mut stream: TcpStream, wrap_key: &[u8; 16], config: &Config, ev
 
     stream.write_all(&client::set_encodings()).await?;
 
-    // 키 교체 사각형이 든 메시지가 끝나는 지점부터는 레코드입니다. 같은 읽기에 레코드가 이어 붙어 올 수 있습니다.
+    // Records start where the message with the key exchange rectangle ends, possibly within the same read.
     let mut early = Vec::new();
     let mut buffer = vec![0; READ_BYTES];
 
@@ -234,16 +234,17 @@ async fn prelude(mut stream: TcpStream, wrap_key: &[u8; 16], config: &Config, ev
     })
 }
 
-// ServerInit을 읽어 Mac의 컴퓨터 이름을 반환합니다.
+// Reads ServerInit and returns the Mac's computer name.
 async fn server_init(stream: &mut TcpStream) -> Result<String> {
     let mut fixed = [0; 24];
     stream.read_exact(&mut fixed).await?;
 
-    let len = u32::from_be_bytes(fixed[20..24].try_into().expect("4바이트다")) as usize;
+    let len = u32::from_be_bytes(fixed[20..24].try_into().expect("4 bytes")) as usize;
 
     if len > MAX_NAME_BYTES {
         return Err(Error::TooLong {
-            what: "서버 이름", len
+            what: "server name",
+            len,
         });
     }
 
@@ -252,13 +253,13 @@ async fn server_init(stream: &mut TcpStream) -> Result<String> {
     Ok(computer_name(&name))
 }
 
-// 이름 칸에는 NUL을 섞은 이진 머리와 NUL 채움이 컴퓨터 이름 앞에 붙어 옵니다(2026-10-12 macOS 27 실측). 마지막 NUL 뒤가 이름입니다.
+// The name field has a binary header containing NULs and NUL padding before the computer name. The name follows the last NUL.
 fn computer_name(bytes: &[u8]) -> String {
     let start = bytes.iter().rposition(|&byte| byte == 0).map_or(0, |at| at + 1);
     String::from_utf8_lossy(&bytes[start..]).into_owned()
 }
 
-// ServerInit 뒤의 세션 선택 프롬프트를 확인합니다. 프롬프트가 아니면 읽은 바이트를 돌려줍니다.
+// Checks for the session selection prompt after ServerInit, returning the bytes read when it is not one.
 async fn session_prompt(stream: &mut TcpStream) -> Result<Vec<u8>> {
     let mut head = Vec::new();
 
@@ -285,7 +286,7 @@ async fn session_prompt(stream: &mut TcpStream) -> Result<Vec<u8>> {
     Err(Error::OtherUser(String::from_utf8_lossy(&name[..end]).into_owned()))
 }
 
-// 키 교체 사각형이 든 메시지를 찾습니다. 그 메시지에서 멈춰야 뒤의 바이트가 레코드로 남습니다.
+// Finds the message with the key exchange rectangle. Stopping at that message leaves the following bytes as records.
 fn key_exchange(messages: &mut Messages, early: &mut Vec<Rect>) -> Result<Option<[u8; 36]>> {
     while let Some(message) = messages.pop()? {
         let ServerMessage::FramebufferUpdate(rects) = message else {
@@ -309,13 +310,13 @@ fn key_exchange(messages: &mut Messages, early: &mut Vec<Rect>) -> Result<Option
     Ok(None)
 }
 
-// 서버가 보내는 인증 메시지는 `u32` 길이 접두가 붙습니다.
+// Authentication messages from the server have a `u32` length prefix.
 async fn message(stream: &mut TcpStream) -> Result<Vec<u8>> {
     let len = stream.read_u32().await? as usize;
 
     if len > MAX_MESSAGE_BYTES {
         return Err(Error::TooLong {
-            what: "인증 메시지",
+            what: "authentication message",
             len,
         });
     }
@@ -340,9 +341,9 @@ mod tests {
     fn computer_name_skips_the_binary_header() {
         let mut bytes = vec![0, 0, 0, 0, 0, 0x52, 0xa1, 0xb2, 0xc3, 0x2f, 0xd4];
         bytes.extend([0; 12]);
-        bytes.extend("황인성’s Mac mini".as_bytes());
+        bytes.extend("김민지’s Mac mini".as_bytes());
 
-        assert_eq!(computer_name(&bytes), "황인성’s Mac mini");
+        assert_eq!(computer_name(&bytes), "김민지’s Mac mini");
         assert_eq!(computer_name(b"Mac mini"), "Mac mini");
         assert_eq!(computer_name(&[0x52, 0]), "");
     }

@@ -1,7 +1,7 @@
-//! 제어 채널의 메시지입니다.
+//! Control channel messages.
 //!
-//! - 클라이언트 메시지는 바이트로 만들고, 서버 메시지는 경계를 나눈 뒤 사각형 단위로 해석합니다.
-//! - 서버가 보낸 길이는 모두 상한을 확인한 뒤에 읽습니다. 형식이 맞지 않으면 패닉하지 않고 에러를 반환합니다.
+//! - Client messages are built as bytes; server messages are split at their boundaries and then parsed rectangle by rectangle.
+//! - Every length the server sends is checked against an upper bound before reading. Malformed input returns an error instead of panicking.
 pub use cursor::{CursorImage, Cursors};
 pub use display_config::{DisplayConfig, Mode};
 pub use input_source::InputSource;

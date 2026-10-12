@@ -4,35 +4,35 @@ use flate2::Decompress;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-// 서버가 매기는 캐시 번호는 세션 안에서만 의미가 있습니다. 오래된 모양부터 버립니다.
+// Server cache ids only mean something within a session. The oldest shapes are evicted first.
 const CACHE_SIZE: usize = 64;
 const MAX_SIDE: u16 = 512;
 
-/// 커서 모양입니다.
+/// A cursor shape.
 #[derive(Debug, PartialEq)]
 pub struct CursorImage {
-    /// 이미지 안에서 포인터 위치에 해당하는 점(픽셀)
+    /// Point in the image that corresponds to the pointer position, in pixels
     pub hotspot: (u16, u16),
     pub width: u16,
     pub height: u16,
-    /// 행 우선 RGBA 픽셀. 알파는 미리 곱하지 않은 값입니다.
+    /// Row-major RGBA pixels. Alpha is not premultiplied.
     pub rgba: Vec<u8>,
 }
 
-/// 커서 사각형을 해석하고, 서버가 매긴 번호로 모양을 저장해 둡니다.
+/// Parses cursor rectangles and stores shapes under the server's cache ids.
 ///
-/// - 압축 데이터가 있는 사각형은 모양을 저장하면서 그 모양으로 바꾸고, 없는 사각형은 저장해 둔 모양으로 바꿉니다.
+/// - A rectangle with compressed data stores its shape and switches to it; one without data switches to a stored shape.
 pub struct Cursors {
     shapes: HashMap<u32, Arc<CursorImage>>,
     order: VecDeque<u32>,
-    // 이어지는 데이터가 이전 사각형의 zlib 스트림을 잇는 경우에 대비해 해제기를 유지합니다.
+    // Kept across rectangles because data may continue the previous rectangle's zlib stream.
     stream: Decompress,
 }
 
 impl Cursors {
-    /// 커서 사각형 하나를 적용해 바뀐 모양을 반환합니다.
+    /// Applies one cursor rectangle and returns the resulting shape.
     ///
-    /// - 저장한 적 없는 번호를 고르라는 사각형이 가끔 옵니다. 이때는 `None`이며 직전 모양을 유지하면 됩니다.
+    /// - The server occasionally selects an id that was never stored. That returns `None`, and the previous shape should stay.
     pub fn apply(
         &mut self,
         hotspot: (u16, u16),
@@ -47,16 +47,16 @@ impl Cursors {
         let (width, height) = size;
 
         if width == 0 || height == 0 || width > MAX_SIDE || height > MAX_SIDE {
-            return Err(Error::Malformed("커서 크기"));
+            return Err(Error::Malformed("cursor size"));
         }
 
         if zlib::starts_stream(data) {
             self.stream = Decompress::new(true);
         }
 
-        // BGRA 픽셀 평면 뒤에 알파 평면이 따로 옵니다. 알파는 뒤의 평면에서 가져옵니다.
+        // A separate alpha plane follows the BGRA pixel plane, and alpha is taken from that trailing plane.
         let pixels = usize::from(width) * usize::from(height);
-        let raw = zlib::inflate(&mut self.stream, data, pixels * 5, "커서 이미지")?;
+        let raw = zlib::inflate(&mut self.stream, data, pixels * 5, "cursor image")?;
         let (bgra, alpha) = raw.split_at(pixels * 4);
 
         let rgba = bgra
@@ -79,7 +79,7 @@ impl Cursors {
         }
 
         while self.order.len() > CACHE_SIZE {
-            let oldest = self.order.pop_front().expect("길이를 확인했다");
+            let oldest = self.order.pop_front().expect("length was checked");
             self.shapes.remove(&oldest);
         }
 
@@ -108,7 +108,7 @@ mod tests {
         output
     }
 
-    // 2×1 커서: 파랑, 빨강 픽셀과 알파 평면 128, 255
+    // A 2×1 cursor: blue and red pixels with an alpha plane of 128, 255
     const RAW: [u8; 10] = [255, 0, 0, 0, 0, 0, 255, 0, 128, 255];
 
     #[test]

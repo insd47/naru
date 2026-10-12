@@ -1,34 +1,34 @@
 use crate::offer::{Answer, Offer};
 use std::time::{Duration, Instant};
 
-// 응답에 크기가 없으면 서버의 인코더가 아직 준비되지 않은 것이므로 같은 오퍼를 다시 보냅니다.
-// 응답이 오기 전에는 다시 보내지 않습니다. 서버는 오퍼마다 스트림을 만드므로, 성급히 보내면 스트림이 여럿 생겨 시작이 끊깁니다.
+// An answer without a size means the server's encoder is not ready yet, so the same offer is sent again.
+// Nothing is resent before an answer arrives. The server creates a stream per offer, so resending early spawns several streams and breaks the start.
 const RETRY: Duration = Duration::from_millis(200);
 const ATTEMPTS: u32 = 16;
 
-// 응답이 아예 없을 때 같은 오퍼를 다시 보내기까지 기다리는 시간과, 그렇게 보내는 횟수입니다. 실측한 응답 시간은 1.5초 안팎입니다.
+// How long to wait before resending when no answer arrives at all, and how many times. Answers normally take about 1.5 seconds.
 const TIMEOUT: Duration = Duration::from_secs(4);
 const SILENT_ATTEMPTS: u32 = 3;
 
-// 협상이 끝난 뒤 키프레임을 위해 오퍼를 다시 보내는 최소 간격입니다. 서버가 새 스트림을 열기 전에 겹쳐 보내지 않게 하고, 간격 안의 요청은 미뤘다 보냅니다.
+// Minimum interval between offers resent for keyframes after negotiation, so they do not overlap before the server opens a new stream. Requests within the interval are deferred.
 const REOFFER_INTERVAL: Duration = Duration::from_secs(2);
 
-/// 미디어 오퍼를 보내고 크기가 있는 응답을 기다립니다. 보낼 메시지를 돌려주고, 보내는 일은 호출자가 합니다.
+/// Sends the media offer and waits for an answer with a size. It returns the messages to send; the caller sends them.
 ///
-/// - 크기 없는 응답이 오면 잠시 뒤 다시 보내고, 응답이 아예 없으면 [`TIMEOUT`]마다 다시 보냅니다. 횟수를 넘으면 포기합니다.
-/// - 응답 없이 시간이 지난 횟수는 응답이 오면 처음부터 셉니다.
-/// - 협상이 끝난 뒤에도 오퍼를 다시 보낼 때가 있습니다(픽셀 크기 변경, 화면이 멈춘 동안의 키프레임). 서버는 새 스트림을 열며 설정과 키프레임을 보냅니다.
-/// - 키프레임을 위한 재전송은 간격을 둡니다. 크기 변경은 늘 보냅니다.
+/// - An answer without a size triggers a resend shortly after; no answer at all triggers one every [`TIMEOUT`]. It gives up past the attempt limits.
+/// - The count of silent timeouts restarts whenever an answer arrives.
+/// - Offers are also resent after negotiation (pixel size changes, keyframes while the screen is still). The server opens a new stream and sends a config and keyframe.
+/// - Resends for keyframes are spaced out; resizes are always sent.
 pub struct Negotiation {
     offer: Offer,
     sent: Instant,
-    // 지금까지 보낸 오퍼의 수와, 마지막 응답 뒤로 응답 없이 시간이 지난 수
+    // Offers sent so far, and silent timeouts since the last answer
     offers: u32,
     silent: u32,
-    // 크기 없는 응답을 받아 다시 보내기로 한 시각
+    // When to resend after an answer without a size
     retry: Option<Instant>,
     answered: Option<Instant>,
-    // 간격 안에 들어와 미뤄 둔 키프레임용 재전송
+    // A keyframe resend deferred because it fell within the interval
     deferred: bool,
 }
 
@@ -45,22 +45,22 @@ impl Negotiation {
         }
     }
 
-    /// 첫 오퍼
+    /// The first offer
     pub fn start(&mut self, now: Instant) -> Vec<u8> {
         self.send(now)
     }
 
-    /// 크기가 있는 응답을 받은 시각. 아직 협상 중이면 `None`입니다.
+    /// When the answer with a size arrived, or `None` while still negotiating
     pub fn answered(&self) -> Option<Instant> {
         self.answered
     }
 
-    /// 지금까지 보낸 오퍼의 수. 협상 뒤의 재전송도 셉니다.
+    /// Number of offers sent so far, including resends after negotiation
     pub fn offers(&self) -> u32 {
         self.offers
     }
 
-    /// 다시 보낼 시각. 협상이 끝났고 미뤄 둔 재전송도 없으면 `None`입니다.
+    /// When to resend, or `None` once negotiated with no deferred resend
     pub fn deadline(&self) -> Option<Instant> {
         match self.answered {
             None => Some(self.retry.unwrap_or(self.sent + TIMEOUT)),
@@ -68,7 +68,7 @@ impl Negotiation {
         }
     }
 
-    /// 프레임버퍼 갱신에 실린 본문에서 응답을 찾습니다. 크기가 있는 첫 응답이면 `true`입니다.
+    /// Looks for an answer in a body carried by a framebuffer update, returning `true` for the first answer with a size.
     pub fn answer(&mut self, body: &[u8], now: Instant) -> bool {
         let Some(answer) = Answer::find(body).filter(|_| self.answered.is_none()) else {
             return false;
@@ -85,7 +85,7 @@ impl Negotiation {
         false
     }
 
-    /// [`Self::deadline`]이 지났습니다. 다시 보낼 오퍼를 돌려주고, 협상 중에 횟수를 넘었으면 `None`입니다.
+    /// Called once [`Self::deadline`] passes. Returns the offer to resend, or `None` when negotiation ran out of attempts.
     pub fn expire(&mut self, now: Instant) -> Option<Vec<u8>> {
         if self.answered.is_some() {
             return Some(self.send(now));
@@ -102,7 +102,7 @@ impl Negotiation {
         Some(self.send(now))
     }
 
-    /// 키프레임을 받으려고 오퍼를 다시 보냅니다. 아직 협상 중이면 `None`이고, 방금 보냈으면 미뤘다가 [`Self::deadline`]에 보냅니다.
+    /// Resends the offer to get a keyframe. Returns `None` while still negotiating; if an offer just went out, it is deferred to [`Self::deadline`].
     pub fn reoffer(&mut self, now: Instant) -> Option<Vec<u8>> {
         self.answered?;
 
@@ -114,7 +114,7 @@ impl Negotiation {
         Some(self.send(now))
     }
 
-    /// 픽셀 크기가 바뀌었습니다. 새 크기로 인코딩을 시작하게 오퍼를 다시 보냅니다. 보내지 않으면 서버가 인코딩을 멈춥니다.
+    /// Called when the pixel size changed. Resends the offer so encoding starts at the new size; without it the server stops encoding.
     pub fn resize(&mut self, now: Instant) -> Option<Vec<u8>> {
         self.answered.is_some().then(|| self.send(now))
     }

@@ -1,7 +1,7 @@
-//! 루프백 주소의 가짜 서버로 접속부터 첫 키프레임 수신까지를 확인합니다.
+//! Checks everything from connecting to receiving the first keyframe against a fake server on the loopback address.
 //!
-//! - 서버 쪽 SRP는 법이 소수이기만 하면 성립하므로 작은 소수(2^127 − 1)로 계산합니다. 클라이언트는 그룹의 크기를 가정하지 않습니다.
-//! - 키 교체 메시지 바로 뒤에 레코드를 이어 붙여 보내, 평문과 레코드의 경계를 정확히 나누는지 확인합니다.
+//! - Server-side SRP holds for any prime modulus, so it uses a small prime (2^127 − 1). The client assumes no group size.
+//! - Records are sent right after the key exchange message to check that the plaintext/record boundary is split exactly.
 use aes::Aes128;
 use aes::cipher::generic_array::GenericArray;
 use aes::cipher::{BlockEncrypt, KeyInit};
@@ -46,15 +46,15 @@ async fn session_reaches_the_first_keyframe_against_a_loopback_server() {
 
     let frame = timeout(Duration::from_secs(20), async {
         loop {
-            match events.recv().await.expect("세션이 이벤트를 보낸다") {
+            match events.recv().await.expect("the session sends events") {
                 Event::Frame(unit) => break unit,
-                Event::Closed(error) => panic!("세션이 끝났습니다: {error:?} / {seen:?}"),
+                Event::Closed(error) => panic!("the session ended: {error:?} / {seen:?}"),
                 event => seen.push(format!("{event:?}")),
             }
         }
     })
     .await
-    .expect("키프레임이 온다");
+    .expect("a keyframe arrives");
 
     assert!(frame.keyframe);
     assert_eq!(frame.nals, [IDR]);
@@ -121,7 +121,7 @@ async fn serve(listener: TcpListener, _audio: UdpSocket, video: UdpSocket, clien
     server_init.extend_from_slice(b"mini");
     stream.write_all(&server_init).await.unwrap();
 
-    // ViewerInfo(66) + 암호화 시작(12), 그리고 인코딩 목록(4 + 13 × 4)
+    // ViewerInfo (66) + encryption start (12), then the encoding list (4 + 13 × 4)
     let mut prelude = vec![0; 66 + 12 + 56];
     stream.read_exact(&mut prelude).await.unwrap();
     assert_eq!(&prelude[66..70], [0x12, 0, 0, 1]);
@@ -135,7 +135,7 @@ async fn serve(listener: TcpListener, _audio: UdpSocket, video: UdpSocket, clien
     let mut sealer = Sealer::new(&keys);
     let mut opener = Opener::new(&keys);
 
-    // 키 교체 사각형 바로 뒤에 레코드(상태 알림)를 붙여 한 번에 보냅니다.
+    // Sends a record (a status notice) right after the key exchange rectangle in one write.
     let mut exchange = vec![0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x4f, 0, 0, 0, 1];
     exchange.extend_from_slice(&ecb(&wrap_key, keys.content_key));
     exchange.extend_from_slice(&ecb(&wrap_key, keys.iv));
@@ -182,7 +182,7 @@ async fn serve(listener: TcpListener, _audio: UdpSocket, video: UdpSocket, clien
         video.send_to(&protected, client).await.unwrap();
     }
 
-    // 클라이언트는 같은 SSRC의 패킷이 다섯 개 모여야 그 스트림을 고르므로 P 프레임을 이어 보냅니다.
+    // The client only picks a stream after five packets from the same SSRC, so P-frames follow.
     for sequence in 3..8 {
         let packet = RtpPacket {
             marker: true,
@@ -199,7 +199,7 @@ async fn serve(listener: TcpListener, _audio: UdpSocket, video: UdpSocket, clien
             .unwrap();
     }
 
-    // 클라이언트가 닫을 때까지 레코드를 읽어 둡니다.
+    // Keeps reading records until the client closes.
     loop {
         if stream.read(&mut [0; 1024]).await.unwrap_or(0) == 0 {
             break;
@@ -215,7 +215,7 @@ async fn banner(stream: &mut TcpStream) {
     stream.write_all(&[4, 30, 33, 36, 35]).await.unwrap();
 }
 
-// 서버 쪽 SRP를 계산하고 래핑 키를 반환합니다.
+// Computes server-side SRP and returns the wrap key.
 async fn authenticate(stream: &mut TcpStream) -> [u8; 16] {
     let private = RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
     let der = private.to_public_key().to_public_key_der().unwrap();
@@ -294,7 +294,7 @@ async fn record(stream: &mut TcpStream, opener: &mut Opener) -> Vec<u8> {
 
         let mut buffer = [0; 4096];
         let read = stream.read(&mut buffer).await.unwrap();
-        assert!(read > 0, "클라이언트가 연결을 닫았습니다");
+        assert!(read > 0, "the client closed the connection");
         opener.push(&buffer[..read]);
     }
 }
@@ -320,7 +320,7 @@ fn layout() -> Vec<u8> {
     body
 }
 
-// 비디오 응답 protobuf(필드 5 안에 폭 4, 높이 5, 타일 6)를 zlib으로 압축해 plist에 담습니다.
+// Builds a video answer: a zlib-compressed protobuf inside a plist.
 fn answer(width: u16, height: u16) -> Vec<u8> {
     let varint = |value: u16| -> Vec<u8> {
         let mut bytes = Vec::new();

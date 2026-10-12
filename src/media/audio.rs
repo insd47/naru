@@ -1,26 +1,26 @@
-//! 서버 오디오의 RTP 페이로드입니다.
+//! RTP payload of the server's audio.
 //!
-//! - AAC-ELD + SBR, 48 kHz 스테레오이며, RTP 패킷 하나에 접근 단위 하나가 AU 머리 없이 실립니다(패킷당 480 프레임).
-//! - 소리가 없으면 0으로 된 4바이트를 보냅니다. 디코딩할 수 없는 값이라 건너뜁니다.
+//! - AAC-ELD + SBR, 48 kHz stereo. Each RTP packet carries one access unit without an AU header (480 frames per packet).
+//! - Silence is sent as four zero bytes, which can't be decoded, so they are skipped.
 use super::RtpPacket;
 
 const PAYLOAD_TYPE: u8 = 101;
 const SILENCE: [u8; 4] = [0; 4];
 
-/// 오디오 접근 단위 하나입니다.
+/// One audio access unit.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct AudioFrame {
-    /// RTP 타임스탬프(48 kHz)
+    /// RTP timestamp (48 kHz)
     pub timestamp: u32,
-    /// AAC-ELD 접근 단위
+    /// AAC-ELD access unit
     pub data: Vec<u8>,
 }
 
 impl AudioFrame {
-    /// 디코더 설정(AudioSpecificConfig): 객체 유형 39(ELD), 48 kHz, 스테레오, 480 프레임, SBR 켬
+    /// Decoder config (AudioSpecificConfig): object type 39 (ELD), 48 kHz, stereo, 480 frames, SBR on
     pub const CONFIG: [u8; 6] = [0xf8, 0xe6, 0x51, 0x32, 0xe0, 0x00];
 
-    /// 오디오 패킷이 아니거나 무음이면 `None`입니다.
+    /// Returns `None` for non-audio packets and silence.
     pub fn depacketize(packet: RtpPacket) -> Option<Self> {
         let audio = packet.payload_type == PAYLOAD_TYPE && !packet.payload.is_empty() && packet.payload != SILENCE;
 

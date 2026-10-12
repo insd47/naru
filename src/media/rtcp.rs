@@ -1,7 +1,7 @@
-//! 클라이언트가 보내는 RTCP 패킷입니다. 모두 복합 패킷으로 묶어 SRTCP로 암호화한 뒤 보냅니다.
+//! RTCP packets the client sends. All of them go out as compound packets encrypted with SRTCP.
 //!
-//! - 송신자 SSRC는 오퍼에서 협상한 클라이언트의 비디오 SSRC입니다. 다른 SSRC로 보내면 서버가 약 30초 뒤 스트림을 끊습니다.
-//! - 손실률, 지터, LSR, DLSR은 0으로 보냅니다. 서버는 0이어도 세션을 유지합니다.
+//! - The sender SSRC is the client video SSRC negotiated in the offer. With any other SSRC, the server cuts the stream after about 30 seconds.
+//! - Loss, jitter, LSR, and DLSR are sent as 0; the server keeps the session alive regardless.
 
 const RECEIVER_REPORT: u8 = 201;
 const SENDER_REPORT: u8 = 200;
@@ -13,7 +13,7 @@ const FORMAT_NACK: u8 = 1;
 const FORMAT_PLI: u8 = 1;
 const FORMAT_FIR: u8 = 4;
 
-/// 수신 보고(RR)를 만듭니다. 보고 블록은 `(SSRC, 확장 순번)`마다 하나이며 최대 31개입니다.
+/// Builds a receiver report (RR) with one report block per `(SSRC, extended sequence number)`, up to 31.
 pub fn receiver_report(sender: u32, sources: &[(u32, u32)]) -> Vec<u8> {
     let sources = &sources[..sources.len().min(31)];
     let mut packet = header(sources.len() as u8, RECEIVER_REPORT, 1 + 6 * sources.len());
@@ -29,7 +29,7 @@ pub fn receiver_report(sender: u32, sources: &[(u32, u32)]) -> Vec<u8> {
     packet
 }
 
-/// 빈 송신 보고(SR)를 만듭니다. 서버의 생존 확인을 통과하도록 5초마다 수신 보고 앞에 붙입니다.
+/// Builds an empty sender report (SR). It goes in front of the receiver report every 5 seconds to pass the server's liveness check.
 pub fn sender_report(sender: u32) -> Vec<u8> {
     let mut packet = header(0, SENDER_REPORT, 6);
     packet.extend_from_slice(&sender.to_be_bytes());
@@ -37,10 +37,10 @@ pub fn sender_report(sender: u32) -> Vec<u8> {
     packet
 }
 
-/// 키프레임 요청 묶음을 만듭니다.
+/// Builds a bundle of keyframe requests.
 ///
-/// - 서버가 AVPF 방식(RFC 5104 FIR, RFC 4585 PLI)을 자주 무시하고 구식 FIR(RFC 2032)에 응답하므로 세 가지를 함께 보냅니다.
-/// - `sequence`는 FIR 명령 순번이며 요청마다 1씩 늘립니다.
+/// - The server often ignores the AVPF requests (RFC 5104 FIR, RFC 4585 PLI) and answers the legacy FIR (RFC 2032), so all three are sent.
+/// - `sequence` is the FIR command sequence number, incremented by 1 per request.
 pub fn keyframe_request(sender: u32, target: u32, sequence: u8) -> Vec<u8> {
     let mut packet = receiver_report(sender, &[]);
 
@@ -59,7 +59,7 @@ pub fn keyframe_request(sender: u32, target: u32, sequence: u8) -> Vec<u8> {
     packet
 }
 
-/// 재전송 요청(RFC 4585 Generic NACK)을 만듭니다. 연속한 손실은 기준 순번과 뒤 16개의 비트마스크로 묶습니다.
+/// Builds a retransmission request (RFC 4585 Generic NACK). Nearby losses share an entry: a base sequence number plus a bitmask of the next 16.
 pub fn nack(sender: u32, target: u32, lost: &[u16]) -> Vec<u8> {
     let mut entries: Vec<(u16, u16)> = Vec::new();
 
@@ -87,7 +87,7 @@ pub fn nack(sender: u32, target: u32, lost: &[u16]) -> Vec<u8> {
     packet
 }
 
-// 버전 2, 채움 없음. 길이는 머리를 뺀 32비트 단어 수입니다.
+// Version 2, no padding. The length is the number of 32-bit words minus one.
 fn header(count: u8, kind: u8, words: usize) -> Vec<u8> {
     let mut header = vec![0x80 | count & 0x1f, kind];
     header.extend_from_slice(&(words as u16).to_be_bytes());
@@ -98,7 +98,7 @@ fn header(count: u8, kind: u8, words: usize) -> Vec<u8> {
 mod tests {
     use super::{keyframe_request, nack, receiver_report, sender_report};
 
-    // 복합 패킷을 (유형, 형식, 길이)로 나눕니다. 각 패킷의 길이 필드가 실제 길이와 맞아야 끝까지 나뉩니다.
+    // Splits a compound packet into (type, format, length). The split reaches the end only if every length field is correct.
     fn split(mut compound: &[u8]) -> Vec<(u8, u8, usize)> {
         let mut packets = Vec::new();
 
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn consecutive_losses_share_one_bitmask_entry() {
-        // 65535와 0은 65534 뒤 1, 2번째라 같은 항목에 들어가고, 15와 40은 16칸 밖이라 새 항목이 됩니다.
+        // 65535 and 0 are the 1st and 2nd after 65534, so they share its entry; 15 and 40 are more than 16 away and start new entries.
         let packet = nack(1, 2, &[65_534, 65_535, 0, 15, 40]);
         assert_eq!(split(&packet), [(201, 0, 8), (205, 1, 24)]);
         assert_eq!(&packet[20..], [0xff, 0xfe, 0, 3, 0, 15, 0, 0, 0, 40, 0, 0]);
