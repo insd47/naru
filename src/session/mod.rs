@@ -122,7 +122,7 @@ pub enum Event {
     Audio(AudioFrame),
     /// 디코더에 넣을 접근 단위. 디코더 설정 뒤에만 오며, 손실 뒤에는 키프레임부터 옵니다.
     Frame(AccessUnit),
-    /// 커서 모양. 포인터 아이콘으로 씁니다. 위치는 오지 않습니다.
+    /// 커서 모양. 포인터 아이콘으로 씁니다. 위치는 손가락 터치로 옮겼을 때만 `Pointer`로 옵니다.
     Cursor(Arc<CursorImage>),
     /// 터치로 옮긴 커서 위치(레이아웃 픽셀). 이 자리에 커서를 그립니다.
     Pointer { x: u16, y: u16 },

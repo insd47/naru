@@ -118,7 +118,7 @@ pub enum Event {
     Frame {
         unit: AccessUnit,
     },
-    /// 커서 모양. 행 우선 RGBA, 알파는 미리 곱하지 않은 값입니다. 위치는 오지 않습니다.
+    /// 커서 모양. 행 우선 RGBA, 알파는 미리 곱하지 않은 값입니다. 위치는 손가락 터치로 옮겼을 때만 `Pointer`로 옵니다.
     Cursor {
         width: u16,
         height: u16,
