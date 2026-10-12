@@ -2,7 +2,7 @@ package dev.insd.naru
 
 import android.content.Context
 import androidx.compose.runtime.mutableStateOf
-import dev.insd.naru.protocol.Priority
+import dev.insd.naru.core.Priority
 
 /**
  * 모든 Mac에 함께 쓰는 설정입니다. 앱 전용 설정 파일에 둡니다.

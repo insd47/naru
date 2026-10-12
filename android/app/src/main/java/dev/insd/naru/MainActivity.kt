@@ -4,8 +4,8 @@ import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
-import android.content.res.Configuration
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -67,6 +67,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
+import dev.insd.naru.core.Failure
 import dev.insd.naru.home.Action
 import dev.insd.naru.home.AddDialog
 import dev.insd.naru.home.Discovery
@@ -77,7 +78,6 @@ import dev.insd.naru.home.Found
 import dev.insd.naru.home.Group
 import dev.insd.naru.home.Host
 import dev.insd.naru.home.formatDate
-import dev.insd.naru.protocol.Failure
 import dev.insd.naru.session.SessionService
 
 /**

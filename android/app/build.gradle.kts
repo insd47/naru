@@ -31,7 +31,7 @@ android {
         compose = true
     }
 
-    // Rust 프로토콜 크레이트와 그 Kotlin 바인딩은 build-protocol.sh가 만듭니다.
+    // Rust 코어 크레이트와 그 Kotlin 바인딩은 build-core.sh가 만듭니다.
     sourceSets {
         getByName("main") {
             jniLibs.directories += "build/generated/jniLibs"
@@ -40,23 +40,23 @@ android {
     }
 }
 
-val buildProtocol by tasks.registering(Exec::class) {
-    description = "Rust 프로토콜 크레이트를 Android용으로 빌드하고 Kotlin 바인딩을 만듭니다"
+val buildCore by tasks.registering(Exec::class) {
+    description = "Rust 코어 크레이트를 Android용으로 빌드하고 Kotlin 바인딩을 만듭니다"
     workingDir = rootDir
-    commandLine("sh", "build-protocol.sh")
+    commandLine("sh", "build-core.sh")
     environment("ANDROID_HOME", androidComponents.sdkComponents.sdkDirectory.get().asFile.absolutePath)
-    val protocol = rootDir.resolve("../protocol")
-    inputs.dir(protocol.resolve("src"))
+    val core = rootDir.resolve("..")
+    inputs.dir(core.resolve("src"))
     inputs.files(
-        protocol.resolve("Cargo.toml"),
-        protocol.resolve("Cargo.lock"),
-        protocol.resolve("uniffi.toml"),
-        rootDir.resolve("build-protocol.sh"),
+        core.resolve("Cargo.toml"),
+        core.resolve("Cargo.lock"),
+        core.resolve("uniffi.toml"),
+        rootDir.resolve("build-core.sh"),
     )
     outputs.dirs("build/generated/jniLibs", "build/generated/uniffi")
 }
 
-tasks.named("preBuild") { dependsOn(buildProtocol) }
+tasks.named("preBuild") { dependsOn(buildCore) }
 
 dependencies {
     implementation(libs.androidx.activity.compose)

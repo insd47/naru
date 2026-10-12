@@ -13,8 +13,8 @@
 //! - 가상 디스플레이(`--display`)로 붙으면 잠금 화면부터 나옵니다. `--unlock N`은 N초 뒤 접속 비밀번호를 키 입력으로 쳐서 풉니다.
 //! - 저장한 파일은 `ffplay capture.h264`로 재생할 수 있습니다.
 use anyhow::{Context, Result, bail};
-use protocol::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey, VERSION};
-use protocol::{Config, DecoderConfig, DisplayConfig, Event, Mode, Session};
+use naru::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey, VERSION};
+use naru::{Config, DecoderConfig, DisplayConfig, Event, Mode, Session};
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{BufWriter, Write};

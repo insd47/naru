@@ -4,13 +4,13 @@ import android.util.Log
 import android.view.Surface
 import dev.insd.naru.TAG
 import dev.insd.naru.audio.Player
-import dev.insd.naru.protocol.Config
-import dev.insd.naru.protocol.DisplayMode
-import dev.insd.naru.protocol.Event
-import dev.insd.naru.protocol.Language
-import dev.insd.naru.protocol.Phase
-import dev.insd.naru.protocol.Session
-import dev.insd.naru.protocol.SessionListener
+import dev.insd.naru.core.Config
+import dev.insd.naru.core.DisplayMode
+import dev.insd.naru.core.Event
+import dev.insd.naru.core.Language
+import dev.insd.naru.core.Phase
+import dev.insd.naru.core.Session
+import dev.insd.naru.core.SessionListener
 import dev.insd.naru.video.Video
 
 /**

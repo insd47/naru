@@ -9,7 +9,7 @@ import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import dev.insd.naru.protocol.Event
+import dev.insd.naru.core.Event
 import kotlin.math.abs
 import kotlin.math.roundToInt
 

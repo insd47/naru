@@ -2,7 +2,7 @@ package dev.insd.naru
 
 import android.app.Activity
 import android.os.Build
-import dev.insd.naru.protocol.DisplayMode
+import dev.insd.naru.core.DisplayMode
 
 /** 이 픽셀 크기에 맞춘 가상 디스플레이. 배율 2로 두어 Mac이 Retina로 그리고, 픽셀 크기는 주어진 크기와 같습니다. */
 fun virtualDisplay(widthPx: Int, heightPx: Int): DisplayMode =

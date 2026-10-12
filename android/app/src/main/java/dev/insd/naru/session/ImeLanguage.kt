@@ -8,7 +8,7 @@ import android.provider.Settings
 import android.util.Log
 import android.view.inputmethod.InputMethodManager
 import dev.insd.naru.TAG
-import dev.insd.naru.protocol.Language
+import dev.insd.naru.core.Language
 
 /**
  * 태블릿 IME의 입력 언어를 세션에 알립니다. Mac의 입력 소스를 지정하고 글자를 자모로 바꾸는 일은 세션이 합니다.

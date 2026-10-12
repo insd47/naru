@@ -17,8 +17,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
+import dev.insd.naru.core.Priority
 import dev.insd.naru.home.Group
-import dev.insd.naru.protocol.Priority
 
 /** 모든 Mac에 함께 쓰는 설정 화면입니다. 키 배치는 Parsec처럼 켜고 끄고, 화질은 Screen Sharing 앱처럼 두 가지 중 하나를 고릅니다. */
 @Composable

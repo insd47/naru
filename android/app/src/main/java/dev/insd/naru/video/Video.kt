@@ -6,9 +6,9 @@ import android.os.HandlerThread
 import android.util.Log
 import android.view.Surface
 import dev.insd.naru.TAG
-import dev.insd.naru.protocol.AccessUnit
-import dev.insd.naru.protocol.DecoderConfig
-import dev.insd.naru.protocol.MediaStats
+import dev.insd.naru.core.AccessUnit
+import dev.insd.naru.core.DecoderConfig
+import dev.insd.naru.core.MediaStats
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 

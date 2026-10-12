@@ -7,7 +7,7 @@ import android.media.MediaFormat
 import android.os.Build
 import android.os.Handler
 import android.view.Surface
-import dev.insd.naru.protocol.AccessUnit
+import dev.insd.naru.core.AccessUnit
 import java.nio.BufferOverflowException
 import java.nio.ByteBuffer
 

@@ -7,7 +7,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
-import dev.insd.naru.protocol.AudioFrame
+import dev.insd.naru.core.AudioFrame
 import java.nio.ByteBuffer
 
 /**

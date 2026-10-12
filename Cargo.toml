@@ -1,6 +1,6 @@
 [package]
-name = "protocol"
-description = "macOS 화면 공유 High Performance 모드 클라이언트의 프로토콜 코어와 UniFFI 경계"
+name = "naru"
+description = "macOS 화면 공유 High Performance 모드 클라이언트의 코어와 UniFFI 경계"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true

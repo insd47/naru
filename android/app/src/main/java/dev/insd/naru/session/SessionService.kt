@@ -21,13 +21,13 @@ import dev.insd.naru.R
 import dev.insd.naru.SessionActivity
 import dev.insd.naru.TAG
 import dev.insd.naru.audio.Player
+import dev.insd.naru.core.Config
+import dev.insd.naru.core.DisplayMode
+import dev.insd.naru.core.Event
+import dev.insd.naru.core.Failure
+import dev.insd.naru.core.Stage
 import dev.insd.naru.home.Host
 import dev.insd.naru.naru
-import dev.insd.naru.protocol.Config
-import dev.insd.naru.protocol.DisplayMode
-import dev.insd.naru.protocol.Event
-import dev.insd.naru.protocol.Failure
-import dev.insd.naru.protocol.Stage
 
 /**
  * Mac 한 대와의 세션을 화면 밖에서도 이어 갑니다.

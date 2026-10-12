@@ -1,7 +1,7 @@
 package dev.insd.naru.session
 
 import android.view.MotionEvent
-import dev.insd.naru.protocol.Phase
+import dev.insd.naru.core.Phase
 
 /**
  * 터치패드의 두 손가락 스와이프와 핀치를 Mac의 스크롤과 확대로 옮깁니다.
