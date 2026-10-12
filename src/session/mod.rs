@@ -4,7 +4,7 @@
 //! - 네이티브 계층은 완성된 접근 단위와 디코더 설정만 받습니다. 디코더 오류는 `request_keyframe`로 알려 주십시오.
 //! - 미디어가 시작되지 않으면 연결을 끊고 처음부터 다시 접속합니다. 접속 시도는 합쳐서 세 번까지입니다.
 use crate::error::{Error, Result};
-use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority, RtpPacket};
+use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority, RtpPacket, VideoCodec};
 use crate::message::gesture::Phase;
 use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, clipboard};
 use control::Control;
@@ -79,10 +79,24 @@ pub enum Codec {
     /// H.264 4:2:0 단일 스트림
     #[default]
     H264,
-    /// HEVC 4:4:4를 가로 띠 `tiles`개로 나눈 스트림. 아직 조립하지 않으므로 `raw_video`와 함께 씁니다.
-    Hevc { tiles: u32 },
+    /// HEVC 4:4:4 단일 스트림. 기기의 디코더가 4:4:4를 풀 수 있을 때만 요청합니다.
+    ///
+    /// - Apple 클라이언트는 화면을 띠 4개로 나눠 받지만, 띠 하나로도 서버가 보내고 띠 4개는 움직이는 화면에서 1.8초 만에 멈췄습니다(2026-10-12 실측).
+    Hevc,
     /// 진단용. 오퍼의 코덱 뱅크를 직접 정해 서버가 무엇을 보내는지 알아봅니다. `raw_video`와 함께 씁니다.
     Custom(Bank),
+}
+
+impl Codec {
+    /// 서버가 보낼 영상의 코덱. 뱅크 100만 HEVC를 받습니다.
+    pub fn video(self) -> VideoCodec {
+        match self {
+            Self::H264 => VideoCodec::H264,
+            Self::Hevc => VideoCodec::Hevc,
+            Self::Custom(bank) if bank.id == 100 => VideoCodec::Hevc,
+            Self::Custom(_) => VideoCodec::H264,
+        }
+    }
 }
 
 /// 비디오 오퍼에 넣을 코덱 뱅크와 스트림 요청입니다.

@@ -2,32 +2,20 @@
 //!
 //! - 서버는 SPS와 PPS를 별도 NAL로 보내지 않고, 첫 바이트가 `0x92`인 설정 패킷에 ISO BMFF `avcC` 상자로 담아 보냅니다. 이 바이트는 금지 비트가 켜져 있어 유효한 NAL 머리가 아니므로, NAL 유형보다 먼저 확인합니다.
 //! - 키프레임이 IDR(유형 5)이 아니라 유형 1 NAL 안의 I 슬라이스로 올 수 있습니다.
+use super::unit::{DecoderConfig, VideoCodec};
 use crate::error::Result;
 use crate::reader::Reader;
 
 /// 디코더 설정 패킷의 첫 바이트
 pub const CONFIG_MARKER: u8 = 0x92;
 
-const START_CODE: [u8; 4] = [0, 0, 0, 1];
-
 const NAL_SLICE: u8 = 1;
 const NAL_IDR: u8 = 5;
-const NAL_SPS: u8 = 7;
+/// SPS NAL 유형
+pub const NAL_SPS: u8 = 7;
 const NAL_STAP_A: u8 = 24;
 const NAL_FU_A: u8 = 28;
 const NAL_FU_B: u8 = 29;
-
-/// `avcC`에서 꺼낸 디코더 설정입니다.
-#[derive(Debug, Clone, PartialEq, uniffi::Record)]
-pub struct DecoderConfig {
-    pub profile: u8,
-    pub compatibility: u8,
-    pub level: u8,
-    /// 시작 코드 없는 SPS NAL 목록
-    pub sps: Vec<Vec<u8>>,
-    /// 시작 코드 없는 PPS NAL 목록
-    pub pps: Vec<Vec<u8>>,
-}
 
 impl DecoderConfig {
     /// 설정 패킷의 페이로드에서 `avcC` 상자를 찾아 해석합니다. 설정 패킷이 아니거나 형식이 맞지 않으면 `None`입니다.
@@ -60,59 +48,19 @@ impl DecoderConfig {
         let pps = units(reader, pps_count)?;
 
         Ok(Self {
+            codec: VideoCodec::H264,
             profile,
             compatibility,
             level,
+            vps: Vec::new(),
             sps,
             pps,
         })
     }
-
-    /// SPS와 PPS를 Annex-B(시작 코드) 형식으로 이어 붙입니다.
-    pub fn annex_b(&self) -> Vec<u8> {
-        annex_b(self.sps.iter().chain(&self.pps))
-    }
 }
 
-/// 디코더에 넣을 수 있는 완성된 접근 단위입니다.
-#[derive(Debug, Clone, PartialEq, uniffi::Record)]
-pub struct AccessUnit {
-    pub ssrc: u32,
-    /// RTP 타임스탬프(90 kHz)
-    pub timestamp: u32,
-    pub keyframe: bool,
-    /// 시작 코드 없는 NAL 목록
-    pub nals: Vec<Vec<u8>>,
-}
-
-impl AccessUnit {
-    /// 한 접근 단위의 RTP 페이로드들을 순번 순서로 받아 되돌립니다. 조각이 빠졌거나 형식이 맞지 않으면 `None`입니다.
-    pub fn depacketize<'a>(ssrc: u32, timestamp: u32, payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<Self> {
-        let nals = depacketize(payloads)?;
-
-        Some(Self {
-            ssrc,
-            timestamp,
-            keyframe: is_keyframe(&nals),
-            nals,
-        })
-    }
-
-    /// SPS NAL이 들어 있는지 확인합니다. 접근 단위에 SPS가 이미 있으면 설정을 따로 붙이지 않습니다.
-    pub fn has_sps(&self) -> bool {
-        self.nals
-            .iter()
-            .any(|nal| nal.first().is_some_and(|header| header & 0x1f == NAL_SPS))
-    }
-
-    /// NAL을 Annex-B(시작 코드) 형식으로 이어 붙입니다.
-    pub fn annex_b(&self) -> Vec<u8> {
-        annex_b(&self.nals)
-    }
-}
-
-// 페이로드들을 NAL 목록으로 되돌립니다.
-fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<Vec<Vec<u8>>> {
+/// 한 접근 단위의 페이로드들을 NAL 목록으로 되돌립니다. 조각이 빠졌거나 형식이 맞지 않으면 `None`입니다.
+pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<Vec<Vec<u8>>> {
     let mut nals = Vec::new();
     let mut fragment: Option<Vec<u8>> = None;
 
@@ -158,8 +106,8 @@ fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<Vec<V
     fragment.is_none().then_some(nals)
 }
 
-// IDR이거나, 첫 슬라이스의 `slice_type`이 I(2 또는 7)이면 키프레임입니다.
-fn is_keyframe(nals: &[Vec<u8>]) -> bool {
+/// IDR이거나, 첫 슬라이스의 `slice_type`이 I(2 또는 7)이면 키프레임입니다.
+pub fn is_keyframe(nals: &[Vec<u8>]) -> bool {
     let Some(slice) = nals
         .iter()
         .find(|nal| matches!(nal.first().map(|header| header & 0x1f), Some(NAL_SLICE | NAL_IDR)))
@@ -176,13 +124,6 @@ fn is_keyframe(nals: &[Vec<u8>]) -> bool {
     bits.ue()
         .and_then(|_| bits.ue())
         .is_some_and(|slice_type| slice_type % 5 == 2)
-}
-
-fn annex_b<'a>(nals: impl IntoIterator<Item = &'a Vec<u8>>) -> Vec<u8> {
-    nals.into_iter()
-        .flat_map(|nal| START_CODE.iter().chain(nal))
-        .copied()
-        .collect()
 }
 
 // `u16` 길이 접두가 붙은 NAL `count`개를 읽습니다.
@@ -262,7 +203,8 @@ impl<'a> Bits<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AccessUnit, DecoderConfig, depacketize, is_keyframe};
+    use super::{depacketize, is_keyframe};
+    use crate::media::unit::{AccessUnit, DecoderConfig, VideoCodec};
 
     const SPS: &[u8] = &[0x67, 0x64, 0x00, 0x34, 0xac];
     const PPS: &[u8] = &[0x68, 0xee, 0x3c, 0x80];
@@ -340,8 +282,8 @@ mod tests {
 
     #[test]
     fn in_band_sps_is_detected() {
-        let with_sps = AccessUnit::depacketize(1, 0, [SPS, &[0x65][..]]).unwrap();
-        let idr = AccessUnit::depacketize(1, 0, [&[0x65][..]]).unwrap();
+        let with_sps = AccessUnit::depacketize(VideoCodec::H264, 1, 0, [SPS, &[0x65][..]]).unwrap();
+        let idr = AccessUnit::depacketize(VideoCodec::H264, 1, 0, [&[0x65][..]]).unwrap();
         assert!(with_sps.has_sps());
         assert!(!idr.has_sps());
         assert!(idr.keyframe);

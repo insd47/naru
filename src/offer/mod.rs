@@ -165,11 +165,11 @@ impl Offer {
                 tiles: 1,
                 ltr: false,
             },
-            Codec::Hevc { tiles } => Bank {
+            Codec::Hevc => Bank {
                 id: HEVC_BANK,
                 field_4: 14,
                 features: Features::Hevc,
-                tiles,
+                tiles: 1,
                 ltr: true,
             },
             Codec::Custom(bank) => bank,
@@ -402,13 +402,13 @@ mod tests {
     }
 
     #[test]
-    fn hevc_offer_requests_tiles_with_ltr() {
-        let offer = Offer::new(false, Codec::Hevc { tiles: 4 });
+    fn hevc_offer_requests_a_single_tile_with_ltr() {
+        let offer = Offer::new(false, Codec::Hevc);
         let message = offer.encode();
         let audio_len = u16::from_be_bytes([message[0x0a], message[0x0b]]) as usize;
         let video = blob(&message[0x80 + audio_len + 92..]).video.unwrap();
 
-        assert_eq!((video.tiles, video.ltr, video.feedback), (Some(4), Some(1), Some(1)));
+        assert_eq!((video.tiles, video.ltr, video.feedback), (Some(1), Some(1), Some(1)));
         assert_eq!(video.banks.len(), 1);
         assert_eq!((video.banks[0].id, video.banks[0].field_4), (Some(100), Some(14)));
         assert_eq!(video.banks[0].resolutions.len(), 2);

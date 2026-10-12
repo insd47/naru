@@ -1,5 +1,6 @@
 use super::RtpPacket;
-use super::h264::{AccessUnit, CONFIG_MARKER, DecoderConfig};
+use super::h264::CONFIG_MARKER;
+use super::unit::{AccessUnit, DecoderConfig, VideoCodec};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
@@ -36,8 +37,10 @@ pub enum Priority {
 ///
 /// - I/O와 시계를 갖지 않습니다. 호출자가 패킷과 현재 시각을 넣고, `deadline()`에 다시 `next()`를 부릅니다.
 /// - 시작할 때는 디코더 설정과 키프레임이 올 때까지 접근 단위를 내보내지 않습니다. 불완전한 단위는 언제나 버립니다.
+/// - HEVC는 파라미터 세트가 든 접근 단위마다 그 설정을 먼저 내보내고 단위를 이어서 내보냅니다. H.264의 설정 패킷과 같은 순서입니다.
 /// - 단위 하나를 잃은 뒤 참조를 잃은 단위를 내보낼지는 [`Priority`]가 정합니다. 버퍼가 넘치면 언제나 키프레임을 기다립니다.
 pub struct Assembler {
+    codec: VideoCodec,
     ssrc: u32,
     priority: Priority,
     packets: BTreeMap<u64, RtpPacket>,
@@ -49,11 +52,14 @@ pub struct Assembler {
     awaiting_keyframe: bool,
     // 구멍을 메운 패킷 수(재전송이나 순서 바뀜)
     filled: u64,
+    // 설정을 먼저 내보내고 이어서 내보낼 HEVC 단위
+    pending: Option<AccessUnit>,
 }
 
 impl Assembler {
-    pub fn new(ssrc: u32, priority: Priority) -> Self {
+    pub fn new(codec: VideoCodec, ssrc: u32, priority: Priority) -> Self {
         Self {
+            codec,
             ssrc,
             priority,
             packets: BTreeMap::new(),
@@ -63,6 +69,7 @@ impl Assembler {
             configured: false,
             awaiting_keyframe: true,
             filled: 0,
+            pending: None,
         }
     }
 
@@ -99,6 +106,10 @@ impl Assembler {
 
     /// 조립된 결과를 하나 꺼냅니다. 더 꺼낼 것이 없으면 `None`입니다.
     pub fn next(&mut self, now: Instant) -> Option<Assembled> {
+        if let Some(unit) = self.pending.take() {
+            return Some(Assembled::Frame(unit));
+        }
+
         loop {
             if self.packets.len() > MAX_BUFFERED {
                 return Some(self.reset());
@@ -149,7 +160,7 @@ impl Assembler {
     fn unit_end(&self, start: u64) -> Option<u64> {
         let first = self.packets.get(&start)?;
 
-        if first.payload.first() == Some(&CONFIG_MARKER) {
+        if self.codec == VideoCodec::H264 && first.payload.first() == Some(&CONFIG_MARKER) {
             return Some(start);
         }
 
@@ -201,15 +212,22 @@ impl Assembler {
     fn emit(&mut self, packets: Vec<RtpPacket>) -> Option<Assembled> {
         let first = packets.first()?;
 
-        if let Some(config) = DecoderConfig::parse(&first.payload) {
+        if self.codec == VideoCodec::H264
+            && let Some(config) = DecoderConfig::parse(&first.payload)
+        {
             self.configured = true;
             return Some(Assembled::Config(config));
         }
 
         let payloads = packets.iter().map(|packet| packet.payload.as_slice());
 
-        let Some(unit) = AccessUnit::depacketize(self.ssrc, first.timestamp, payloads) else {
+        let Some(unit) = AccessUnit::depacketize(self.codec, self.ssrc, first.timestamp, payloads) else {
             return Some(self.lose());
+        };
+
+        let config = match self.codec {
+            VideoCodec::Hevc => DecoderConfig::from_hevc(&unit.nals),
+            VideoCodec::H264 => None,
         };
 
         if !(self.configured || unit.has_sps()) || (self.awaiting_keyframe && !unit.keyframe) {
@@ -217,7 +235,15 @@ impl Assembler {
         }
 
         self.awaiting_keyframe = false;
-        Some(Assembled::Frame(unit))
+
+        match config {
+            Some(config) => {
+                self.configured = true;
+                self.pending = Some(unit);
+                Some(Assembled::Config(config))
+            }
+            None => Some(Assembled::Frame(unit)),
+        }
     }
 
     // 16비트 순번을 지금까지 받은 가장 큰 순번에 가장 가까운 확장 순번으로 바꿉니다.
@@ -238,7 +264,7 @@ impl Assembler {
 #[cfg(test)]
 mod tests {
     use super::{Assembled, Assembler, HOLD, Priority};
-    use crate::media::RtpPacket;
+    use crate::media::{RtpPacket, VideoCodec};
     use std::time::{Duration, Instant};
 
     const SSRC: u32 = 7;
@@ -295,7 +321,7 @@ mod tests {
     #[test]
     fn ordered_stream_yields_config_then_frames() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC, Priority::Quality);
+        let mut assembler = Assembler::new(VideoCodec::H264, SSRC, Priority::Quality);
 
         for packet in stream(100) {
             assert!(assembler.push(packet).is_empty());
@@ -312,7 +338,7 @@ mod tests {
     #[test]
     fn sequence_wrap_and_reordering_are_absorbed() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC, Priority::Quality);
+        let mut assembler = Assembler::new(VideoCodec::H264, SSRC, Priority::Quality);
         let mut packets = stream(65_533);
         packets.swap(1, 2);
         packets.swap(3, 4);
@@ -330,7 +356,7 @@ mod tests {
     #[test]
     fn gap_is_reported_once_for_retransmission_and_filled_in_time() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC, Priority::Quality);
+        let mut assembler = Assembler::new(VideoCodec::H264, SSRC, Priority::Quality);
         let mut packets = stream(10);
         let late = packets.remove(2);
 
@@ -350,7 +376,7 @@ mod tests {
     #[test]
     fn unrecovered_gap_drops_the_unit_and_waits_for_a_keyframe() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC, Priority::Quality);
+        let mut assembler = Assembler::new(VideoCodec::H264, SSRC, Priority::Quality);
 
         for packet in stream(10) {
             assembler.push(packet);
@@ -374,7 +400,7 @@ mod tests {
     #[test]
     fn latency_priority_keeps_frames_flowing_after_a_loss() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC, Priority::Latency);
+        let mut assembler = Assembler::new(VideoCodec::H264, SSRC, Priority::Latency);
 
         for packet in stream(10) {
             assembler.push(packet);
@@ -393,7 +419,7 @@ mod tests {
     #[test]
     fn frames_before_the_decoder_config_are_withheld() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC, Priority::Quality);
+        let mut assembler = Assembler::new(VideoCodec::H264, SSRC, Priority::Quality);
         assembler.push(packet(1, 0, true, IDR));
         assert!(drain(&mut assembler, now).is_empty());
     }
@@ -401,7 +427,7 @@ mod tests {
     #[test]
     fn late_duplicate_is_ignored() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(SSRC, Priority::Quality);
+        let mut assembler = Assembler::new(VideoCodec::H264, SSRC, Priority::Quality);
 
         for packet in stream(10) {
             assembler.push(packet);
@@ -410,5 +436,40 @@ mod tests {
         drain(&mut assembler, now);
         assert!(assembler.push(packet(12, 0, true, &[0x7c, 0x45, 0x99])).is_empty());
         assert!(drain(&mut assembler, now).is_empty());
+    }
+
+    // HEVC는 파라미터 세트가 키프레임과 같은 단위로 오므로, 그 단위에서 설정을 먼저 내보내고 단위를 이어서 내보냅니다.
+    #[test]
+    fn hevc_unit_with_parameter_sets_yields_config_then_frame() {
+        const VPS: &[u8] = &[0x40, 0x01, 0x0c];
+        const SPS: &[u8] = &[0x42, 0x01, 0x01, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x96];
+        const PPS: &[u8] = &[0x44, 0x01, 0xc0];
+        let mut aggregate = vec![0x60, 0x01];
+
+        for nal in [VPS, SPS, PPS] {
+            aggregate.extend_from_slice(&(nal.len() as u16).to_be_bytes());
+            aggregate.extend_from_slice(nal);
+        }
+
+        let now = Instant::now();
+        let mut assembler = Assembler::new(VideoCodec::Hevc, SSRC, Priority::Quality);
+        assembler.push(packet(10, 0, false, &aggregate));
+        assembler.push(packet(11, 0, false, &[0x62, 0x01, 0x94, 1]));
+        assembler.push(packet(12, 0, true, &[0x62, 0x01, 0x54, 2]));
+        assembler.push(packet(13, 3000, true, &[0x02, 0x01, 3]));
+
+        let Some(Assembled::Config(config)) = assembler.next(now) else {
+            panic!("설정이 먼저 와야 합니다");
+        };
+        assert_eq!((config.codec, config.level), (VideoCodec::Hevc, 0x96));
+
+        let Some(Assembled::Frame(keyframe)) = assembler.next(now) else {
+            panic!("키프레임이 이어져야 합니다");
+        };
+        assert!(keyframe.keyframe);
+        assert_eq!(keyframe.nals.last().unwrap(), &[0x28, 0x01, 1, 2]);
+
+        assert!(matches!(assembler.next(now), Some(Assembled::Frame(unit)) if !unit.keyframe));
+        assert_eq!(assembler.next(now), None);
     }
 }

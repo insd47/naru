@@ -12,9 +12,9 @@
 //! - 서버 공개키는 `~/.naru-probe/<호스트>.der`에 저장하고, 다음 접속에서 바뀌었으면 접속을 멈춥니다.
 //! - 가상 디스플레이(`--display`)로 붙으면 잠금 화면부터 나옵니다. `--unlock N`은 N초 뒤 접속 비밀번호를 키 입력으로 쳐서 풉니다.
 //! - 저장한 파일은 `ffplay capture.h264`로 재생할 수 있습니다.
-//! - `--hevc N`은 H.264 대신 HEVC 4:4:4를 띠 N개로 요청합니다. HEVC는 아직 조립하지 않으므로 `--raw`와 함께 씁니다.
+//! - `--hevc`는 H.264 대신 HEVC 4:4:4를 요청합니다. `--out`에는 HEVC Annex-B로 저장합니다.
 //! - `--local-ports 오디오,비디오`는 로컬 UDP 포트를 바꿉니다. 같은 Mac에서 Apple 화면 공유가 5900과 5901을 쥐고 있을 때 씁니다.
-//! - `--bank`, `--field4`, `--features h264|hevc`, `--tiles`, `--ltr 0|1`은 오퍼의 코덱 뱅크를 하나씩 바꿉니다. 바꾸지 않은 값은 H.264(또는 `--hevc`)의 값을 씁니다.
+//! - `--bank`, `--field4`, `--features h264|hevc`, `--tiles`, `--ltr 0|1`은 오퍼의 코덱 뱅크를 하나씩 바꿉니다. 바꾸지 않은 값은 H.264(또는 `--hevc`)의 값을 쓰고, 조립하지 않으므로 `--raw`와 함께 씁니다.
 //! - `--raw 파일`은 영상을 조립하지 않고 복호화한 RTP 패킷을 그대로 저장합니다. 패킷마다 받은 시각(µs, u64), SSRC(u32), 순번(u16),
 //!   타임스탬프(u32), 마커(u8), 페이로드 길이(u32)를 빅엔디언으로 쓰고 페이로드를 잇습니다. 끝나면 SSRC별 패킷 수와 비트레이트를 찍습니다.
 use anyhow::{Context, Result, bail};
@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--local-ports N,N] [--display 1280x800@2] [--unlock N] [--audio] [--out 파일] [--hevc N] [--bank N] [--field4 N] [--features h264|hevc] [--tiles N] [--ltr 0|1] [--raw 파일] [--seconds N] [--handshake-only]";
+const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--local-ports N,N] [--display 1280x800@2] [--unlock N] [--audio] [--out 파일] [--hevc] [--bank N] [--field4 N] [--features h264|hevc] [--tiles N] [--ltr 0|1] [--raw 파일] [--seconds N] [--handshake-only]";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -51,7 +51,7 @@ struct Args {
     unlock: Option<u64>,
     audio: bool,
     out: Option<PathBuf>,
-    hevc: Option<u32>,
+    hevc: bool,
     bank: Option<u32>,
     field_4: Option<u32>,
     features: Option<Features>,
@@ -73,7 +73,7 @@ impl Args {
             unlock: None,
             audio: false,
             out: None,
-            hevc: None,
+            hevc: false,
             bank: None,
             field_4: None,
             features: None,
@@ -100,7 +100,7 @@ impl Args {
                 "--unlock" => parsed.unlock = Some(value()?.parse()?),
                 "--audio" => parsed.audio = true,
                 "--out" => parsed.out = Some(value()?.into()),
-                "--hevc" => parsed.hevc = Some(value()?.parse()?),
+                "--hevc" => parsed.hevc = true,
                 "--bank" => parsed.bank = Some(value()?.parse()?),
                 "--field4" => parsed.field_4 = Some(value()?.parse()?),
                 "--features" => {
@@ -126,15 +126,15 @@ impl Args {
         (parsed.handshake_only || parsed.username.is_some())
             .then_some(())
             .context("사용자 이름이 필요합니다")?;
-        (parsed.codec() == Codec::H264 || parsed.raw.is_some())
+        (!matches!(parsed.codec(), Codec::Custom(_)) || parsed.raw.is_some())
             .then_some(())
-            .context("H.264가 아닌 요청은 --raw와 함께 써야 합니다")?;
+            .context("코덱 뱅크를 바꾼 요청은 --raw와 함께 써야 합니다")?;
         Ok(parsed)
     }
 
     // 바꾼 값이 없으면 알려진 요청을 그대로 쓰고, 있으면 그 요청의 뱅크에서 바꾼 값만 덮어씁니다.
     fn codec(&self) -> Codec {
-        let preset = self.hevc.map_or(Codec::H264, |tiles| Codec::Hevc { tiles });
+        let preset = if self.hevc { Codec::Hevc } else { Codec::H264 };
         let changed = self.bank.is_some()
             || self.field_4.is_some()
             || self.features.is_some()
@@ -146,14 +146,14 @@ impl Args {
         }
 
         let base = match self.hevc {
-            Some(tiles) => Bank {
+            true => Bank {
                 id: 100,
                 field_4: 14,
                 features: Features::Hevc,
-                tiles,
+                tiles: 1,
                 ltr: true,
             },
-            None => Bank {
+            false => Bank {
                 id: 123,
                 field_4: 1,
                 features: Features::H264,
@@ -298,7 +298,10 @@ async fn session(args: Args) -> Result<()> {
             Event::ServerName(name) => println!("[{at}] Mac 이름: {name}"),
             Event::Layout(layout) => println!("[{at}] 레이아웃: 논리 {:?}, 픽셀 {:?}", layout.logical, layout.pixels),
             Event::DecoderConfig(config) => {
-                println!("[{at}] 디코더 설정: 프로파일 {}, 레벨 {}", config.profile, config.level);
+                println!(
+                    "[{at}] 디코더 설정: {:?}, 프로파일 {}, 레벨 {}",
+                    config.codec, config.profile, config.level
+                );
                 decoder = Some(config);
             }
             Event::Frame(unit) => {

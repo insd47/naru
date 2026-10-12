@@ -1,6 +1,8 @@
 use super::{Event, MediaStats};
 use crate::error::Result;
-use crate::media::{Assembled, Assembler, AudioFrame, Priority, Routed, RtpPacket, SrtpContext, Streams, rtcp};
+use crate::media::{
+    Assembled, Assembler, AudioFrame, Priority, Routed, RtpPacket, SrtpContext, Streams, VideoCodec, rtcp,
+};
 use crate::offer::Offer;
 use socket2::{Domain, Socket, Type};
 use std::net::{IpAddr, SocketAddr};
@@ -69,6 +71,7 @@ impl Sockets {
 /// 비디오와 오디오 수신, RTCP 송신 상태입니다.
 pub struct Media {
     sockets: Sockets,
+    codec: VideoCodec,
     priority: Priority,
     // 진단용으로 조립하지 않고 패킷을 그대로 넘기는지 여부
     raw: bool,
@@ -108,9 +111,10 @@ struct Stall {
 }
 
 impl Media {
-    pub fn new(sockets: Sockets, offer: &Offer, priority: Priority, raw: bool) -> Self {
+    pub fn new(sockets: Sockets, offer: &Offer, codec: VideoCodec, priority: Priority, raw: bool) -> Self {
         Self {
             sockets,
+            codec,
             priority,
             raw,
             video_ssrc: offer.video_ssrc,
@@ -178,7 +182,7 @@ impl Media {
             Routed::Switched { ssrc, packets } => {
                 // 새 SSRC는 새 디코더 세대입니다. 이전 세대의 참조와 섞이지 않도록 새 설정과 키프레임을 기다립니다.
                 self.filled += self.assembler.as_ref().map_or(0, Assembler::filled);
-                self.assembler = Some(Assembler::new(ssrc, self.priority));
+                self.assembler = Some(Assembler::new(self.codec, ssrc, self.priority));
                 self.configured = false;
                 packets
             }

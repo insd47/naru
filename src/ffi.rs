@@ -33,6 +33,8 @@ pub struct Config {
     pub audio: bool,
     /// 패킷을 잃었을 때 지연과 화질 중 무엇을 우선할지
     pub priority: Priority,
+    /// HEVC 4:4:4로 받을지 여부. 기기의 하드웨어 디코더가 4:4:4를 풀 수 있을 때만 켭니다. 끄면 H.264 4:2:0입니다.
+    pub hevc: bool,
 }
 
 impl From<Config> for crate::Config {
@@ -47,7 +49,11 @@ impl From<Config> for crate::Config {
             display: config.display.map(Into::into),
             audio: config.audio,
             priority: config.priority,
-            codec: crate::Codec::H264,
+            codec: if config.hevc {
+                crate::Codec::Hevc
+            } else {
+                crate::Codec::H264
+            },
             raw_video: false,
             local_ports: None,
         }
