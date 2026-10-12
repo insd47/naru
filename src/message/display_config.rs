@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 
-// 서버는 이보다 큰 픽셀 크기를 받으면 임의의 크기로 바꿉니다.
+// 서버는 이보다 큰 픽셀 크기를 받으면 임의의 크기로 바꿉니다. 세로 화면은 폭과 높이를 바꾼 한도를 씁니다.
 const MAX_PIXELS: (u32, u32) = (3840, 2160);
 
 const NAME_BYTES: usize = 120;
@@ -37,10 +37,14 @@ pub struct Mode {
 impl DisplayConfig {
     /// 메시지를 만듭니다. 모드가 없거나 픽셀 크기가 서버의 한도를 넘으면 실패합니다.
     pub fn encode(&self) -> Result<Vec<u8>> {
-        let (max_width, max_height) = MAX_PIXELS;
+        let Some(first) = self.modes.first() else {
+            return Err(Error::Invalid("디스플레이 설정"));
+        };
+
+        let (max_width, max_height) = limit(first.pixels);
         let fits = |mode: &Mode| mode.pixels.0 <= max_width && mode.pixels.1 <= max_height;
 
-        if self.modes.is_empty() || !self.modes.iter().all(fits) || self.modes.len() > 64 {
+        if !self.modes.iter().all(fits) || self.modes.len() > 64 {
             return Err(Error::Invalid("디스플레이 설정"));
         }
 
@@ -107,11 +111,9 @@ impl Mode {
         }
     }
 
-    /// 픽셀 크기가 서버 한도(3840×2160)에 들어가도록, 비율을 유지한 채 논리 크기를 줄인 모드를 만듭니다.
-    ///
-    /// - 한도는 가로와 세로가 정해져 있어서, 세로로 세운 태블릿은 높이가 한도를 넘습니다. 예: 834×1210@2 → 744×1080@2.
+    /// 픽셀 크기가 서버 한도(가로 3840×2160, 세로 2160×3840)에 들어가도록, 비율을 유지한 채 논리 크기를 줄인 모드를 만듭니다.
     pub fn fitting(logical: (u32, u32), scale: f64) -> Self {
-        let (max_width, max_height) = MAX_PIXELS;
+        let (max_width, max_height) = limit(logical);
         let ratio = (f64::from(max_width) / (f64::from(logical.0) * scale))
             .min(f64::from(max_height) / (f64::from(logical.1) * scale))
             .min(1.0);
@@ -119,6 +121,12 @@ impl Mode {
 
         Self::new((shrink(logical.0), shrink(logical.1)), scale)
     }
+}
+
+// 이 방향의 픽셀 한도
+fn limit((width, height): (u32, u32)) -> (u32, u32) {
+    let (long, short) = MAX_PIXELS;
+    if height > width { (short, long) } else { (long, short) }
 }
 
 #[cfg(test)]
@@ -157,14 +165,20 @@ mod tests {
         assert!(config(Vec::new()).encode().is_err());
     }
 
-    // 세로로 세운 iPad Pro 11형(834×1210@2)이 높이 한도를 넘어 접속에 실패했습니다(2026-10-12 TestFlight).
+    // 세로로 세운 iPad Pro 11형(834×1210@2)이 가로 한도의 높이를 넘는다며 접속하지 못했습니다(2026-10-12 TestFlight).
+    // 서버는 세로 1668×2420을 그대로 받습니다(2026-10-13 macOS 27 실측).
     #[test]
-    fn fitting_shrinks_a_portrait_tablet_into_the_server_limit() {
+    fn portrait_modes_use_the_rotated_limit() {
         let portrait = Mode::fitting((834, 1210), 2.0);
-        assert_eq!((portrait.logical, portrait.pixels), ((744, 1080), (1488, 2160)));
-        assert!(config(vec![portrait]).encode().is_ok());
+        assert_eq!(portrait.pixels, (1668, 2420));
 
-        let landscape = Mode::fitting((1210, 834), 2.0);
-        assert_eq!(landscape.pixels, (2420, 1668));
+        let message = config(vec![portrait]).encode().unwrap();
+        assert_eq!(
+            &message[12 + 0x8a..12 + 0x92],
+            [2160u32.to_be_bytes(), 3840u32.to_be_bytes()].concat()
+        );
+
+        assert_eq!(Mode::fitting((2000, 1200), 2.0).pixels, (3600, 2160));
+        assert_eq!(Mode::fitting((1200, 2400), 2.0).pixels, (1920, 3840));
     }
 }
