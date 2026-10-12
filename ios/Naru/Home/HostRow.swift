@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Mac 하나의 행. Screen Sharing 앱처럼 마우스를 올리면 마지막 접속 시각 대신 Connect 버튼이 나옵니다.
+/// Mac 하나의 행. 누르면 접속합니다.
 ///
+/// - Screen Sharing 앱처럼 마우스를 올릴 때 Connect 버튼을 내지 않습니다. iPad에서는 포인터가 지날 때마다 행의 내용이 바뀌어 흔들립니다.
 /// - 세션 중인 Mac은 Disconnect 버튼을 늘 보이고, 접속 중이면 진행 표시를 곁들입니다.
 struct HostRow: View {
     let title: String
@@ -12,8 +13,6 @@ struct HostRow: View {
     let onConnect: () -> Void
     var onDisconnect: () -> Void = {}
     var onInfo: (() -> Void)?
-
-    @State private var hovered = false
 
     var body: some View {
         HStack(spacing: 14) {
@@ -34,8 +33,6 @@ struct HostRow: View {
             if active {
                 if connecting { ProgressView() }
                 Button("Disconnect", action: onDisconnect).buttonStyle(.bordered)
-            } else if hovered {
-                Button("Connect", action: onConnect).buttonStyle(.bordered)
             } else if let detail {
                 Text(detail).font(.subheadline).foregroundStyle(.secondary)
             }
@@ -48,7 +45,6 @@ struct HostRow: View {
         }
         .padding(.vertical, 6)
         .contentShape(.rect)
-        .onHover { hovered = $0 }
         .onTapGesture(perform: onConnect)
     }
 }
