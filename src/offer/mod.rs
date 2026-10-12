@@ -1,9 +1,10 @@
 //! 미디어 오퍼(`0x1c`)와 그 응답입니다.
 //!
 //! - 오퍼는 오디오와 비디오 각각의 바이너리 plist이며, 그 안에 zlib으로 압축한 protobuf(MediaBlob)가 있습니다.
-//! - 비디오는 코덱 뱅크 123만 넣고 타일 1개를 요청해 H.264 4:2:0 단일 스트림을 받습니다. 뱅크 100을 넣으면 서버가 HEVC 4:4:4를 고르는데, 일반적인 모바일 하드웨어 디코더는 이를 풀지 못합니다.
+//! - 비디오는 기본으로 코덱 뱅크 123만 넣고 타일 1개를 요청해 H.264 4:2:0 단일 스트림을 받습니다. 뱅크 100을 넣으면 서버가 HEVC 4:4:4를 보내는데, 일반적인 모바일 하드웨어 디코더는 이를 풀지 못합니다.
 //! - 오디오 오퍼는 생략할 수 없습니다. 오디오를 끌 때는 요청 비트레이트를 낮춰 서버가 오디오를 보내지 않게 합니다.
 //! - SRTP 마스터 키는 클라이언트가 만들어 오퍼에 실어 보냅니다. 제어 채널이 뚫리면 미디어도 함께 뚫립니다.
+use crate::Codec;
 use blob::{AnswerBlob, AudioStream, AudioTier, CodecBank, EndpointInfo, MediaBlob, Resolution, VideoStream};
 use flate2::Compression;
 use flate2::read::ZlibDecoder;
@@ -29,6 +30,10 @@ const MODE_AUDIO: i64 = 8;
 // H.264를 받을 때는 LTR을 끄고 기능 문자열에서도 뺍니다. 이름은 HEVC용처럼 보이지만 서버는 이 뱅크로 H.264를 보냅니다.
 const H264_BANK: u32 = 123;
 const H264_FEATURES: &str = "FLS;MS:-1;LF:-1;CABAC;POS:0;EOD:1;HTS:2;RR:3;AR:16/9,5/8;XR:16/9,5/8;";
+
+// HEVC 4:4:4는 Apple 클라이언트가 LTR과 피드백을 켜고 보내는 값을 그대로 씁니다.
+const HEVC_BANK: u32 = 100;
+const HEVC_FEATURES: &str = "FLS;LF:-1;POS:5;EOD:1;HTS:2;RR:3;POSE:4;AR:16/9,5/8;XR:16/9,5/8;";
 
 // 요청 비트레이트는 비례 값이 아니라 계층 선택자입니다. 약 5000 미만이면 서버가 오디오를 보내지 않습니다.
 const AUDIO_ON: u32 = 24191;
@@ -64,6 +69,7 @@ pub struct Offer {
     /// 클라이언트의 비디오 SSRC. 클라이언트가 보내는 RTCP의 송신자 SSRC입니다.
     pub video_ssrc: u32,
     audio: bool,
+    codec: Codec,
 }
 
 /// 오퍼에 싣는 SRTP 키 블롭 네 개입니다.
@@ -88,7 +94,7 @@ pub struct Answer {
 
 impl Offer {
     /// 새 키와 SSRC로 오퍼를 만듭니다.
-    pub fn new(audio: bool) -> Self {
+    pub fn new(audio: bool, codec: Codec) -> Self {
         Self {
             keys: MediaKeys {
                 audio_send: random(),
@@ -100,6 +106,7 @@ impl Offer {
             audio_ssrc: OsRng.next_u32(),
             video_ssrc: OsRng.next_u32(),
             audio,
+            codec,
         }
     }
 
@@ -149,20 +156,37 @@ impl Offer {
             field_4: Some(0),
         };
 
-        let bank = CodecBank {
-            id: Some(H264_BANK),
-            resolutions: [1, 2, 1, 2].into_iter().map(resolution).collect(),
-            features: Some(H264_FEATURES.into()),
-            field_4: Some(1),
+        // H.264는 LTR과 피드백을 끄고, HEVC는 켭니다.
+        let (bank, tiles, ltr) = match self.codec {
+            Codec::H264 => (
+                CodecBank {
+                    id: Some(H264_BANK),
+                    resolutions: [1, 2, 1, 2].into_iter().map(resolution).collect(),
+                    features: Some(H264_FEATURES.into()),
+                    field_4: Some(1),
+                },
+                1,
+                0,
+            ),
+            Codec::Hevc { tiles } => (
+                CodecBank {
+                    id: Some(HEVC_BANK),
+                    resolutions: [1, 2].into_iter().map(resolution).collect(),
+                    features: Some(HEVC_FEATURES.into()),
+                    field_4: Some(14),
+                },
+                tiles,
+                1,
+            ),
         };
 
         MediaBlob {
             video: Some(VideoStream {
                 ssrc: Some(self.video_ssrc),
-                feedback: Some(0),
+                feedback: Some(ltr),
                 banks: vec![bank],
-                tiles: Some(1),
-                ltr: Some(0),
+                tiles: Some(tiles),
+                ltr: Some(ltr),
                 field_8: Some(63),
                 field_9: Some(1),
                 field_12: Some(1),
@@ -311,7 +335,8 @@ fn call_id(id: &[u8; 16]) -> String {
 #[cfg(test)]
 mod tests {
     use super::blob::{AnswerBlob, MediaBlob, VideoAnswer};
-    use super::{Answer, H264_FEATURES, Offer, call_id};
+    use super::{Answer, H264_FEATURES, HEVC_FEATURES, Offer, call_id};
+    use crate::Codec;
     use flate2::Compression;
     use flate2::read::ZlibDecoder;
     use flate2::write::ZlibEncoder;
@@ -336,7 +361,7 @@ mod tests {
 
     #[test]
     fn layout_places_keys_and_offers_at_their_offsets() {
-        let offer = Offer::new(false);
+        let offer = Offer::new(false, Codec::H264);
         let message = offer.encode();
 
         let audio_len = u16::from_be_bytes([message[0x0a], message[0x0b]]) as usize;
@@ -357,7 +382,7 @@ mod tests {
 
     #[test]
     fn video_offer_requests_single_tile_h264_without_ltr() {
-        let offer = Offer::new(false);
+        let offer = Offer::new(false, Codec::H264);
         let message = offer.encode();
         let audio_len = u16::from_be_bytes([message[0x0a], message[0x0b]]) as usize;
         let video = blob(&message[0x80 + audio_len + 92..]).video.unwrap();
@@ -371,18 +396,32 @@ mod tests {
     }
 
     #[test]
+    fn hevc_offer_requests_tiles_with_ltr() {
+        let offer = Offer::new(false, Codec::Hevc { tiles: 4 });
+        let message = offer.encode();
+        let audio_len = u16::from_be_bytes([message[0x0a], message[0x0b]]) as usize;
+        let video = blob(&message[0x80 + audio_len + 92..]).video.unwrap();
+
+        assert_eq!((video.tiles, video.ltr, video.feedback), (Some(4), Some(1), Some(1)));
+        assert_eq!(video.banks.len(), 1);
+        assert_eq!((video.banks[0].id, video.banks[0].field_4), (Some(100), Some(14)));
+        assert_eq!(video.banks[0].resolutions.len(), 2);
+        assert_eq!(video.banks[0].features.as_deref(), Some(HEVC_FEATURES));
+    }
+
+    #[test]
     fn audio_off_requests_a_bitrate_below_the_threshold() {
-        let message = Offer::new(false).encode();
+        let message = Offer::new(false, Codec::H264).encode();
         let audio = audio_blob(&message).audio.unwrap();
         assert!(audio.bitrate.unwrap() < 5000);
 
-        let message = Offer::new(true).encode();
+        let message = Offer::new(true, Codec::H264).encode();
         assert_eq!(audio_blob(&message).audio.unwrap().bitrate, Some(24191));
     }
 
     #[test]
     fn zero_valued_fields_are_still_encoded() {
-        let message = Offer::new(false).encode();
+        let message = Offer::new(false, Codec::H264).encode();
         let encoded = audio_blob(&message).encode_to_vec();
 
         // 필드 8과 16(값 0)이 각각 태그 바이트 0x40, 0x80 0x01로 들어 있어야 합니다.

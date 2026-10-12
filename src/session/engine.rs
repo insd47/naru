@@ -47,10 +47,10 @@ enum Wake {
 
 impl Engine {
     pub fn new(control: Control, sockets: Sockets, config: &Config) -> Self {
-        let offer = Offer::new(config.audio);
+        let offer = Offer::new(config.audio, config.codec);
 
         Self {
-            media: Media::new(sockets.clone(), &offer, config.priority),
+            media: Media::new(sockets.clone(), &offer, config.priority, config.raw_video),
             input: Input::new(control.keys().clone()),
             keyboard: Keyboard::new(),
             control,

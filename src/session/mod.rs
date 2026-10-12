@@ -4,7 +4,7 @@
 //! - 네이티브 계층은 완성된 접근 단위와 디코더 설정만 받습니다. 디코더 오류는 `request_keyframe`로 알려 주십시오.
 //! - 미디어가 시작되지 않으면 연결을 끊고 처음부터 다시 접속합니다. 접속 시도는 합쳐서 세 번까지입니다.
 use crate::error::{Error, Result};
-use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority};
+use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority, RtpPacket};
 use crate::message::gesture::Phase;
 use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, clipboard};
 use control::Control;
@@ -46,6 +46,10 @@ pub struct Config {
     pub audio: bool,
     /// 패킷을 잃었을 때 지연과 화질 중 무엇을 우선할지
     pub priority: Priority,
+    /// 서버에 요청할 영상 코덱
+    pub codec: Codec,
+    /// 진단용. 영상을 조립하지 않고 받은 RTP 패킷을 [`Event::RawVideo`]로 넘깁니다. 키프레임 요청과 정지 감시도 하지 않습니다.
+    pub raw_video: bool,
     /// 로컬 UDP 포트(오디오, 비디오). 기본값은 서버와 같은 번호입니다. 서버와 같은 기기에서 시험할 때처럼 그 번호를 쓸 수 없을 때만 정합니다.
     pub local_ports: Option<(u16, u16)>,
 }
@@ -62,9 +66,21 @@ impl Config {
             display: None,
             audio: false,
             priority: Priority::default(),
+            codec: Codec::default(),
+            raw_video: false,
             local_ports: None,
         }
     }
+}
+
+/// 서버에 요청할 영상 코덱입니다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Codec {
+    /// H.264 4:2:0 단일 스트림
+    #[default]
+    H264,
+    /// HEVC 4:4:4를 가로 띠 `tiles`개로 나눈 스트림. 아직 조립하지 않으므로 `raw_video`와 함께 씁니다.
+    Hevc { tiles: u32 },
 }
 
 /// 접속 단계입니다. 실패한 단계를 사용자에게 구분해 보여 주면 원인을 찾기 쉽습니다.
@@ -130,6 +146,8 @@ pub enum Event {
     ResetDecoder,
     /// 미디어 수신 통계. 미디어 협상이 끝난 뒤 0.5초마다 옵니다.
     Stats(MediaStats),
+    /// 복호화한 영상 RTP 패킷. `raw_video`를 켰을 때만 옵니다.
+    RawVideo(RtpPacket),
     /// 세션이 끝났습니다. `close()`로 닫았으면 `None`입니다.
     Closed(Option<Error>),
 }

@@ -47,6 +47,8 @@ impl From<Config> for crate::Config {
             display: config.display.map(Into::into),
             audio: config.audio,
             priority: config.priority,
+            codec: crate::Codec::H264,
+            raw_video: false,
             local_ports: None,
         }
     }
@@ -164,6 +166,7 @@ impl From<crate::Event> for Event {
             crate::Event::Clipboard(text) => Self::Clipboard { text },
             crate::Event::ResetDecoder => Self::ResetDecoder,
             crate::Event::Stats(stats) => Self::Stats { stats },
+            crate::Event::RawVideo(_) => unreachable!("FFI 설정은 raw_video를 켜지 않습니다"),
             crate::Event::Closed(error) => Self::Closed {
                 failure: error.as_ref().map(Failure::from),
                 detail: error.as_ref().map(|error| {

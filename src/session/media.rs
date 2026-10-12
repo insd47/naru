@@ -70,6 +70,8 @@ impl Sockets {
 pub struct Media {
     sockets: Sockets,
     priority: Priority,
+    // 진단용으로 조립하지 않고 패킷을 그대로 넘기는지 여부
+    raw: bool,
     video_ssrc: u32,
     audio_ssrc: u32,
     receive: SrtpContext,
@@ -106,10 +108,11 @@ struct Stall {
 }
 
 impl Media {
-    pub fn new(sockets: Sockets, offer: &Offer, priority: Priority) -> Self {
+    pub fn new(sockets: Sockets, offer: &Offer, priority: Priority, raw: bool) -> Self {
         Self {
             sockets,
             priority,
+            raw,
             video_ssrc: offer.video_ssrc,
             audio_ssrc: offer.audio_ssrc,
             receive: SrtpContext::new(&offer.keys.video_receive),
@@ -159,6 +162,16 @@ impl Media {
 
         self.authenticated += 1;
         self.last_packet = Some(now);
+
+        // 마커 비트를 프레임 끝으로 보아, 미디어 시작 판정과 프레임버퍼 요청이 평소처럼 돌게 합니다.
+        if self.raw {
+            if packet.marker {
+                self.last_frame = Some(now);
+            }
+
+            events.push(Event::RawVideo(packet));
+            return;
+        }
 
         let packets = match self.streams.route(packet, now) {
             Routed::Current(packet) => vec![packet],
@@ -258,6 +271,10 @@ impl Media {
     ///
     /// - `answered`는 미디어 응답을 받은 시각입니다. 프레임이 한 번도 나오지 않았으면 그때부터 잽니다.
     pub async fn watch(&mut self, now: Instant, answered: Instant, events: &mut Vec<Event>) {
+        if self.raw {
+            return;
+        }
+
         let since = self.last_frame.unwrap_or(answered);
 
         if !self.active(now) {

@@ -12,10 +12,14 @@
 //! - 서버 공개키는 `~/.naru-probe/<호스트>.der`에 저장하고, 다음 접속에서 바뀌었으면 접속을 멈춥니다.
 //! - 가상 디스플레이(`--display`)로 붙으면 잠금 화면부터 나옵니다. `--unlock N`은 N초 뒤 접속 비밀번호를 키 입력으로 쳐서 풉니다.
 //! - 저장한 파일은 `ffplay capture.h264`로 재생할 수 있습니다.
+//! - `--hevc N`은 H.264 대신 HEVC 4:4:4를 띠 N개로 요청합니다. HEVC는 아직 조립하지 않으므로 `--raw`와 함께 씁니다.
+//! - `--raw 파일`은 영상을 조립하지 않고 복호화한 RTP 패킷을 그대로 저장합니다. 패킷마다 받은 시각(µs, u64), SSRC(u32), 순번(u16),
+//!   타임스탬프(u32), 마커(u8), 페이로드 길이(u32)를 빅엔디언으로 쓰고 페이로드를 잇습니다. 끝나면 SSRC별 패킷 수와 비트레이트를 찍습니다.
 use anyhow::{Context, Result, bail};
 use naru::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey, VERSION};
-use naru::{Config, DecoderConfig, DisplayConfig, Event, Mode, Session};
+use naru::{Codec, Config, DecoderConfig, DisplayConfig, Event, Mode, Session};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -23,7 +27,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--display 1280x800@2] [--unlock N] [--audio] [--out 파일] [--seconds N] [--handshake-only]";
+const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--display 1280x800@2] [--unlock N] [--audio] [--out 파일] [--hevc N] [--raw 파일] [--seconds N] [--handshake-only]";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -44,6 +48,8 @@ struct Args {
     unlock: Option<u64>,
     audio: bool,
     out: Option<PathBuf>,
+    hevc: Option<u32>,
+    raw: Option<PathBuf>,
     seconds: u64,
     handshake_only: bool,
 }
@@ -58,6 +64,8 @@ impl Args {
             unlock: None,
             audio: false,
             out: None,
+            hevc: None,
+            raw: None,
             seconds: 10,
             handshake_only: false,
         };
@@ -73,6 +81,8 @@ impl Args {
                 "--unlock" => parsed.unlock = Some(value()?.parse()?),
                 "--audio" => parsed.audio = true,
                 "--out" => parsed.out = Some(value()?.into()),
+                "--hevc" => parsed.hevc = Some(value()?.parse()?),
+                "--raw" => parsed.raw = Some(value()?.into()),
                 "--seconds" => parsed.seconds = value()?.parse()?,
                 "--handshake-only" => parsed.handshake_only = true,
                 _ if arg.starts_with("--") => bail!("알 수 없는 옵션입니다: {arg}"),
@@ -86,6 +96,9 @@ impl Args {
         (parsed.handshake_only || parsed.username.is_some())
             .then_some(())
             .context("사용자 이름이 필요합니다")?;
+        (parsed.hevc.is_none() || parsed.raw.is_some())
+            .then_some(())
+            .context("--hevc는 --raw와 함께 써야 합니다")?;
         Ok(parsed)
     }
 }
@@ -148,8 +161,13 @@ async fn session(args: Args) -> Result<()> {
     config.audio = args.audio;
     config.known_key = std::fs::read(&key_path).ok();
     config.display = args.display.map(DisplayConfig::from);
+    config.codec = args.hevc.map_or(Codec::H264, |tiles| Codec::Hevc { tiles });
+    config.raw_video = args.raw.is_some();
 
     let mut out = args.out.as_ref().map(File::create).transpose()?.map(BufWriter::new);
+    let mut raw = args.raw.as_ref().map(File::create).transpose()?.map(BufWriter::new);
+    // SSRC별 패킷 수, 페이로드 바이트, 처음과 마지막으로 받은 시각
+    let mut ssrcs: BTreeMap<u32, (u64, u64, Instant, Instant)> = BTreeMap::new();
 
     let started = Instant::now();
     let (session, mut events) = Session::start(config);
@@ -229,6 +247,23 @@ async fn session(args: Args) -> Result<()> {
                     out.write_all(&unit.annex_b())?;
                 }
             }
+            Event::RawVideo(packet) => {
+                let now = Instant::now();
+                let entry = ssrcs.entry(packet.ssrc).or_insert((0, 0, now, now));
+                entry.0 += 1;
+                entry.1 += packet.payload.len() as u64;
+                entry.3 = now;
+
+                if let Some(raw) = raw.as_mut() {
+                    raw.write_all(&(now.duration_since(started).as_micros() as u64).to_be_bytes())?;
+                    raw.write_all(&packet.ssrc.to_be_bytes())?;
+                    raw.write_all(&packet.sequence.to_be_bytes())?;
+                    raw.write_all(&packet.timestamp.to_be_bytes())?;
+                    raw.write_all(&[u8::from(packet.marker)])?;
+                    raw.write_all(&(packet.payload.len() as u32).to_be_bytes())?;
+                    raw.write_all(&packet.payload)?;
+                }
+            }
             Event::InputSource(source) => println!("[{at}] 입력 소스: {} (보안 입력 {})", source.id, source.secure),
             Event::Closed(None) => break,
             Event::Closed(Some(error)) => return Err(error.into()),
@@ -238,6 +273,19 @@ async fn session(args: Args) -> Result<()> {
 
     if let Some(mut out) = out {
         out.flush()?;
+    }
+
+    if let Some(mut raw) = raw {
+        raw.flush()?;
+    }
+
+    for (ssrc, (packets, bytes, first, last)) in &ssrcs {
+        let seconds = last.duration_since(*first).as_secs_f64().max(f64::EPSILON);
+        println!(
+            "SSRC {ssrc:08x}: 패킷 {packets}개, {} KiB, {:.1} Mbps",
+            bytes >> 10,
+            *bytes as f64 * 8.0 / seconds / 1e6
+        );
     }
 
     println!("프레임 {frames}개(키프레임 {keyframes}개), {} KiB", bytes >> 10);
