@@ -1,4 +1,3 @@
-use super::sources::MODES;
 use super::tables::{TABLES, Table};
 use std::collections::HashMap;
 
@@ -8,16 +7,12 @@ const EMPTY: char = '\u{FFFD}';
 /// 라틴 문자를 칠 수 없는 Mac 배열에서, ABC 자리의 글자를 그 배열이 같은 자리에서 내는 글자로 바꿉니다.
 ///
 /// - 에이전트는 받은 글자를 Mac의 지금 배열에서 키로 되돌려 입력기에 넣습니다. 2벌식이면 `r` 대신 `ㄱ`을 보내야 조합됩니다.
-/// - 라틴 배열(ABC, 독일어 등)과 라틴 키를 그대로 받는 입력기(로마자, 병음)는 표가 없습니다. 글자를 그대로 보내면 Mac이 그 글자를 내는 키를 찾습니다.
+/// - 라틴 배열(ABC, 독일어 등)은 표가 없습니다. 글자를 그대로 보내면 Mac이 그 글자를 내는 키를 찾습니다.
 pub struct Layout(HashMap<u32, u32>);
 
 impl Layout {
-    /// Mac 입력 소스의 변환 표. 바꿀 글자가 없는 라틴 배열이거나 모르는 입력 소스면 `None`입니다.
-    pub fn find(source: &str) -> Option<Self> {
-        let id = MODES
-            .iter()
-            .find_map(|mode| (mode.id == source).then_some(mode.layout))
-            .unwrap_or(source);
+    /// Mac 배열의 변환 표. 바꿀 글자가 없는 라틴 배열이거나 모르는 배열이면 `None`입니다.
+    pub fn find(id: &str) -> Option<Self> {
         let abc = table(ABC)?;
         let target = table(id)?;
 
@@ -60,7 +55,7 @@ mod tests {
     // 생성한 표가 예전에 손으로 쓴 2벌식 표와 같은 결과를 내는지 확인합니다.
     #[test]
     fn two_set_matches_the_dubeolsik_chart() {
-        let layout = Layout::find("com.apple.inputmethod.Korean.2SetKorean").unwrap();
+        let layout = Layout::find("com.apple.keylayout.2SetHangul").unwrap();
         let chart = "qㅂwㅈeㄷrㄱtㅅyㅛuㅕiㅑoㅐpㅔaㅁsㄴdㅇfㄹgㅎhㅗjㅓkㅏlㅣzㅋxㅌcㅊvㅍbㅠnㅜmㅡ\
                      QㅃWㅉEㄸRㄲTㅆOㅒPㅖAㅁHㅗMㅡ";
         let chars: Vec<char> = chart.chars().collect();
@@ -72,7 +67,7 @@ mod tests {
 
     #[test]
     fn digits_and_punctuation_stay() {
-        let layout = Layout::find("com.apple.inputmethod.Korean.2SetKorean").unwrap();
+        let layout = Layout::find("com.apple.keylayout.2SetHangul").unwrap();
         assert_eq!(layout.translate(u32::from(b'1')), u32::from(b'1'));
         assert_eq!(layout.translate(u32::from(b',')), u32::from(b','));
     }
@@ -92,7 +87,7 @@ mod tests {
     }
 
     #[test]
-    fn latin_and_unknown_sources_have_no_table() {
+    fn latin_and_unknown_layouts_have_no_table() {
         assert!(Layout::find(ABC).is_none());
         assert!(Layout::find("com.apple.keylayout.German").is_none());
         assert!(Layout::find("com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese").is_none());
@@ -109,11 +104,8 @@ mod tests {
     }
 
     #[test]
-    fn traditional_chinese_and_kana_modes_translate() {
-        let zhuyin = Layout::find("com.apple.inputmethod.TCIM.Zhuyin").unwrap();
+    fn traditional_chinese_layouts_translate() {
+        let zhuyin = Layout::find("com.apple.keylayout.ZhuyinBopomofo").unwrap();
         assert_eq!(zhuyin.translate(u32::from(b'q')), keysym('ㄆ'));
-
-        let kana = Layout::find("com.apple.inputmethod.Kotoeri.KanaTyping.Japanese").unwrap();
-        assert_eq!(kana.translate(u32::from(b'q')), keysym('た'));
     }
 }

@@ -2,8 +2,8 @@ use crate::message::{InputSource, client};
 use layout::Layout;
 use std::collections::{HashMap, HashSet};
 
+mod languages;
 mod layout;
-mod sources;
 mod tables;
 
 // Control, Option(Meta, Alt), Command(Super)의 왼쪽과 오른쪽. 이 키가 눌려 있으면 단축키이므로 글자를 바꾸지 않습니다.
@@ -39,7 +39,7 @@ impl Keyboard {
 
     /// 태블릿 언어를 바꿉니다. `language`는 BCP 47 태그(`ko-KR`, `en-US`)입니다.
     pub fn select(&mut self, language: &str) {
-        self.layout = sources::source(language).and_then(Layout::find);
+        self.layout = languages::layout(language).and_then(Layout::find);
     }
 
     /// Mac이 알린 입력 소스에서 보안 입력 여부를 반영합니다.
