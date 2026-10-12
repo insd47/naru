@@ -4,7 +4,9 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -28,7 +30,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -50,6 +54,7 @@ import dev.insd.naru.session.Touchpad
  * - 세션은 [SessionService]가 소유합니다. 이 화면은 서비스에 붙어 Surface와 입력을 넘기므로, 화면을 떠나도 세션은 이어지고 돌아오면 다시 붙습니다.
  * - 몰입 모드, 키 가로채기, Meta 키 요청, 화면 켜짐 유지는 이 창에만 걸리므로 화면을 떠나면 함께 풀립니다.
  * - 세션 중에는 하드웨어 키보드의 키를 모두 Mac으로 보냅니다. 뒤로 가기는 세션을 둔 채 목록으로 돌아갑니다.
+ * - 가상 디스플레이는 영상을 그리는 영역의 실제 크기에 맞춥니다. 화면 회전, 창 크기 변경, 숨길 수 없는 시스템 막대가 모두 이 크기에 드러납니다.
  */
 class SessionActivity : ComponentActivity() {
     private var service: SessionService? = null
@@ -88,13 +93,24 @@ class SessionActivity : ComponentActivity() {
     // 화면 뷰는 연결을 붙인 뒤 다음 프레임에 만들어지므로, 그 전에 온 커서는 남겨 두었다가 붙일 때 씁니다.
     private var cursor: Event.Cursor? = null
 
+    // 크기를 바꿀 때마다 Mac은 새 스트림을 열어 1.5~2초 걸리므로, 창을 끄는 동안의 변경은 멈출 때까지 모았다가 한 번만 보냅니다.
+    private val main = Handler(Looper.getMainLooper())
+    private var area: IntSize? = null
+    private val resize = Runnable { area?.let { service?.resize(virtualDisplay(it.width, it.height)) } }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         keys = Keys(swapCommandOption = naru.preferences.swapCommandOption)
 
         setContent {
             NaruTheme(dark = true) {
-                Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+                val measured = Modifier.onSizeChanged {
+                    area = it
+                    main.removeCallbacks(resize)
+                    main.postDelayed(resize, RESIZE_SETTLE_MS)
+                }
+
+                Box(Modifier.fillMaxSize().background(Color.Black).then(measured), contentAlignment = Alignment.Center) {
                     if (connection != null) Screen()
                 }
             }
@@ -120,6 +136,7 @@ class SessionActivity : ComponentActivity() {
 
     // 화면만 사라집니다. 세션은 서비스에 남습니다.
     override fun onDestroy() {
+        main.removeCallbacks(resize)
         language?.stop()
         service?.detach(listener)
         unbindService(binding)
@@ -239,5 +256,9 @@ class SessionActivity : ComponentActivity() {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             controller.show(WindowInsetsCompat.Type.systemBars())
         }
+    }
+
+    companion object {
+        private const val RESIZE_SETTLE_MS = 500L
     }
 }

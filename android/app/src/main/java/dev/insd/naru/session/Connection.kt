@@ -5,6 +5,7 @@ import android.view.Surface
 import dev.insd.naru.TAG
 import dev.insd.naru.audio.Player
 import dev.insd.naru.protocol.Config
+import dev.insd.naru.protocol.DisplayMode
 import dev.insd.naru.protocol.Event
 import dev.insd.naru.protocol.Language
 import dev.insd.naru.protocol.Phase
@@ -50,6 +51,8 @@ class Connection(config: Config, private val listener: Listener) {
     fun clipboard(text: String): Boolean = session.clipboard(text)
 
     fun language(language: Language) = session.language(language)
+
+    fun resize(mode: DisplayMode) = session.resize(mode)
 
     fun disconnect() = session.disconnect()
 

@@ -77,7 +77,6 @@ import dev.insd.naru.home.Found
 import dev.insd.naru.home.Group
 import dev.insd.naru.home.Host
 import dev.insd.naru.home.formatDate
-import dev.insd.naru.protocol.DisplayMode
 import dev.insd.naru.protocol.Failure
 import dev.insd.naru.session.SessionService
 
@@ -389,7 +388,7 @@ class MainActivity : ComponentActivity() {
 
         bound.dismiss()
         opening = host.id
-        bound.open(host, credentials, if (host.virtualDisplay) displayMode() else null)
+        bound.open(host, credentials, if (host.virtualDisplay) virtualDisplay() else null)
     }
 
     // 인증에 성공하면 세션 화면을 열고, 비밀번호가 틀리면 로그인 창에 표시합니다. 그 밖의 실패는 [Failure]가 보여 줍니다.
@@ -413,17 +412,6 @@ class MainActivity : ComponentActivity() {
             }
             else -> Unit
         }
-    }
-
-    // 세션 화면이 가로채기 전에 이 창의 크기로 가상 디스플레이를 정합니다. 배율 2로 두어 Mac이 Retina로 그리게 합니다.
-    private fun displayMode(): DisplayMode {
-        val (width, height) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            windowManager.currentWindowMetrics.bounds.let { it.width() to it.height() }
-        } else {
-            resources.displayMetrics.let { it.widthPixels to it.heightPixels }
-        }
-
-        return DisplayMode(width = (width / 2).toUInt(), height = (height / 2).toUInt(), scale = 2.0)
     }
 
     // 다이얼로그를 여는 사이 세션이 저장한 접속 시각이나 이름을 덮어쓰지 않도록, 고친 항목만 최신 값에 더합니다.

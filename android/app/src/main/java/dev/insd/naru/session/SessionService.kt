@@ -103,7 +103,7 @@ class SessionService : Service() {
 
         val relay = Relay()
         val connection = Connection(config, relay)
-        session = Running(host, credentials, connection, Clipboard(this, connection)).also { relay.owner = it }
+        session = Running(host, credentials, display, connection, Clipboard(this, connection)).also { relay.owner = it }
         ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
     }
 
@@ -127,6 +127,24 @@ class SessionService : Service() {
     fun notifyAgain() {
         val host = session?.host ?: return
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(host))
+    }
+
+    /**
+     * 가상 디스플레이를 이 크기로 바꿉니다. 화면 회전이나 창 크기 변경 뒤에 부릅니다.
+     *
+     * - Mac의 실제 화면으로 접속했으면 바꾸지 않습니다. 크기가 같아도 보내지 않습니다.
+     */
+    fun resize(mode: DisplayMode) {
+        val running = session ?: return
+        val current = running.display ?: return
+
+        if (mode == current) {
+            return
+        }
+
+        Log.i(TAG, "가상 디스플레이: ${mode.width}×${mode.height}")
+        running.display = mode
+        running.connection.resize(mode)
     }
 
     /** 다른 앱에서 복사한 텍스트를 Mac에 보냅니다. 화면이 포커스를 얻을 때 부릅니다. */
@@ -239,7 +257,14 @@ class SessionService : Service() {
     data class Credentials(val username: String, val password: String, val remember: Boolean)
 
     // 열려 있는 세션 하나. 자격 증명은 인증할 때까지만 들고, 화면에 되감아 줄 레이아웃과 커서는 마지막 것만 남깁니다.
-    private class Running(var host: Host, var credentials: Credentials?, val connection: Connection, val clipboard: Clipboard) {
+    // 가상 디스플레이가 없으면(Mac의 실제 화면) `display`도 없습니다.
+    private class Running(
+        var host: Host,
+        var credentials: Credentials?,
+        var display: DisplayMode?,
+        val connection: Connection,
+        val clipboard: Clipboard,
+    ) {
         var layout: Event.Layout? = null
         var cursor: Event.Cursor? = null
     }
