@@ -83,7 +83,7 @@ final class Connection: SessionListener, @unchecked Sendable {
         case let .authenticated(serverProof): "인증 성공 (서버 증명 \(serverProof))"
         case let .layout(logicalWidth, logicalHeight, pixelWidth, pixelHeight):
             "레이아웃: 논리 \(logicalWidth)×\(logicalHeight), 픽셀 \(pixelWidth)×\(pixelHeight)"
-        case let .decoder(config): "디코더 설정: SPS \(config.sps.count)개, PPS \(config.pps.count)개"
+        case let .decoder(config): "디코더 설정: \(config.codec), VPS \(config.vps.count)개, SPS \(config.sps.count)개, PPS \(config.pps.count)개"
         case let .cursor(width, height, _, _, _): "커서 \(width)×\(height)"
         case let .serverName(name): "Mac 이름: \(name)"
         case let .source(source): "입력 소스: \(source.id) (보안 입력 \(source.secure))"
