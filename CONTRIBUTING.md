@@ -11,6 +11,7 @@ own UI.
 | `tests/`   | An end-to-end test against a fake server on loopback                       |
 | `ios/`     | The iPad app (SwiftUI, iPadOS 26)                                          |
 | `android/` | The Android tablet app (Jetpack Compose, API 29+)                          |
+| `windows/` | The Windows app (WinUI 3, Windows 11)                                      |
 
 [`.docs/architecture.md`](.docs/architecture.md) describes how the core is put together.
 
@@ -24,8 +25,14 @@ The Rust toolchain is pinned in `rust-toolchain.toml`; `rustup` installs it on t
 - **Android app**: Android Studio or the Android SDK with an NDK, `cargo install cargo-ndk`, and
   `rustup target add aarch64-linux-android`. Gradle's `preBuild` depends on tasks in `android/app/build.gradle.kts`
   that build `libnaru.so` and generate the Kotlin bindings into `android/app/build/generated`.
+- **Windows app**: Visual Studio 2026 with the .NET desktop and WinUI application development workloads and the MSVC
+  C++ build tools, and the C# binding generator:
+  `cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.11.1+v0.31.0`.
+  For ARM64 builds, also `rustup target add aarch64-pc-windows-msvc` and the ARM64 MSVC build tools. Open
+  `windows/Naru/Naru.csproj` or run `dotnet build` there. Targets in the project build the core, generate the C#
+  bindings into `obj/`, and package the core as `naru_ffi.dll`, because `Naru.dll` is the app's own assembly.
 
-Both apps build the core in release mode even for debug builds, because the cryptography and SRTP are too slow
+All apps build the core in release mode even for debug builds, because the cryptography and SRTP are too slow
 unoptimized. Generated bindings are never committed.
 
 ## Local checks

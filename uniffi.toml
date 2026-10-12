@@ -5,3 +5,12 @@ cdylib_name = "naru"
 [bindings.swift]
 ffi_module_name = "NaruFFI"
 ffi_module_filename = "NaruFFI"
+
+[bindings.csharp]
+namespace = "Naru.Core"
+# The app assembly is Naru.dll, and Windows file names ignore case, so the package ships the core as naru_ffi.dll.
+cdylib_name = "naru_ffi"
+
+# Without this, `Event::Audio`'s field becomes a property named `Frame`, which clashes with the sibling `Event.Frame` record.
+[bindings.csharp.rename."naru::ffi"]
+"Event.Audio.frame" = "audio_frame"

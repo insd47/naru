@@ -1,0 +1,90 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
+    <RootNamespace>Naru</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <!-- The Rust core is built for these two only. -->
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>
+    <PublishProfile Condition="Exists('Properties\PublishProfiles\win-$(Platform).pubxml')">win-$(Platform).pubxml</PublishProfile>
+    <UseWinUI>true</UseWinUI>
+    <WinUISDKReferences>false</WinUISDKReferences>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- The generated bindings call the core through LibraryImport. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\SplashScreen.scale-200.png" />
+    <Content Include="Assets\LockScreenLogo.scale-200.png" />
+    <Content Include="Assets\Square150x150Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-48_altform-lightunplated.png" />
+    <Content Include="Assets\StoreLogo.png" />
+    <Content Include="Assets\AppIcon.ico" />
+    <Content Include="Assets\Wide310x150Logo.scale-200.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <!-- Lets the single-project MSIX tooling activate before the Windows App SDK package is restored. -->
+  <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+    <ProjectCapability Include="Msix" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <!-- Registers a debug package identity so `dotnet run` launches the packaged app. -->
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.7.1" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+    <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
+    <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
+    <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
+    <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
+  </PropertyGroup>
+
+  <!-- The Rust core and its C# bindings. Both are build output and are never committed. -->
+  <PropertyGroup>
+    <CoreRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '..', '..'))</CoreRoot>
+    <CoreTarget Condition="'$(RuntimeIdentifier)' == 'win-arm64'">aarch64-pc-windows-msvc</CoreTarget>
+    <CoreTarget Condition="'$(CoreTarget)' == ''">x86_64-pc-windows-msvc</CoreTarget>
+    <CoreLibrary>$(CoreRoot)target\$(CoreTarget)\release\naru.dll</CoreLibrary>
+  </PropertyGroup>
+
+  <!-- Crypto and SRTP are too slow in debug builds, so this always builds release regardless of the app's configuration. Cargo skips the work when nothing changed. -->
+  <Target Name="BuildCore" BeforeTargets="BeforeBuild">
+    <!-- IntermediateOutputPath is only known once targets run. No trailing slash, because `\"` would escape the quote on the command line. -->
+    <PropertyGroup>
+      <CoreBindings>$(MSBuildProjectDirectory)\$(IntermediateOutputPath)uniffi</CoreBindings>
+    </PropertyGroup>
+    <Exec Command="cargo build -q --release --lib --target $(CoreTarget)" WorkingDirectory="$(CoreRoot)" />
+  </Target>
+
+  <!-- The bindings are generated from the metadata of the library just built. -->
+  <Target Name="GenerateBindings" AfterTargets="BuildCore" Inputs="$(CoreLibrary);$(CoreRoot)uniffi.toml" Outputs="$(CoreBindings)\naru.cs">
+    <RemoveDir Directories="$(CoreBindings)" />
+    <Exec Command="uniffi-bindgen-cs --library &quot;$(CoreLibrary)&quot; --config &quot;$(CoreRoot)uniffi.toml&quot; --out-dir &quot;$(CoreBindings)&quot; --no-format" />
+  </Target>
+
+  <Target Name="IncludeCore" AfterTargets="GenerateBindings">
+    <ItemGroup>
+      <Compile Include="$(CoreBindings)\naru.cs" />
+      <Content Include="$(CoreLibrary)" Link="naru_ffi.dll" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+</Project>

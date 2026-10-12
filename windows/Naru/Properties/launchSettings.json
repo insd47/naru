@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Naru (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Naru (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
