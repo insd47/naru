@@ -37,10 +37,10 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DesktopMac
-import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Info
@@ -814,7 +814,7 @@ class MainActivity : ComponentActivity() {
     private class Action(val label: String, val icon: ImageVector, val run: () -> Unit)
 
     private enum class Tab(val title: String, val icon: ImageVector) {
-        SAVED("All Connections", Icons.Outlined.Devices),
+        SAVED("Saved", Icons.Outlined.Bookmarks),
         NETWORK("Network", Icons.Outlined.Lan),
         SETTINGS("Settings", Icons.Outlined.Settings),
     }
