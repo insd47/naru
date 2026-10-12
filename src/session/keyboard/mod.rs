@@ -5,10 +5,11 @@ use std::time::{Duration, Instant};
 
 mod layout;
 
-// 지정한 입력 소스를 Mac이 확인하기를 기다리는 시간과 지정을 다시 보내는 횟수입니다.
-// 기다리는 동안 친 키는 붙잡아 두므로 짧게 둡니다. 시간이 지나면 붙잡아 둔 키를 Mac의 지금 입력 소스대로 보냅니다.
-const CONFIRM: Duration = Duration::from_millis(400);
-const ATTEMPTS: u32 = 3;
+// 지정한 입력 소스를 Mac이 확인하기를 기다리는 시간과 지정을 보내는 횟수입니다.
+// 확인은 보통 430ms쯤, 늦으면 1.2초 뒤에 왔습니다. 확인이 오면 곧바로 키를 보내므로 넉넉하게 둡니다.
+// 시간이 지나면 붙잡아 둔 키를 Mac의 지금 입력 소스대로 보냅니다.
+const CONFIRM: Duration = Duration::from_millis(1500);
+const ATTEMPTS: u32 = 2;
 
 const ENGLISH: &str = "com.apple.keylayout.ABC";
 
@@ -21,7 +22,7 @@ const SHORTCUT_MODIFIERS: [u32; 8] = [0xffe3, 0xffe4, 0xffe7, 0xffe8, 0xffe9, 0x
 /// 키 입력을 Mac의 입력 소스에 맞춰 보냅니다.
 ///
 /// - 언어는 클라이언트가 고릅니다. 고르면 Mac에 입력 소스를 지정하고, 확인(`0x455`)이 올 때까지 친 키는 붙잡아 두었다가 확인되면 보냅니다.
-/// - 글자는 Mac의 지금 입력 소스의 배열대로 바꿉니다. 2벌식이면 호환 자모로 보내고 조합은 Mac이 합니다. 단축키와 아직 입력 소스를 모를 때는 바꾸지 않습니다.
+/// - 글자는 Mac의 지금 입력 소스의 배열대로 바꿉니다. 2벌식이면 호환 자모로 보내고 조합은 Mac이 합니다. 단축키, 보안 입력, 아직 입력 소스를 모를 때는 바꾸지 않습니다.
 /// - 보안 입력(비밀번호 칸) 중에는 Mac이 ABC를 강제하므로 지정하지 않고 기다렸다가, 끝나면 고른 언어를 다시 지정합니다.
 /// - Mac이 스스로 바꾸면(Mac 쪽 Caps Lock 전환 등) 글자는 그 입력 소스를 따르고, 고른 언어는 그대로 둡니다. 다음에 고를 때 다시 지정합니다.
 /// - 뗄 때는 누를 때 보낸 keysym을 보냅니다. 그 사이 입력 소스가 바뀌어도 Mac에 눌린 키가 남지 않습니다.
@@ -169,8 +170,10 @@ impl Keyboard {
             self.modifiers.insert(keysym);
         }
 
+        // 보안 입력 중에는 알린 입력 소스와 관계없이 Mac이 ABC로 받습니다.
+        let secure = self.mac.as_ref().is_some_and(|mac| mac.secure);
         let sent = match &self.layout {
-            Some(layout) if self.modifiers.is_empty() => layout.translate(keysym),
+            Some(layout) if self.modifiers.is_empty() && !secure => layout.translate(keysym),
             _ => keysym,
         };
         self.pressed.insert(keysym, sent);
@@ -180,7 +183,7 @@ impl Keyboard {
 
 #[cfg(test)]
 mod tests {
-    use super::{ATTEMPTS, CONFIRM, ENGLISH, Keyboard};
+    use super::{CONFIRM, ENGLISH, Keyboard};
     use crate::message::{InputSource, client};
     use std::time::Instant;
 
@@ -222,7 +225,7 @@ mod tests {
     }
 
     #[test]
-    fn unconfirmed_request_releases_keys_and_retries_a_bounded_number_of_times() {
+    fn unconfirmed_request_releases_keys_and_retries_once() {
         let mut keyboard = Keyboard::new();
         let now = Instant::now();
         keyboard.observe(source(ENGLISH, false), now);
@@ -231,10 +234,6 @@ mod tests {
 
         assert_eq!(keyboard.deadline(), Some(now + CONFIRM));
         assert_eq!(keyboard.expire(now), vec![key(R, true), InputSource::request(KOREAN)]);
-
-        for _ in 2..ATTEMPTS {
-            assert_eq!(keyboard.expire(now), vec![InputSource::request(KOREAN)]);
-        }
 
         assert!(keyboard.expire(now).is_empty());
         assert_eq!(keyboard.deadline(), None);
@@ -335,6 +334,15 @@ mod tests {
         let mut keyboard = korean_mac();
         assert_eq!(keyboard.key(b'R' as u32, true), vec![key(0x0100_3132, true)]);
         assert_eq!(keyboard.key(b'A' as u32, true), vec![key(0x0100_3141, true)]);
+    }
+
+    // Mac은 비밀번호 칸에 들어가며 한국어 입력 소스를 보안 입력과 함께 알리기도 합니다. 이때 자모를 보내면 낱자로 들어갑니다.
+    #[test]
+    fn secure_input_sends_latin_even_while_the_source_reads_korean() {
+        let mut keyboard = korean_mac();
+        keyboard.observe(source(KOREAN, true), Instant::now());
+
+        assert_eq!(keyboard.key(R, true), vec![key(R, true)]);
     }
 
     #[test]
