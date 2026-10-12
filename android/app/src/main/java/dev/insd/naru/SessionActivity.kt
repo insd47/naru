@@ -54,7 +54,7 @@ import dev.insd.naru.session.Touchpad
 class SessionActivity : ComponentActivity() {
     private var service: SessionService? = null
     private var connection by mutableStateOf<Connection?>(null)
-    private val keys = Keys()
+    private lateinit var keys: Keys
     private var language: ImeLanguage? = null
     private var touchpad: Touchpad? = null
 
@@ -85,6 +85,7 @@ class SessionActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        keys = Keys(swapCommandOption = Preferences(this).swapCommandOption)
 
         setContent {
             NaruTheme(dark = true) {

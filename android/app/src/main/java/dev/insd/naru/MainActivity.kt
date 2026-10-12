@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -74,6 +73,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleButton
@@ -99,6 +99,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.IntOffset
@@ -313,31 +315,40 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Screen Sharing 앱의 화질 설정처럼 두 가지 중 하나를 고릅니다.
+    // 키 배치는 Parsec처럼 켜고 끄고, 화질은 Screen Sharing 앱처럼 두 가지 중 하나를 고릅니다.
     @Composable
     private fun Settings() {
-        val options = listOf(
+        val qualities = listOf(
             Priority.LATENCY to ("Adapt to network conditions" to "Keeps the screen moving when packets are lost. Parts of it may look broken briefly."),
             Priority.QUALITY to ("Show the screen at full quality" to "Pauses on the last clean picture until the Mac sends a fresh one."),
         )
 
-        Group(Modifier.selectableGroup()) {
+        Group {
+            item { Section("Keyboard") }
+
             item {
-                Text(
-                    "Quality",
-                    Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                SegmentedListItem(
+                    onClick = { preferences.swapCommandOption = !preferences.swapCommandOption },
+                    shapes = ListItemDefaults.segmentedShapes(0, 1),
+                    colors = ListItemDefaults.segmentedColors(),
+                    modifier = Modifier.semantics {
+                        role = Role.Switch
+                        toggleableState = ToggleableState(preferences.swapCommandOption)
+                    },
+                    supportingContent = { Text("Alt sends Command and the Windows key sends Option, matching the keys on a Mac keyboard.") },
+                    trailingContent = { Switch(checked = preferences.swapCommandOption, onCheckedChange = null) },
+                ) { Text("Swap Alt and Command") }
             }
 
-            itemsIndexed(options) { index, (priority, text) ->
+            item { Section("Quality") }
+
+            itemsIndexed(qualities) { index, (priority, text) ->
                 val (title, detail) = text
                 val selected = preferences.priority == priority
 
                 SegmentedListItem(
-                    onClick = { preferences.select(priority) },
-                    shapes = ListItemDefaults.segmentedShapes(index, options.size),
+                    onClick = { preferences.priority = priority },
+                    shapes = ListItemDefaults.segmentedShapes(index, qualities.size),
                     colors = ListItemDefaults.segmentedColors(),
                     modifier = Modifier.semantics {
                         role = Role.RadioButton
@@ -348,6 +359,16 @@ class MainActivity : ComponentActivity() {
                 ) { Text(title) }
             }
         }
+    }
+
+    @Composable
+    private fun Section(title: String) {
+        Text(
+            title,
+            Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
     }
 
     /**
@@ -450,9 +471,9 @@ class MainActivity : ComponentActivity() {
 
     // 항목을 모서리가 이어지는 한 묶음으로 보여 줍니다.
     @Composable
-    private fun Group(modifier: Modifier = Modifier, content: LazyListScope.() -> Unit) {
+    private fun Group(content: LazyListScope.() -> Unit) {
         LazyColumn(
-            modifier.fillMaxSize(),
+            Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
             content = content,
