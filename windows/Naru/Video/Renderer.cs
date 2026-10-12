@@ -97,7 +97,7 @@ internal sealed class Renderer : IDisposable
         Scale(scale);
     }
 
-    /// <summary>Draws a picture, cropped to the visible size the Mac reports, centered with black bars.</summary>
+    /// <summary>Draws a picture, cropped to the visible size the Mac reports, placed by <see cref="Fit"/> with black around it.</summary>
     public void Render(Picture picture, uint visibleWidth, uint visibleHeight)
     {
         var texture = picture.Texture.Description;
@@ -124,11 +124,11 @@ internal sealed class Renderer : IDisposable
             ViewDimension = VideoProcessorOutputViewDimension.Texture2D,
         });
 
-        var fit = Math.Min((double)width / sourceWidth, (double)height / sourceHeight);
-        var drawWidth = (int)Math.Round(sourceWidth * fit);
-        var drawHeight = (int)Math.Round(sourceHeight * fit);
-        var left = ((int)width - drawWidth) / 2;
-        var top = ((int)height - drawHeight) / 2;
+        var fit = Fit.Of(width, height, sourceWidth, sourceHeight);
+        var drawWidth = (int)Math.Round(sourceWidth * fit.Scale);
+        var drawHeight = (int)Math.Round(sourceHeight * fit.Scale);
+        var left = (int)fit.Left;
+        var top = (int)fit.Top;
 
         videoContext.VideoProcessorSetStreamColorSpace1(processor!, 0, picture.StudioRange ? ColorSpaceType.YcbcrStudioG22LeftP709 : ColorSpaceType.YcbcrFullG22LeftP709);
         videoContext.VideoProcessorSetOutputColorSpace1(processor!, ColorSpaceType.RgbFullG22NoneP709);

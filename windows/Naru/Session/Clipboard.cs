@@ -11,6 +11,7 @@ namespace Naru.Session;
 /// <item>Text changed on the Mac goes into the Windows clipboard as soon as it arrives.</item>
 /// <item>Text copied on Windows goes to the Mac when the session window comes to the front, and right away while it is in front.</item>
 /// <item>The last text exchanged is remembered so the same content is not echoed back. Content is never logged.</item>
+/// <item>Line breaks are LF on the Mac and CRLF on Windows, converted each way. Text is compared in the Mac's form.</item>
 /// <item>Call only on the UI thread.</item>
 /// </list>
 /// </remarks>
@@ -45,7 +46,7 @@ internal sealed class Clipboard
 
         last = text;
         var package = new DataPackage();
-        package.SetText(text);
+        package.SetText(text.ReplaceLineEndings("\r\n"));
         Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
     }
 
@@ -83,15 +84,15 @@ internal sealed class Clipboard
         Log.Info($"Sent clipboard of {text.Length} chars to the Mac");
     }
 
-    private async Task Remember() => last = await Read();
+    private async Task Remember() => last ??= await Read();
 
-    // Another app may hold the clipboard open, in which case reading fails until it lets go.
+    // Returns the text in the Mac's form. Another app may hold the clipboard open, in which case reading fails until it lets go.
     private static async Task<string?> Read()
     {
         try
         {
             var content = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
-            return content.Contains(StandardDataFormats.Text) ? await content.GetTextAsync() : null;
+            return content.Contains(StandardDataFormats.Text) ? (await content.GetTextAsync()).ReplaceLineEndings("\n") : null;
         }
         catch (Exception error) when (error is System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
         {

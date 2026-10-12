@@ -19,39 +19,34 @@
             <ProgressRing x:Name="Loading" IsActive="True" Width="48" Height="48" />
         </Grid>
 
+        <!-- Every title bar button shares one size and spacing, like the caption buttons beside them. -->
         <TitleBar x:Name="Bar" Height="48">
+            <TitleBar.Resources>
+                <Style x:Key="BarButton" TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}">
+                    <Setter Property="Width" Value="40" />
+                    <Setter Property="Height" Value="32" />
+                    <Setter Property="Padding" Value="0" />
+                </Style>
+            </TitleBar.Resources>
             <TitleBar.Content>
-                <CommandBar
-                    x:Name="Toolbar"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Background="Transparent"
-                    DefaultLabelPosition="Collapsed"
-                    IsDynamicOverflowEnabled="False"
-                    OverflowButtonVisibility="Collapsed">
-                    <AppBarButton Label="Mission Control" ToolTipService.ToolTip="Mission Control" Click="OnMissionControl">
-                        <AppBarButton.Icon>
-                            <FontIcon Glyph="&#xE7C4;" />
-                        </AppBarButton.Icon>
-                    </AppBarButton>
-                    <AppBarButton Label="App Windows" ToolTipService.ToolTip="App Windows" Click="OnAppWindows">
-                        <AppBarButton.Icon>
-                            <FontIcon Glyph="&#xE8A9;" />
-                        </AppBarButton.Icon>
-                    </AppBarButton>
-                    <AppBarButton Label="Desktop" ToolTipService.ToolTip="Desktop" Click="OnDesktop">
-                        <AppBarButton.Icon>
-                            <FontIcon Glyph="&#xE7F4;" />
-                        </AppBarButton.Icon>
-                    </AppBarButton>
-                </CommandBar>
+                <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="Mission Control" AutomationProperties.Name="Mission Control" Click="OnMissionControl">
+                        <FontIcon Glyph="&#xE7C4;" FontSize="16" />
+                    </Button>
+                    <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="App Windows" AutomationProperties.Name="App Windows" Click="OnAppWindows">
+                        <FontIcon Glyph="&#xE8A9;" FontSize="16" />
+                    </Button>
+                    <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="Desktop" AutomationProperties.Name="Desktop" Click="OnDesktop">
+                        <FontIcon Glyph="&#xE7F4;" FontSize="16" />
+                    </Button>
+                </StackPanel>
             </TitleBar.Content>
             <TitleBar.RightHeader>
-                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                    <Button x:Name="FullScreenButton" Style="{StaticResource SubtleButtonStyle}" Click="OnFullScreen" ToolTipService.ToolTip="Full Screen (Ctrl+Alt+Break)">
+                <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,4,0" VerticalAlignment="Center">
+                    <Button x:Name="FullScreenButton" Style="{StaticResource BarButton}" Click="OnFullScreen" ToolTipService.ToolTip="Full Screen (Ctrl+Alt+Break)" AutomationProperties.Name="Full Screen">
                         <FontIcon x:Name="FullScreenIcon" Glyph="&#xE740;" FontSize="16" />
                     </Button>
-                    <Button Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="More">
+                    <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="More" AutomationProperties.Name="More">
                         <FontIcon Glyph="&#xE712;" FontSize="16" />
                         <Button.Flyout>
                             <MenuFlyout Placement="BottomEdgeAlignedRight">

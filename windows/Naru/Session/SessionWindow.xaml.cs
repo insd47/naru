@@ -278,19 +278,17 @@ internal sealed partial class SessionWindow : Window
         e.Handled = true;
     }
 
-    // Converts a position on the screen area to pixels of the Mac's layout, undoing the centering and scaling.
+    // Converts a position on the screen area to pixels of the Mac's layout, undoing the placement the renderer used.
     private Point? MacPoint(Point position)
     {
-        if (session.Layout is not { } layout || layout.PixelWidth == 0 || layout.PixelHeight == 0 || Surface.ActualWidth <= 0 || Surface.ActualHeight <= 0)
+        if (session.Layout is not { } layout || layout.PixelWidth == 0 || layout.PixelHeight == 0 || PixelWidth == 0 || PixelHeight == 0)
         {
             return null;
         }
 
-        var fit = Math.Min(Surface.ActualWidth / layout.PixelWidth, Surface.ActualHeight / layout.PixelHeight);
-        var left = (Surface.ActualWidth - layout.PixelWidth * fit) / 2;
-        var top = (Surface.ActualHeight - layout.PixelHeight * fit) / 2;
-        var x = Math.Clamp((position.X - left) / fit, 0, layout.PixelWidth - 1);
-        var y = Math.Clamp((position.Y - top) / fit, 0, layout.PixelHeight - 1);
+        var fit = Video.Fit.Of(PixelWidth, PixelHeight, layout.PixelWidth, layout.PixelHeight);
+        var x = Math.Clamp((position.X * Surface.CompositionScaleX - fit.Left) / fit.Scale, 0, layout.PixelWidth - 1);
+        var y = Math.Clamp((position.Y * Surface.CompositionScaleY - fit.Top) / fit.Scale, 0, layout.PixelHeight - 1);
         return new Point(x, y);
     }
 
