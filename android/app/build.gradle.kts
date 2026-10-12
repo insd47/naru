@@ -31,7 +31,7 @@ android {
         compose = true
     }
 
-    // build-core.sh builds the Rust core crate and its Kotlin bindings.
+    // buildCore and generateBindings below produce these. They are not committed.
     sourceSets {
         getByName("main") {
             jniLibs.directories += "build/generated/jniLibs"
@@ -40,23 +40,47 @@ android {
     }
 }
 
+val core = rootDir.resolve("..")
+val jniLibs = file("build/generated/jniLibs")
+val bindings = file("build/generated/uniffi")
+
+// Android Studio launched from the Dock or the Start menu does not inherit the shell's PATH, so cargo is found in
+// ~/.cargo/bin first.
+val cargoBin = File(System.getProperty("user.home"), ".cargo/bin")
+val cargo = listOf("cargo.exe", "cargo").map(cargoBin::resolve).firstOrNull(File::exists)?.path ?: "cargo"
+val cargoPath = cargoBin.path + File.pathSeparator + System.getenv("PATH")
+
 val buildCore by tasks.registering(Exec::class) {
-    description = "Builds the Rust core crate for Android and generates its Kotlin bindings"
-    workingDir = rootDir
-    commandLine("sh", "build-core.sh")
-    environment("ANDROID_HOME", androidComponents.sdkComponents.sdkDirectory.get().asFile.absolutePath)
-    val core = rootDir.resolve("..")
-    inputs.dir(core.resolve("src"))
-    inputs.files(
-        core.resolve("Cargo.toml"),
-        core.resolve("Cargo.lock"),
-        core.resolve("uniffi.toml"),
-        rootDir.resolve("build-core.sh"),
+    description = "Builds the Rust core crate for Android"
+    workingDir = core
+    // Crypto and SRTP are too slow in debug builds, so this always builds release regardless of the app's build type.
+    commandLine(
+        cargo, "ndk", "-t", "arm64-v8a", "-P", "${android.defaultConfig.minSdk}", "-o", jniLibs.path,
+        "build", "--release",
     )
-    outputs.dirs("build/generated/jniLibs", "build/generated/uniffi")
+    environment("PATH", cargoPath)
+    environment("ANDROID_HOME", androidComponents.sdkComponents.sdkDirectory.get().asFile.absolutePath)
+    inputs.dir(core.resolve("src"))
+    inputs.files(core.resolve("Cargo.toml"), core.resolve("Cargo.lock"))
+    outputs.dir(jniLibs)
 }
 
-tasks.named("preBuild") { dependsOn(buildCore) }
+val generateBindings by tasks.registering(Exec::class) {
+    description = "Generates the Kotlin bindings from the metadata of the core library"
+    dependsOn(buildCore)
+    workingDir = core
+    val library = jniLibs.resolve("arm64-v8a/libnaru.so")
+    commandLine(
+        cargo, "run", "-q", "--example", "uniffi-bindgen", "--",
+        "generate", library.path, "-l", "kotlin", "-o", bindings.path, "-n",
+    )
+    environment("PATH", cargoPath)
+    doFirst { bindings.deleteRecursively() }
+    inputs.files(library, core.resolve("uniffi.toml"))
+    outputs.dir(bindings)
+}
+
+tasks.named("preBuild") { dependsOn(generateBindings) }
 
 dependencies {
     implementation(libs.androidx.activity.compose)

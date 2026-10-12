@@ -22,10 +22,10 @@ The Rust toolchain is pinned in `rust-toolchain.toml`; `rustup` installs it on t
   A build phase runs `ios/build-core.sh`, which builds the core as a static library for the selected platform and
   generates the Swift bindings into `ios/build/generated`.
 - **Android app**: Android Studio or the Android SDK with an NDK, `cargo install cargo-ndk`, and
-  `rustup target add aarch64-linux-android`. Gradle's `preBuild` runs `android/build-core.sh`, which builds `libnaru.so`
-  and generates the Kotlin bindings into `android/app/build/generated`.
+  `rustup target add aarch64-linux-android`. Gradle's `preBuild` depends on tasks in `android/app/build.gradle.kts`
+  that build `libnaru.so` and generate the Kotlin bindings into `android/app/build/generated`.
 
-Both scripts build the core in release mode even for debug apps, because the cryptography and SRTP are too slow
+Both apps build the core in release mode even for debug builds, because the cryptography and SRTP are too slow
 unoptimized. Generated bindings are never committed.
 
 ## Local checks
