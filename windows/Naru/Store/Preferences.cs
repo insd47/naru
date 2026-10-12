@@ -50,13 +50,6 @@ public sealed class Preferences : INotifyPropertyChanged
         set => Write("sharedClipboard", value);
     }
 
-    /// <summary>Whether the Saved list shows icons rather than rows.</summary>
-    public bool SavedAsIcons
-    {
-        get => Read("savedAsIcons", false);
-        set => Write("savedAsIcons", value);
-    }
-
     // Stored values are strings and plain types so they still read back if enum names change.
     private T Read<T>(string key, T fallback) => store.Values[key] is T value ? value : fallback;
 

@@ -22,8 +22,6 @@ public sealed partial class SavedPage : Page
     {
         InitializeComponent();
         List.ItemsSource = items;
-        Tiles.ItemsSource = items;
-        ShowAs(App.Current.Preferences.SavedAsIcons);
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -85,19 +83,6 @@ public sealed partial class SavedPage : Page
         _ => Presence.Connecting,
     };
 
-    private void ShowAs(bool icons)
-    {
-        Tiles.Visibility = icons ? Visibility.Visible : Visibility.Collapsed;
-        List.Visibility = icons ? Visibility.Collapsed : Visibility.Visible;
-        GridButton.IsChecked = icons;
-        ListButton.IsChecked = !icons;
-        App.Current.Preferences.SavedAsIcons = icons;
-    }
-
-    private void OnGrid(object sender, RoutedEventArgs e) => ShowAs(true);
-
-    private void OnList(object sender, RoutedEventArgs e) => ShowAs(false);
-
     private void OnAdd(object sender, RoutedEventArgs e) => connector.Add();
 
     // Rows are recycled, so each one is wired once when it is first created.
@@ -128,7 +113,7 @@ public sealed partial class SavedPage : Page
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (((ListViewBase)sender).SelectedItem is not HostItem item)
+        if (List.SelectedItem is not HostItem item)
         {
             return;
         }
