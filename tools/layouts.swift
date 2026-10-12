@@ -1,9 +1,10 @@
-// macOS 키보드 배열에서 Naru가 쓰는 변환 표를 뽑습니다. 입력 소스 설정은 읽기만 합니다.
+// macOS 키보드 배열에서 Naru가 쓰는 변환 표를 뽑아 Rust 코드로 씁니다. 입력 소스 설정은 읽기만 합니다.
 //
-//     swift tools/layouts.swift > src/session/keyboard/layouts.txt
+//     swift tools/layouts.swift > src/session/keyboard/tables.rs
 //
 // - ABC와, 라틴 문자를 칠 수 없는 배열(2벌식, 러시아어, 주음 등)만 담습니다. 라틴 배열에는 글자를 그대로 보내므로 표가 필요 없습니다.
 // - 열은 메인 키 블록에서 ABC가 공백이 아닌 글자 하나를 내는 키 자리입니다. keysym 하나로 보낼 수 없거나 데드 키인 자리는 U+FFFD로 둡니다.
+// - 언어는 사용자가 직접 고를 수 있는 배열에만 Apple이 붙인 태그를 적습니다. 입력기만 쓰는 배열(2벌식, 가나 등)과 비교 기준인 ABC에는 적지 않습니다.
 import Carbon
 import Foundation
 
@@ -37,6 +38,14 @@ func rows(_ source: TISInputSource, _ codes: [Int]) -> (String, String)? {
     }
 }
 
+// 따옴표 뒤에 결합 문자가 붙으면 Swift는 둘을 한 글자로 보므로, 코드 포인트 단위로 이스케이프합니다.
+func literal(_ text: String) -> String {
+    let escaped = text.unicodeScalars.map { scalar in
+        scalar == "\"" || scalar == "\\" ? "\\\(scalar)" : String(scalar)
+    }
+    return "\"" + escaped.joined() + "\""
+}
+
 let filter = [kTISPropertyInputSourceType: kTISTypeKeyboardLayout] as CFDictionary
 let layouts = (TISCreateInputSourceList(filter, true).takeRetainedValue() as! [TISInputSource])
     .map { (id: property($0, kTISPropertyInputSourceID) as! String, source: $0) }
@@ -53,13 +62,34 @@ let codes = (0..<64).filter { code in
 }
 
 let version = ProcessInfo.processInfo.operatingSystemVersion
-print("# tools/layouts.swift가 만든 파일입니다. 손으로 고치지 마십시오.")
-print("# macOS \(version.majorVersion).\(version.minorVersion).\(version.patchVersion), keyboard type \(keyboardType)")
-print("# 키 코드: \(codes.map(String.init).joined(separator: " "))")
-print("# 입력 소스 ID<TAB>기본<TAB>Shift")
+print("""
+// tools/layouts.swift가 만든 파일입니다. 손으로 고치지 마십시오.
+// macOS \(version.majorVersion).\(version.minorVersion).\(version.patchVersion), keyboard type \(keyboardType)
+// 키 코드: \(codes.map(String.init).joined(separator: " "))
+
+/// macOS 키보드 배열 하나의 글자 열
+pub struct Table {
+    /// 배열의 입력 소스 ID
+    pub id: &'static str,
+    /// Apple이 붙인 언어 태그. 입력기만 쓰는 배열과 ABC는 `None`입니다.
+    pub language: Option<&'static str>,
+    /// 수식키 없이 누를 때의 글자. 열은 ABC와 같은 키 자리입니다.
+    pub base: &'static str,
+    /// Shift와 함께 누를 때의 글자
+    pub shift: &'static str,
+}
+
+#[rustfmt::skip]
+pub static TABLES: &[Table] = &[
+""")
 
 for (id, source) in layouts {
     let ascii = property(source, kTISPropertyInputSourceIsASCIICapable) as? Bool ?? true
     guard id == abc.id || !ascii, let (base, shifted) = rows(source, codes) else { continue }
-    print("\(id)\t\(base)\t\(shifted)")
+    let selectable = property(source, kTISPropertyInputSourceIsEnableCapable) as? Bool ?? false
+    let language = (property(source, kTISPropertyInputSourceLanguages) as? [String])?.first.flatMap { $0.isEmpty ? nil : $0 }
+    let tag = selectable && id != abc.id ? language.map { "Some(\(literal($0)))" } ?? "None" : "None"
+    print("    Table { id: \(literal(id)), language: \(tag), base: \(literal(base)), shift: \(literal(shifted)) },")
 }
+
+print("];")

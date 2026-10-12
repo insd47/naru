@@ -1,40 +1,14 @@
+use super::sources::MODES;
+use super::tables::{TABLES, Table};
 use std::collections::HashMap;
-
-// macOS 배열에서 뽑은 표. `tools/layouts.swift`가 만듭니다.
-const LAYOUTS: &str = include_str!("layouts.txt");
 
 const ABC: &str = "com.apple.keylayout.ABC";
 const EMPTY: char = '\u{FFFD}';
 
-// 입력 모드가 덮어쓰는 배열. 모드는 배열을 실행 중에 고르므로 표에 담기지 않습니다.
-// 한국어 입력기 번들이 이 다섯 배열을 자기 것으로 싣고 있고, 2벌식은 Mac에서 직접 확인했습니다.
-const MODES: [(&str, &str); 5] = [
-    (
-        "com.apple.inputmethod.Korean.2SetKorean",
-        "com.apple.keylayout.2SetHangul",
-    ),
-    (
-        "com.apple.inputmethod.Korean.3SetKorean",
-        "com.apple.keylayout.3SetHangul",
-    ),
-    (
-        "com.apple.inputmethod.Korean.390Sebulshik",
-        "com.apple.keylayout.390Hangul",
-    ),
-    (
-        "com.apple.inputmethod.Korean.GongjinCheongRomaja",
-        "com.apple.keylayout.GJCRomaja",
-    ),
-    (
-        "com.apple.inputmethod.Korean.HNCRomaja",
-        "com.apple.keylayout.HNCRomaja",
-    ),
-];
-
 /// 라틴 문자를 칠 수 없는 Mac 배열에서, ABC 자리의 글자를 그 배열이 같은 자리에서 내는 글자로 바꿉니다.
 ///
 /// - 에이전트는 받은 글자를 Mac의 지금 배열에서 키로 되돌려 입력기에 넣습니다. 2벌식이면 `r` 대신 `ㄱ`을 보내야 조합됩니다.
-/// - 라틴 배열(ABC, 독일어 등)은 표가 없습니다. 글자를 그대로 보내면 Mac이 그 글자를 내는 키를 찾습니다.
+/// - 라틴 배열(ABC, 독일어 등)과 라틴 키를 그대로 받는 입력기(로마자, 병음)는 표가 없습니다. 글자를 그대로 보내면 Mac이 그 글자를 내는 키를 찾습니다.
 pub struct Layout(HashMap<u32, u32>);
 
 impl Layout {
@@ -42,21 +16,22 @@ impl Layout {
     pub fn find(source: &str) -> Option<Self> {
         let id = MODES
             .iter()
-            .find_map(|&(mode, layout)| (mode == source).then_some(layout))
+            .find_map(|mode| (mode.id == source).then_some(mode.layout))
             .unwrap_or(source);
-        let (abc_base, abc_shift) = rows(ABC)?;
-        let (base, shift) = rows(id)?;
+        let abc = table(ABC)?;
+        let target = table(id)?;
 
-        let pairs = abc_base
+        let pairs = abc
+            .base
             .chars()
-            .zip(base.chars())
-            .chain(abc_shift.chars().zip(shift.chars()));
-        let table = pairs
-            .filter(|&(latin, target)| latin != target && target != EMPTY)
-            .map(|(latin, target)| (keysym(latin), keysym(target)))
+            .zip(target.base.chars())
+            .chain(abc.shift.chars().zip(target.shift.chars()));
+        let map = pairs
+            .filter(|&(latin, char)| latin != char && char != EMPTY)
+            .map(|(latin, char)| (keysym(latin), keysym(char)))
             .collect::<HashMap<_, _>>();
 
-        (!table.is_empty()).then_some(Self(table))
+        (!map.is_empty()).then_some(Self(map))
     }
 
     /// 이 배열에서 보낼 keysym. 바꿀 것이 없으면 받은 그대로입니다.
@@ -65,13 +40,8 @@ impl Layout {
     }
 }
 
-// 표에서 배열 한 줄의 기본 열과 Shift 열
-fn rows(id: &str) -> Option<(&'static str, &'static str)> {
-    LAYOUTS.lines().filter(|line| !line.starts_with('#')).find_map(|line| {
-        let mut fields = line.split('\t');
-        (fields.next()? == id).then_some(())?;
-        Some((fields.next()?, fields.next()?))
-    })
+fn table(id: &str) -> Option<&'static Table> {
+    TABLES.iter().find(|table| table.id == id)
 }
 
 // 라틴-1은 문자 코드 그대로, 그 밖은 유니코드 keysym입니다.
@@ -84,7 +54,8 @@ fn keysym(char: char) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ABC, LAYOUTS, Layout, MODES, keysym, rows};
+    use super::{ABC, Layout, keysym, table};
+    use crate::session::keyboard::tables::TABLES;
 
     // 생성한 표가 예전에 손으로 쓴 2벌식 표와 같은 결과를 내는지 확인합니다.
     #[test]
@@ -128,20 +99,12 @@ mod tests {
     }
 
     #[test]
-    fn every_mode_has_its_layout_and_rows_line_up() {
-        for (_, layout) in MODES {
-            assert!(rows(layout).is_some(), "{layout}");
-        }
+    fn rows_line_up_with_abc() {
+        let width = table(ABC).unwrap().base.chars().count();
 
-        let width = rows(ABC).unwrap().0.chars().count();
-        for line in LAYOUTS.lines().filter(|line| !line.starts_with('#')) {
-            let fields: Vec<&str> = line.split('\t').collect();
-            assert_eq!(fields.len(), 3, "{}", fields[0]);
-            assert!(
-                fields[1..].iter().all(|row| row.chars().count() == width),
-                "{}",
-                fields[0]
-            );
+        for table in TABLES {
+            assert_eq!(table.base.chars().count(), width, "{}", table.id);
+            assert_eq!(table.shift.chars().count(), width, "{}", table.id);
         }
     }
 }
