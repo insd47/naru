@@ -6,9 +6,8 @@ use std::time::{Duration, Instant};
 mod layout;
 
 // 지정한 입력 소스를 Mac이 확인하기를 기다리는 시간과 지정을 보내는 횟수입니다.
-// 확인은 보통 430ms쯤, 늦으면 1.2초 뒤에 왔습니다. 확인이 오면 곧바로 키를 보내므로 넉넉하게 둡니다.
 // 시간이 지나면 붙잡아 둔 키를 Mac의 지금 입력 소스대로 보냅니다.
-const CONFIRM: Duration = Duration::from_millis(1500);
+const CONFIRM: Duration = Duration::from_millis(1000);
 const ATTEMPTS: u32 = 2;
 
 const ENGLISH: &str = "com.apple.keylayout.ABC";
@@ -140,7 +139,10 @@ impl Keyboard {
             _ => {
                 self.attempts += 1;
                 self.pending = Some(Pending { source, at: now });
-                vec![InputSource::request(source)]
+                // Mac은 지정 하나를 다음 지정이 올 때까지 반영하지 않습니다. 한 번만 보냈을 때는 확인이 늘 대기 시간이 끝나
+                // 다시 보낸 뒤 30ms쯤에 왔으므로, 같은 지정을 두 번 보내 곧바로 반영되게 합니다.
+                let message = InputSource::request(source);
+                vec![message.clone(), message]
             }
         }
     }
@@ -200,6 +202,10 @@ mod tests {
         client::key(keysym, down).to_vec()
     }
 
+    fn request(id: &str) -> [Vec<u8>; 2] {
+        [InputSource::request(id), InputSource::request(id)]
+    }
+
     fn korean_mac() -> Keyboard {
         let mut keyboard = Keyboard::new();
         let now = Instant::now();
@@ -215,7 +221,7 @@ mod tests {
         let now = Instant::now();
         keyboard.observe(source(ENGLISH, false), now);
 
-        assert_eq!(keyboard.select("ko-KR", now), vec![InputSource::request(KOREAN)]);
+        assert_eq!(keyboard.select("ko-KR", now), request(KOREAN));
         assert!(keyboard.key(R, true).is_empty());
         assert!(keyboard.key(R, false).is_empty());
         assert_eq!(
@@ -233,7 +239,10 @@ mod tests {
         keyboard.key(R, true);
 
         assert_eq!(keyboard.deadline(), Some(now + CONFIRM));
-        assert_eq!(keyboard.expire(now), vec![key(R, true), InputSource::request(KOREAN)]);
+        assert_eq!(
+            keyboard.expire(now),
+            [vec![key(R, true)], request(KOREAN).to_vec()].concat()
+        );
 
         assert!(keyboard.expire(now).is_empty());
         assert_eq!(keyboard.deadline(), None);
@@ -246,7 +255,7 @@ mod tests {
         keyboard.observe(source(ENGLISH, false), now);
         keyboard.select("ko-KR", now);
 
-        assert_eq!(keyboard.select("en-US", now), vec![InputSource::request(ENGLISH)]);
+        assert_eq!(keyboard.select("en-US", now), request(ENGLISH));
         assert!(keyboard.observe(source(KOREAN, false), now).is_empty());
         keyboard.observe(source(ENGLISH, false), now);
         assert_eq!(keyboard.deadline(), None);
@@ -292,10 +301,7 @@ mod tests {
 
         assert!(keyboard.select("ko-KR", now).is_empty());
         assert_eq!(keyboard.key(R, true), vec![key(R, true)]);
-        assert_eq!(
-            keyboard.observe(source(ENGLISH, false), now),
-            vec![InputSource::request(KOREAN)]
-        );
+        assert_eq!(keyboard.observe(source(ENGLISH, false), now), request(KOREAN));
     }
 
     // 비밀번호 칸으로 들어갈 때 Mac은 보안 입력이 아닌 ABC를 먼저 알리고, 곧 보안 입력을 켰다 끕니다.
@@ -306,10 +312,7 @@ mod tests {
 
         assert!(keyboard.observe(source(ENGLISH, false), now).is_empty());
         assert!(keyboard.observe(source(ENGLISH, true), now).is_empty());
-        assert_eq!(
-            keyboard.observe(source(ENGLISH, false), now),
-            vec![InputSource::request(KOREAN)]
-        );
+        assert_eq!(keyboard.observe(source(ENGLISH, false), now), request(KOREAN));
     }
 
     #[test]
@@ -349,9 +352,6 @@ mod tests {
     fn languages_without_a_source_type_in_english() {
         let mut keyboard = korean_mac();
 
-        assert_eq!(
-            keyboard.select("ja-JP", Instant::now()),
-            vec![InputSource::request(ENGLISH)]
-        );
+        assert_eq!(keyboard.select("ja-JP", Instant::now()), request(ENGLISH));
     }
 }
