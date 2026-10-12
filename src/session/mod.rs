@@ -281,7 +281,7 @@ impl Session {
     /// 키보드 언어를 고릅니다. 태블릿의 입력 언어가 바뀌면 BCP 47 태그(`ko-KR`)로 부릅니다.
     ///
     /// - 세션이 언어에 맞는 Mac 입력 소스를 지정합니다. 대응하는 입력 소스가 없는 언어는 ABC로 칩니다.
-    /// - Mac이 새 입력 소스를 확인할 때까지 친 키는 세션이 붙잡아 두었다가 보냅니다.
+    /// - 뒤따르는 키는 곧바로 새 입력 소스의 배열대로 보냅니다.
     pub fn language(&self, language: &str) -> Result<()> {
         self.send(Command::Language(language.to_owned()))
     }

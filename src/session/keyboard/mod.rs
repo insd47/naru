@@ -1,12 +1,12 @@
 use crate::message::{InputSource, client};
 use layout::Layout;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 mod layout;
 
-// 지정한 입력 소스를 Mac이 확인하기를 기다리는 시간과 지정을 보내는 횟수입니다.
-// 시간이 지나면 붙잡아 둔 키를 Mac의 지금 입력 소스대로 보냅니다.
+// 지정을 다시 보내기까지의 시간과 지정을 보내는 횟수입니다.
+// Mac은 지정을 곧바로 반영하지만, 알림(`0x455`)은 다음 지정을 받은 뒤에야 보냈습니다. 다시 보낸 지정의 알림이 오면 확인한 것으로 봅니다.
 const CONFIRM: Duration = Duration::from_millis(1000);
 const ATTEMPTS: u32 = 2;
 
@@ -20,8 +20,9 @@ const SHORTCUT_MODIFIERS: [u32; 8] = [0xffe3, 0xffe4, 0xffe7, 0xffe8, 0xffe9, 0x
 
 /// 키 입력을 Mac의 입력 소스에 맞춰 보냅니다.
 ///
-/// - 언어는 클라이언트가 고릅니다. 고르면 Mac에 입력 소스를 지정하고, 확인(`0x455`)이 올 때까지 친 키는 붙잡아 두었다가 확인되면 보냅니다.
-/// - 글자는 Mac의 지금 입력 소스의 배열대로 바꿉니다. 2벌식이면 호환 자모로 보내고 조합은 Mac이 합니다. 단축키, 보안 입력, 아직 입력 소스를 모를 때는 바꾸지 않습니다.
+/// - 언어는 클라이언트가 고릅니다. 고르면 Mac에 입력 소스를 지정하고, 뒤따르는 키는 곧바로 그 입력 소스의 배열대로 보냅니다.
+///   지정과 키는 같은 순서로 도착하므로 Mac은 바뀐 입력 소스로 키를 받습니다.
+/// - 글자는 2벌식처럼 라틴 문자를 칠 수 없는 배열이면 그 배열의 글자로 바꾸고, 조합은 Mac이 합니다. 단축키, 보안 입력, 아직 입력 소스를 모를 때는 바꾸지 않습니다.
 /// - 보안 입력(비밀번호 칸) 중에는 Mac이 ABC를 강제하므로 지정하지 않고 기다렸다가, 끝나면 고른 언어를 다시 지정합니다.
 /// - Mac이 스스로 바꾸면(Mac 쪽 Caps Lock 전환 등) 글자는 그 입력 소스를 따르고, 고른 언어는 그대로 둡니다. 다음에 고를 때 다시 지정합니다.
 /// - 뗄 때는 누를 때 보낸 keysym을 보냅니다. 그 사이 입력 소스가 바뀌어도 Mac에 눌린 키가 남지 않습니다.
@@ -29,11 +30,11 @@ pub struct Keyboard {
     // 고른 언어의 Mac 입력 소스
     selected: Option<&'static str>,
     mac: Option<InputSource>,
+    // 글자를 바꿀 입력 소스의 배열. 확인을 기다리는 지정이 있으면 그 입력 소스, 없으면 Mac이 알린 입력 소스입니다.
     layout: Option<Layout>,
     pending: Option<Pending>,
     // 지금 고른 언어로 확인 없이 지정을 보낸 횟수
     attempts: u32,
-    held: VecDeque<(u32, bool)>,
     // 누른 키와 그때 보낸 keysym
     pressed: HashMap<u32, u32>,
     modifiers: HashSet<u32>,
@@ -53,14 +54,13 @@ impl Keyboard {
             layout: None,
             pending: None,
             attempts: 0,
-            held: VecDeque::new(),
             pressed: HashMap::new(),
             modifiers: HashSet::new(),
         }
     }
 
     /// 언어를 고릅니다. `language`는 BCP 47 태그(`ko-KR`, `en-US`)입니다. Mac에 지정할 메시지를 돌려줍니다.
-    pub fn select(&mut self, language: &str, now: Instant) -> Vec<Vec<u8>> {
+    pub fn select(&mut self, language: &str, now: Instant) -> Option<Vec<u8>> {
         let primary = language.split(['-', '_']).next().unwrap_or_default();
         let source = SOURCES
             .iter()
@@ -72,96 +72,46 @@ impl Keyboard {
         self.request(now)
     }
 
-    /// 키를 누르거나 뗍니다. 확인을 기다리는 동안에는 붙잡아 두고 빈 목록을 돌려줍니다.
+    /// Mac이 알린 입력 소스를 반영합니다. 처음 알렸거나 보안 입력이 끝났으면 다시 지정하는 메시지를 돌려줍니다.
     ///
-    /// - 이미 보낸 키를 떼는 것은 붙잡지 않습니다. 같은 키의 이벤트가 붙잡혀 있으면 순서를 지키려고 함께 붙잡습니다.
-    pub fn key(&mut self, keysym: u32, down: bool) -> Vec<Vec<u8>> {
-        let sent = !down && self.pressed.contains_key(&keysym) && self.held.iter().all(|&(held, _)| held != keysym);
-
-        if self.pending.is_some() && !sent {
-            self.held.push_back((keysym, down));
-            return Vec::new();
-        }
-
-        vec![self.translate(keysym, down)]
-    }
-
-    /// Mac이 알린 입력 소스를 반영합니다. 확인이면 붙잡아 둔 키를, 처음 알렸거나 보안 입력이 끝났으면 다시 지정하는 메시지를 돌려줍니다.
-    pub fn observe(&mut self, source: InputSource, now: Instant) -> Vec<Vec<u8>> {
+    /// - 확인을 기다리는 동안 다른 입력 소스를 알리면 지정 전의 상태이므로 글자는 지정한 입력 소스대로 둡니다.
+    pub fn observe(&mut self, source: InputSource, now: Instant) -> Option<Vec<u8>> {
         let first = self.mac.is_none();
         let was_secure = self.mac.as_ref().is_some_and(|mac| mac.secure);
         let confirmed = self.pending.as_ref().is_some_and(|pending| source.id == pending.source);
         let secure = source.secure;
-
-        if self.mac.as_ref().is_none_or(|mac| mac.id != source.id) {
-            self.layout = Layout::find(&source.id);
-        }
-
         self.mac = Some(source);
 
+        // 보안 입력 중에는 Mac이 지정을 받지 않으므로 기다림을 끝냅니다.
         if secure || confirmed {
-            return self.release();
+            self.pending = None;
         }
 
-        if (first || was_secure) && self.pending.is_none() {
-            self.attempts = 0;
-            return self.request(now);
-        }
-
-        Vec::new()
+        let message = ((first || was_secure) && !secure && self.pending.is_none())
+            .then(|| {
+                self.attempts = 0;
+                self.request(now)
+            })
+            .flatten();
+        self.refresh();
+        message
     }
 
-    /// 확인을 기다리는 시한. 기다리지 않으면 `None`입니다.
+    /// 지정을 다시 보낼 시각. 확인을 기다리지 않으면 `None`입니다.
     pub fn deadline(&self) -> Option<Instant> {
         self.pending.as_ref().map(|pending| pending.at + CONFIRM)
     }
 
-    /// 확인이 오지 않았습니다. 붙잡아 둔 키를 Mac의 지금 입력 소스대로 보내고, 횟수가 남았으면 다시 지정합니다.
-    pub fn expire(&mut self, now: Instant) -> Vec<Vec<u8>> {
-        let mut messages = self.release();
-
-        if self.attempts < ATTEMPTS {
-            messages.extend(self.request(now));
-        }
-
-        messages
-    }
-
-    // 고른 언어를 지정합니다. Mac은 지정 하나를 다음 지정이 올 때까지 반영하지 않습니다. 한 번만 보냈을 때는 확인이 늘
-    // 대기 시간이 끝나 다시 보낸 뒤 30ms쯤에 왔으므로, 같은 지정을 두 번 보내 곧바로 반영되게 합니다.
-    // 보안 입력 중이면 Mac이 받지 않으므로 끝날 때 다시 지정합니다.
-    // 다른 지정이 확인을 기다리는 중이면 Mac이 곧 그 언어로 바꿀 수 있으므로, 지금 입력 소스와 같아도 지정합니다.
-    // Mac이 아직 입력 소스를 알리지 않았으면 키를 붙잡지 않습니다. 접속 직후 잠금 화면의 비밀번호처럼 바로 쳐야 하는 입력이 있고,
-    // 알리기까지 2초쯤 걸립니다. 알리면 다시 지정합니다.
-    fn request(&mut self, now: Instant) -> Vec<Vec<u8>> {
-        let Some(source) = self.selected else {
-            return Vec::new();
-        };
-
-        let message = InputSource::request(source);
-
-        match &self.mac {
-            None => vec![message.clone(), message],
-            Some(mac) if mac.secure => self.release(),
-            Some(mac) if mac.id == source && self.pending.is_none() => Vec::new(),
-            _ => {
-                self.attempts += 1;
-                self.pending = Some(Pending { source, at: now });
-                vec![message.clone(), message]
-            }
-        }
-    }
-
-    // 기다림을 끝내고 붙잡아 둔 키를 차례로 보냅니다.
-    fn release(&mut self) -> Vec<Vec<u8>> {
+    /// 확인이 오지 않았습니다. 횟수가 남았으면 다시 지정하고, 아니면 글자를 Mac이 알린 입력 소스대로 되돌립니다.
+    pub fn expire(&mut self, now: Instant) -> Option<Vec<u8>> {
         self.pending = None;
-        let held = std::mem::take(&mut self.held);
-        held.into_iter()
-            .map(|(keysym, down)| self.translate(keysym, down))
-            .collect()
+        let message = (self.attempts < ATTEMPTS).then(|| self.request(now)).flatten();
+        self.refresh();
+        message
     }
 
-    fn translate(&mut self, keysym: u32, down: bool) -> Vec<u8> {
+    /// 키를 누르거나 뗄 메시지
+    pub fn key(&mut self, keysym: u32, down: bool) -> Vec<u8> {
         if !down {
             self.modifiers.remove(&keysym);
             let sent = self.pressed.remove(&keysym).unwrap_or(keysym);
@@ -186,6 +136,35 @@ impl Keyboard {
         self.pressed.insert(keysym, sent);
         client::key(sent, true).to_vec()
     }
+
+    // 고른 언어를 지정합니다. 보안 입력 중이면 Mac이 받지 않으므로 끝날 때 다시 지정합니다.
+    // 다른 지정이 확인을 기다리는 중이면 Mac이 이미 그 언어로 바꿨을 수 있으므로, 알린 입력 소스와 같아도 지정합니다.
+    // Mac이 아직 입력 소스를 알리지 않았으면 잠금 화면일 수 있으므로 글자를 바꾸지 않습니다. 알리면 다시 지정합니다.
+    fn request(&mut self, now: Instant) -> Option<Vec<u8>> {
+        let source = self.selected?;
+
+        match &self.mac {
+            Some(mac) if mac.secure => return None,
+            Some(mac) if mac.id == source && self.pending.is_none() => return None,
+            Some(_) => {
+                self.attempts += 1;
+                self.pending = Some(Pending { source, at: now });
+            }
+            None => {}
+        }
+
+        self.refresh();
+        Some(InputSource::request(source))
+    }
+
+    fn refresh(&mut self) {
+        let source = match (&self.pending, &self.mac) {
+            (Some(pending), _) => Some(pending.source),
+            (None, Some(mac)) => Some(mac.id.as_str()),
+            (None, None) => None,
+        };
+        self.layout = source.and_then(Layout::find);
+    }
 }
 
 #[cfg(test)]
@@ -207,61 +186,65 @@ mod tests {
         client::key(keysym, down).to_vec()
     }
 
-    fn request(id: &str) -> [Vec<u8>; 2] {
-        [InputSource::request(id), InputSource::request(id)]
+    fn request(id: &str) -> Option<Vec<u8>> {
+        Some(InputSource::request(id))
+    }
+
+    fn english_mac() -> Keyboard {
+        let mut keyboard = Keyboard::new();
+        keyboard.observe(source(ENGLISH, false), Instant::now());
+        keyboard
     }
 
     fn korean_mac() -> Keyboard {
-        let mut keyboard = Keyboard::new();
+        let mut keyboard = english_mac();
         let now = Instant::now();
-        keyboard.observe(source(ENGLISH, false), now);
         keyboard.select("ko-KR", now);
         keyboard.observe(source(KOREAN, false), now);
         keyboard
     }
 
     #[test]
-    fn keys_typed_before_the_confirmation_wait_and_follow_the_new_source() {
-        let mut keyboard = Keyboard::new();
-        let now = Instant::now();
-        keyboard.observe(source(ENGLISH, false), now);
+    fn keys_right_after_switching_follow_the_new_source() {
+        let mut keyboard = english_mac();
 
-        assert_eq!(keyboard.select("ko-KR", now), request(KOREAN));
-        assert!(keyboard.key(R, true).is_empty());
-        assert!(keyboard.key(R, false).is_empty());
-        assert_eq!(
-            keyboard.observe(source(KOREAN, false), now),
-            vec![key(GIYEOK, true), key(GIYEOK, false)]
-        );
+        assert_eq!(keyboard.select("ko-KR", Instant::now()), request(KOREAN));
+        assert_eq!(keyboard.key(R, true), key(GIYEOK, true));
+    }
+
+    // Mac은 지정을 받기 전의 입력 소스를 알리기도 합니다. 확인 전에는 지정한 입력 소스를 따릅니다.
+    #[test]
+    fn notice_of_another_source_before_the_confirmation_is_ignored() {
+        let mut keyboard = english_mac();
+        let now = Instant::now();
+        keyboard.select("ko-KR", now);
+
+        assert_eq!(keyboard.observe(source(ENGLISH, false), now), None);
+        assert_eq!(keyboard.key(R, true), key(GIYEOK, true));
     }
 
     #[test]
-    fn unconfirmed_request_releases_keys_and_retries_once() {
-        let mut keyboard = Keyboard::new();
+    fn unconfirmed_request_retries_once_then_follows_the_mac() {
+        let mut keyboard = english_mac();
         let now = Instant::now();
-        keyboard.observe(source(ENGLISH, false), now);
         keyboard.select("ko-KR", now);
-        keyboard.key(R, true);
 
         assert_eq!(keyboard.deadline(), Some(now + CONFIRM));
-        assert_eq!(
-            keyboard.expire(now),
-            [vec![key(R, true)], request(KOREAN).to_vec()].concat()
-        );
-
-        assert!(keyboard.expire(now).is_empty());
+        assert_eq!(keyboard.expire(now), request(KOREAN));
+        assert_eq!(keyboard.expire(now), None);
         assert_eq!(keyboard.deadline(), None);
+        assert_eq!(keyboard.key(R, true), key(R, true));
     }
 
     #[test]
     fn toggling_back_before_the_confirmation_still_requests() {
-        let mut keyboard = Keyboard::new();
+        let mut keyboard = english_mac();
         let now = Instant::now();
-        keyboard.observe(source(ENGLISH, false), now);
         keyboard.select("ko-KR", now);
 
         assert_eq!(keyboard.select("en-US", now), request(ENGLISH));
-        assert!(keyboard.observe(source(KOREAN, false), now).is_empty());
+        assert_eq!(keyboard.observe(source(KOREAN, false), now), None);
+        assert_eq!(keyboard.key(R, true), key(R, true));
         keyboard.observe(source(ENGLISH, false), now);
         assert_eq!(keyboard.deadline(), None);
     }
@@ -271,10 +254,10 @@ mod tests {
         let mut keyboard = korean_mac();
         keyboard.key(COMMAND, true);
 
-        assert_eq!(keyboard.key(R, true), vec![key(R, true)]);
+        assert_eq!(keyboard.key(R, true), key(R, true));
         keyboard.key(R, false);
         keyboard.key(COMMAND, false);
-        assert_eq!(keyboard.key(R, true), vec![key(GIYEOK, true)]);
+        assert_eq!(keyboard.key(R, true), key(GIYEOK, true));
     }
 
     #[test]
@@ -283,19 +266,8 @@ mod tests {
         keyboard.key(R, true);
         keyboard.observe(source(ENGLISH, true), Instant::now());
 
-        assert_eq!(keyboard.key(R, true), vec![key(GIYEOK, true)]);
-        assert_eq!(keyboard.key(R, false), vec![key(GIYEOK, false)]);
-    }
-
-    #[test]
-    fn releasing_a_key_sent_before_the_request_is_not_held() {
-        let mut keyboard = Keyboard::new();
-        let now = Instant::now();
-        keyboard.observe(source(ENGLISH, false), now);
-        keyboard.key(R, true);
-        keyboard.select("ko-KR", now);
-
-        assert_eq!(keyboard.key(R, false), vec![key(R, false)]);
+        assert_eq!(keyboard.key(R, true), key(GIYEOK, true));
+        assert_eq!(keyboard.key(R, false), key(GIYEOK, false));
     }
 
     #[test]
@@ -304,8 +276,8 @@ mod tests {
         let now = Instant::now();
         keyboard.observe(source(ENGLISH, true), now);
 
-        assert!(keyboard.select("ko-KR", now).is_empty());
-        assert_eq!(keyboard.key(R, true), vec![key(R, true)]);
+        assert_eq!(keyboard.select("ko-KR", now), None);
+        assert_eq!(keyboard.key(R, true), key(R, true));
         assert_eq!(keyboard.observe(source(ENGLISH, false), now), request(KOREAN));
     }
 
@@ -315,8 +287,8 @@ mod tests {
         let mut keyboard = korean_mac();
         let now = Instant::now();
 
-        assert!(keyboard.observe(source(ENGLISH, false), now).is_empty());
-        assert!(keyboard.observe(source(ENGLISH, true), now).is_empty());
+        assert_eq!(keyboard.observe(source(ENGLISH, false), now), None);
+        assert_eq!(keyboard.observe(source(ENGLISH, true), now), None);
         assert_eq!(keyboard.observe(source(ENGLISH, false), now), request(KOREAN));
     }
 
@@ -327,7 +299,7 @@ mod tests {
         let now = Instant::now();
 
         assert_eq!(keyboard.select("ko-KR", now), request(KOREAN));
-        assert_eq!(keyboard.key(R, true), vec![key(R, true)]);
+        assert_eq!(keyboard.key(R, true), key(R, true));
         assert_eq!(keyboard.deadline(), None);
     }
 
@@ -338,22 +310,21 @@ mod tests {
         keyboard.select("ko-KR", now);
 
         assert_eq!(keyboard.observe(source(ENGLISH, false), now), request(KOREAN));
-        assert!(keyboard.key(R, true).is_empty());
-        assert_eq!(keyboard.observe(source(KOREAN, false), now), vec![key(GIYEOK, true)]);
+        assert_eq!(keyboard.key(R, true), key(GIYEOK, true));
     }
 
     #[test]
     fn selecting_the_current_source_sends_nothing() {
         let mut keyboard = korean_mac();
-        assert!(keyboard.select("ko-KR", Instant::now()).is_empty());
+        assert_eq!(keyboard.select("ko-KR", Instant::now()), None);
         assert_eq!(keyboard.deadline(), None);
     }
 
     #[test]
     fn shifted_double_consonant_maps_separately() {
         let mut keyboard = korean_mac();
-        assert_eq!(keyboard.key(b'R' as u32, true), vec![key(0x0100_3132, true)]);
-        assert_eq!(keyboard.key(b'A' as u32, true), vec![key(0x0100_3141, true)]);
+        assert_eq!(keyboard.key(b'R' as u32, true), key(0x0100_3132, true));
+        assert_eq!(keyboard.key(b'A' as u32, true), key(0x0100_3141, true));
     }
 
     // Mac은 비밀번호 칸에 들어가며 한국어 입력 소스를 보안 입력과 함께 알리기도 합니다. 이때 자모를 보내면 낱자로 들어갑니다.
@@ -362,13 +333,12 @@ mod tests {
         let mut keyboard = korean_mac();
         keyboard.observe(source(KOREAN, true), Instant::now());
 
-        assert_eq!(keyboard.key(R, true), vec![key(R, true)]);
+        assert_eq!(keyboard.key(R, true), key(R, true));
     }
 
     #[test]
     fn languages_without_a_source_type_in_english() {
         let mut keyboard = korean_mac();
-
         assert_eq!(keyboard.select("ja-JP", Instant::now()), request(ENGLISH));
     }
 }
