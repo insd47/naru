@@ -17,6 +17,7 @@ final class Connection: SessionListener, @unchecked Sendable {
     init(config: Config, announce: @escaping @Sendable (Event) -> Void, firstFrame: @escaping @Sendable () -> Void) {
         self.announce = announce
         video = Video(firstFrame: firstFrame)
+        log.info("요청 코덱: \(config.hevc ? "HEVC 4:4:4" : "H.264", privacy: .public)")
         session = Session.connect(config: config, listener: self)
         video.requestKeyframe = { [weak self] in self?.session.requestKeyframe() }
     }

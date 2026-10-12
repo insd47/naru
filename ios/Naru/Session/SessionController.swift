@@ -74,7 +74,8 @@ final class SessionController {
 
         let config = Config(
             host: host.address, port: UInt16(host.port), username: credentials.username, password: credentials.password,
-            knownKey: ServerKeys.find(host), display: display, audio: true, priority: preferences.priority
+            knownKey: ServerKeys.find(host), display: display, audio: true, priority: preferences.priority,
+            hevc: Video.decodesHevc444
         )
 
         // 새 세션으로 바뀐 뒤 늦게 도착한 이전 세션의 사건은 버립니다.

@@ -99,6 +99,8 @@ class SessionService : Service() {
             display = display,
             audio = Player.supported(),
             priority = naru.preferences.priority,
+            // 서버의 HEVC는 4:4:4뿐인데, Android 하드웨어 디코더는 대부분 4:4:4를 풀지 못하고 지원 여부를 물을 프로파일 상수도 없습니다.
+            hevc = false,
         )
 
         val relay = Relay()
