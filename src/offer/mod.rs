@@ -4,7 +4,7 @@
 //! - 비디오는 기본으로 코덱 뱅크 123만 넣고 타일 1개를 요청해 H.264 4:2:0 단일 스트림을 받습니다. 뱅크 100을 넣으면 서버가 HEVC 4:4:4를 보내는데, 일반적인 모바일 하드웨어 디코더는 이를 풀지 못합니다.
 //! - 오디오 오퍼는 생략할 수 없습니다. 오디오를 끌 때는 요청 비트레이트를 낮춰 서버가 오디오를 보내지 않게 합니다.
 //! - SRTP 마스터 키는 클라이언트가 만들어 오퍼에 실어 보냅니다. 제어 채널이 뚫리면 미디어도 함께 뚫립니다.
-use crate::Codec;
+use crate::{Bank, Codec, Features};
 use blob::{AnswerBlob, AudioStream, AudioTier, CodecBank, EndpointInfo, MediaBlob, Resolution, VideoStream};
 use flate2::Compression;
 use flate2::read::ZlibDecoder;
@@ -157,28 +157,34 @@ impl Offer {
         };
 
         // H.264는 LTR과 피드백을 끄고, HEVC는 켭니다.
-        let (bank, tiles, ltr) = match self.codec {
-            Codec::H264 => (
-                CodecBank {
-                    id: Some(H264_BANK),
-                    resolutions: [1, 2, 1, 2].into_iter().map(resolution).collect(),
-                    features: Some(H264_FEATURES.into()),
-                    field_4: Some(1),
-                },
-                1,
-                0,
-            ),
-            Codec::Hevc { tiles } => (
-                CodecBank {
-                    id: Some(HEVC_BANK),
-                    resolutions: [1, 2].into_iter().map(resolution).collect(),
-                    features: Some(HEVC_FEATURES.into()),
-                    field_4: Some(14),
-                },
+        let request = match self.codec {
+            Codec::H264 => Bank {
+                id: H264_BANK,
+                field_4: 1,
+                features: Features::H264,
+                tiles: 1,
+                ltr: false,
+            },
+            Codec::Hevc { tiles } => Bank {
+                id: HEVC_BANK,
+                field_4: 14,
+                features: Features::Hevc,
                 tiles,
-                1,
-            ),
+                ltr: true,
+            },
+            Codec::Custom(bank) => bank,
         };
+        let (kinds, features): (&[u32], _) = match request.features {
+            Features::H264 => (&[1, 2, 1, 2], H264_FEATURES),
+            Features::Hevc => (&[1, 2], HEVC_FEATURES),
+        };
+        let bank = CodecBank {
+            id: Some(request.id),
+            resolutions: kinds.iter().copied().map(resolution).collect(),
+            features: Some(features.into()),
+            field_4: Some(request.field_4),
+        };
+        let (tiles, ltr) = (request.tiles, u32::from(request.ltr));
 
         MediaBlob {
             video: Some(VideoStream {

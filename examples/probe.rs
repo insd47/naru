@@ -13,11 +13,12 @@
 //! - 가상 디스플레이(`--display`)로 붙으면 잠금 화면부터 나옵니다. `--unlock N`은 N초 뒤 접속 비밀번호를 키 입력으로 쳐서 풉니다.
 //! - 저장한 파일은 `ffplay capture.h264`로 재생할 수 있습니다.
 //! - `--hevc N`은 H.264 대신 HEVC 4:4:4를 띠 N개로 요청합니다. HEVC는 아직 조립하지 않으므로 `--raw`와 함께 씁니다.
+//! - `--bank`, `--field4`, `--features h264|hevc`, `--tiles`, `--ltr 0|1`은 오퍼의 코덱 뱅크를 하나씩 바꿉니다. 바꾸지 않은 값은 H.264(또는 `--hevc`)의 값을 씁니다.
 //! - `--raw 파일`은 영상을 조립하지 않고 복호화한 RTP 패킷을 그대로 저장합니다. 패킷마다 받은 시각(µs, u64), SSRC(u32), 순번(u16),
 //!   타임스탬프(u32), 마커(u8), 페이로드 길이(u32)를 빅엔디언으로 쓰고 페이로드를 잇습니다. 끝나면 SSRC별 패킷 수와 비트레이트를 찍습니다.
 use anyhow::{Context, Result, bail};
 use naru::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey, VERSION};
-use naru::{Codec, Config, DecoderConfig, DisplayConfig, Event, Mode, Session};
+use naru::{Bank, Codec, Config, DecoderConfig, DisplayConfig, Event, Features, Mode, Session};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -27,7 +28,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--display 1280x800@2] [--unlock N] [--audio] [--out 파일] [--hevc N] [--raw 파일] [--seconds N] [--handshake-only]";
+const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--display 1280x800@2] [--unlock N] [--audio] [--out 파일] [--hevc N] [--bank N] [--field4 N] [--features h264|hevc] [--tiles N] [--ltr 0|1] [--raw 파일] [--seconds N] [--handshake-only]";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -49,6 +50,11 @@ struct Args {
     audio: bool,
     out: Option<PathBuf>,
     hevc: Option<u32>,
+    bank: Option<u32>,
+    field_4: Option<u32>,
+    features: Option<Features>,
+    tiles: Option<u32>,
+    ltr: Option<bool>,
     raw: Option<PathBuf>,
     seconds: u64,
     handshake_only: bool,
@@ -65,6 +71,11 @@ impl Args {
             audio: false,
             out: None,
             hevc: None,
+            bank: None,
+            field_4: None,
+            features: None,
+            tiles: None,
+            ltr: None,
             raw: None,
             seconds: 10,
             handshake_only: false,
@@ -82,6 +93,17 @@ impl Args {
                 "--audio" => parsed.audio = true,
                 "--out" => parsed.out = Some(value()?.into()),
                 "--hevc" => parsed.hevc = Some(value()?.parse()?),
+                "--bank" => parsed.bank = Some(value()?.parse()?),
+                "--field4" => parsed.field_4 = Some(value()?.parse()?),
+                "--features" => {
+                    parsed.features = Some(match value()?.as_str() {
+                        "h264" => Features::H264,
+                        "hevc" => Features::Hevc,
+                        other => bail!("--features는 h264나 hevc입니다: {other}"),
+                    })
+                }
+                "--tiles" => parsed.tiles = Some(value()?.parse()?),
+                "--ltr" => parsed.ltr = Some(value()? == "1"),
                 "--raw" => parsed.raw = Some(value()?.into()),
                 "--seconds" => parsed.seconds = value()?.parse()?,
                 "--handshake-only" => parsed.handshake_only = true,
@@ -96,10 +118,49 @@ impl Args {
         (parsed.handshake_only || parsed.username.is_some())
             .then_some(())
             .context("사용자 이름이 필요합니다")?;
-        (parsed.hevc.is_none() || parsed.raw.is_some())
+        (parsed.codec() == Codec::H264 || parsed.raw.is_some())
             .then_some(())
-            .context("--hevc는 --raw와 함께 써야 합니다")?;
+            .context("H.264가 아닌 요청은 --raw와 함께 써야 합니다")?;
         Ok(parsed)
+    }
+
+    // 바꾼 값이 없으면 알려진 요청을 그대로 쓰고, 있으면 그 요청의 뱅크에서 바꾼 값만 덮어씁니다.
+    fn codec(&self) -> Codec {
+        let preset = self.hevc.map_or(Codec::H264, |tiles| Codec::Hevc { tiles });
+        let changed = self.bank.is_some()
+            || self.field_4.is_some()
+            || self.features.is_some()
+            || self.tiles.is_some()
+            || self.ltr.is_some();
+
+        if !changed {
+            return preset;
+        }
+
+        let base = match self.hevc {
+            Some(tiles) => Bank {
+                id: 100,
+                field_4: 14,
+                features: Features::Hevc,
+                tiles,
+                ltr: true,
+            },
+            None => Bank {
+                id: 123,
+                field_4: 1,
+                features: Features::H264,
+                tiles: 1,
+                ltr: false,
+            },
+        };
+
+        Codec::Custom(Bank {
+            id: self.bank.unwrap_or(base.id),
+            field_4: self.field_4.unwrap_or(base.field_4),
+            features: self.features.unwrap_or(base.features),
+            tiles: self.tiles.unwrap_or(base.tiles),
+            ltr: self.ltr.unwrap_or(base.ltr),
+        })
     }
 }
 
@@ -161,7 +222,8 @@ async fn session(args: Args) -> Result<()> {
     config.audio = args.audio;
     config.known_key = std::fs::read(&key_path).ok();
     config.display = args.display.map(DisplayConfig::from);
-    config.codec = args.hevc.map_or(Codec::H264, |tiles| Codec::Hevc { tiles });
+    config.codec = args.codec();
+    println!("요청: {:?}", config.codec);
     config.raw_video = args.raw.is_some();
 
     let mut out = args.out.as_ref().map(File::create).transpose()?.map(BufWriter::new);

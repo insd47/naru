@@ -81,6 +81,28 @@ pub enum Codec {
     H264,
     /// HEVC 4:4:4를 가로 띠 `tiles`개로 나눈 스트림. 아직 조립하지 않으므로 `raw_video`와 함께 씁니다.
     Hevc { tiles: u32 },
+    /// 진단용. 오퍼의 코덱 뱅크를 직접 정해 서버가 무엇을 보내는지 알아봅니다. `raw_video`와 함께 씁니다.
+    Custom(Bank),
+}
+
+/// 비디오 오퍼에 넣을 코덱 뱅크와 스트림 요청입니다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Bank {
+    pub id: u32,
+    /// 뱅크의 필드 4. H.264 뱅크는 1, HEVC 뱅크는 14를 넣습니다. 뜻은 알려지지 않았습니다.
+    pub field_4: u32,
+    /// 기능 문자열과 해상도 항목을 어느 뱅크의 것으로 넣을지
+    pub features: Features,
+    pub tiles: u32,
+    /// LTR과 RTCP 피드백을 켤지 여부
+    pub ltr: bool,
+}
+
+/// 알려진 두 뱅크의 기능 문자열과 해상도 항목입니다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Features {
+    H264,
+    Hevc,
 }
 
 /// 접속 단계입니다. 실패한 단계를 사용자에게 구분해 보여 주면 원인을 찾기 쉽습니다.
