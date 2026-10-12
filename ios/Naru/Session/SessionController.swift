@@ -51,6 +51,8 @@ final class SessionController {
     private(set) var shown = false
     /// 서버가 보내는 영상의 코덱. 첫 디코더 설정이 오기 전에는 `nil`입니다.
     private(set) var codec: VideoCodec?
+    /// 마지막 세션이 끝난 이유를 원인까지 이은 한 줄. 닫아서 끝났으면 `nil`입니다. 확인 화면에 보입니다.
+    private(set) var closedDetail: String?
     /// 세션 화면을 보이는지 여부. 인증에 성공하면 켜고, 세션이 끝나면 끕니다.
     var presented = false
 
@@ -211,7 +213,8 @@ final class SessionController {
             codec = config.codec
         case let .progress(stage):
             if case .connecting = state { state = .connecting(running.host, stage) }
-        case let .closed(failure, _):
+        case let .closed(failure, detail):
+            closedDetail = detail
             end(running, failure: failure)
         default:
             break

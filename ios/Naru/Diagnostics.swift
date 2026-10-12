@@ -10,6 +10,8 @@ struct Diagnostics: View {
         VStack(alignment: .leading) {
             Text("HEVC 4:4:4 하드웨어 디코딩: \(Video.decodesHevc444 ? "가능" : "불가")")
             Text("지금 세션의 코덱: \(session.codec.map { $0 == .hevc ? "HEVC 4:4:4" : "H.264" } ?? "세션 없음")")
+            Text("마지막 세션 종료: \(session.closedDetail ?? "없음")")
+                .textSelection(.enabled)
             Text("하드웨어 키보드로 쳐 보세요").font(.headline).padding(.top)
             ProbeView { line in lines.insert(line, at: 0) }
                 .frame(height: 1)
