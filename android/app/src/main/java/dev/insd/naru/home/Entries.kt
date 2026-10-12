@@ -50,15 +50,15 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
-/** 행의 메뉴 항목 하나 */
+/** One menu item for a row */
 class Action(val label: String, val icon: ImageVector, val run: () -> Unit)
 
 /**
- * Mac 하나의 행. 누르면 접속하고, 마우스를 올리면 마지막 접속 시각 대신 Connect 버튼이 나옵니다.
+ * A row for one Mac. Tapping connects, and hovering shows a Connect button in place of the last connection time.
  *
- * - 다른 Mac에 접속하는 동안에는 [enabled]를 꺼 누를 수 없게 합니다.
- * - 세션 중인 Mac은 [onDisconnect]로 Disconnect 버튼을 늘 보여 주고, 접속 중이면([connecting]) 진행 표시를 곁들입니다.
- * - 길게 누르거나 오른쪽 클릭하면 누른 자리에 [menu]가 열립니다. 묶음 사이에는 간격을 둡니다.
+ * - While connecting to another Mac, [enabled] is off so the row cannot be tapped.
+ * - A Mac in session always shows a Disconnect button through [onDisconnect], with a progress indicator while connecting ([connecting]).
+ * - A long press or right click opens [menu] at the pressed point, with spacing between groups.
  */
 @Composable
 fun Entry(
@@ -132,7 +132,7 @@ fun Entry(
     }
 }
 
-/** 항목을 모서리가 이어지는 한 묶음으로 보여 줍니다. */
+/** Shows items as one group with joined corners. */
 @Composable
 fun Group(content: LazyListScope.() -> Unit) {
     LazyColumn(
@@ -143,7 +143,7 @@ fun Group(content: LazyListScope.() -> Unit) {
     )
 }
 
-/** 보여 줄 항목이 없을 때 가운데에 두는 안내 */
+/** Centered message shown when there are no items */
 @Composable
 fun Empty(icon: ImageVector, message: String) {
     Column(
@@ -156,7 +156,7 @@ fun Empty(icon: ImageVector, message: String) {
     }
 }
 
-/** Screen Sharing 앱처럼 "Today at 20:48", "Aug 29, 2026 at 20:03"으로 씁니다. */
+/** Formats as "Today at 20:48" or "Aug 29, 2026 at 20:03", as the Screen Sharing app does. */
 fun formatDate(epochMs: Long): String {
     val time = Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault())
     val today = LocalDate.now()

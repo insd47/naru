@@ -4,16 +4,16 @@ import android.view.MotionEvent
 import dev.insd.naru.core.Phase
 
 /**
- * 터치패드의 두 손가락 스와이프와 핀치를 Mac의 스크롤과 확대로 옮깁니다.
+ * Translates touchpad two-finger swipes and pinches into Mac scroll and magnify.
  *
- * - Android는 이 제스처를 분류가 붙은 터치로 보내며 이동량은 픽셀입니다. dp로 바꿔 Mac의 포인트로 씁니다.
- * - 관성과 포인터 위치는 세션이 처리하므로 여기서는 단계와 이동량만 옮깁니다.
+ * - Android delivers these gestures as classified touches with deltas in pixels. They are converted to dp and used as Mac points.
+ * - The session handles momentum and the pointer position, so only the stage and deltas are passed on here.
  */
 class Touchpad(private val connection: Connection, private val density: Float) {
-    // 핀치를 시작한 뒤의 누적 배율. Android는 이벤트마다의 비율을 줍니다.
+    // Cumulative scale since the pinch began. Android gives a per-event ratio.
     private var scale = 1f
 
-    /** 터치패드 제스처면 Mac에 보내고 `true`를 반환합니다. */
+    /** Sends a touchpad gesture to the Mac and returns `true`. */
     fun handle(event: MotionEvent): Boolean {
         when (event.classification) {
             MotionEvent.CLASSIFICATION_TWO_FINGER_SWIPE -> swipe(event)
@@ -24,7 +24,7 @@ class Touchpad(private val connection: Connection, private val density: Float) {
         return true
     }
 
-    // Android의 스와이프 거리는 아래로 스크롤하는 쪽이 양수이고, Mac은 위로 스크롤하는 쪽이 양수라 부호를 바꿉니다.
+    // Android's swipe distance is positive when scrolling down and the Mac's when scrolling up, so the sign is flipped.
     private fun swipe(event: MotionEvent) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> connection.scroll(Phase.BEGAN, 0f, 0f)
@@ -56,12 +56,12 @@ class Touchpad(private val connection: Connection, private val density: Float) {
         }
     }
 
-    // 한 이벤트에 묶여 온 이전 표본까지 더합니다. 마지막 값만 읽으면 빠르게 움직일 때 이동을 잃습니다.
+    // Also sums the historical samples batched into one event. Reading only the last value loses movement during fast motion.
     private fun sum(event: MotionEvent, axis: Int): Float = (0..event.historySize).sumOf { sample ->
         axis(event, axis, sample).toDouble()
     }.toFloat()
 
-    // `sample`이 historySize와 같으면 현재 값입니다.
+    // `sample` equal to historySize means the current value.
     private fun axis(event: MotionEvent, axis: Int, sample: Int): Float =
         if (sample < event.historySize) event.getHistoricalAxisValue(axis, sample) else event.getAxisValue(axis)
 }

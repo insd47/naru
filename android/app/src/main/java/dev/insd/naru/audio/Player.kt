@@ -11,14 +11,14 @@ import dev.insd.naru.core.AudioFrame
 import java.nio.ByteBuffer
 
 /**
- * Mac의 소리를 재생합니다. AAC-ELD를 시스템 디코더로 풀어 저지연 AudioTrack으로 내보냅니다.
+ * Plays the Mac's audio, decoding AAC-ELD with the system decoder into a low-latency AudioTrack.
  *
- * - 세션의 사건 스레드에서만 부르십시오. 넣을 때마다 나온 출력을 꺼내 쓰고, 버퍼가 차 있으면 기다리지 않고 버립니다.
- * - 영상과 시각을 맞추지 않고 받는 대로 재생합니다.
+ * - Call only from the session's event thread. Each input drains the available output, and input is dropped rather than waiting when the buffers are full.
+ * - Plays as received, without syncing to video.
  */
 class Player(config: ByteArray) {
     private val format = format(config)
-    private val codec = MediaCodec.createByCodecName(decoderName(format) ?: error("AAC-ELD 디코더가 없습니다"))
+    private val codec = MediaCodec.createByCodecName(decoderName(format) ?: error("no AAC-ELD decoder"))
     private val output = MediaCodec.BufferInfo()
 
     private val track = AudioTrack.Builder()
@@ -55,7 +55,7 @@ class Player(config: ByteArray) {
             buffer.clear()
             buffer.put(frame.data)
 
-            // RTP 타임스탬프는 48 kHz입니다. 출력 순서에만 쓰므로 넘어감은 신경 쓰지 않습니다.
+            // RTP timestamps are 48 kHz. They only order output, so wraparound does not matter.
             val ptsUs = frame.timestamp.toLong() * 1_000 / 48
             codec.queueInputBuffer(index, 0, frame.data.size, ptsUs, 0)
         }
@@ -89,7 +89,7 @@ class Player(config: ByteArray) {
         private const val SAMPLE_RATE = 48_000
         private const val CHANNELS = 2
 
-        /** 이 기기에 AAC-ELD 디코더가 있는지 여부. 없으면 소리를 받지 않습니다. */
+        /** Whether this device has an AAC-ELD decoder. Without one, audio is not requested. */
         fun supported(): Boolean = decoderName(format(null)) != null
 
         private fun format(config: ByteArray?) =

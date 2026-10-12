@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SpsTest {
-    // macOS 27 Mac mini가 가상 디스플레이(2560×1600)로 보낸 SPS입니다. 값은 ffmpeg의 trace_headers로 따로 확인했습니다.
+    // An SPS a Mac sent for a 2560×1600 virtual display. The values were checked separately with ffmpeg's trace_headers.
     private val captured = hex("27640033ac13143002800c9a6e181a0204")
 
     @Test

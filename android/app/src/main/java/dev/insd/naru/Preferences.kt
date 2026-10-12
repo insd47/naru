@@ -5,16 +5,16 @@ import androidx.compose.runtime.mutableStateOf
 import dev.insd.naru.core.Priority
 
 /**
- * 모든 Mac에 함께 쓰는 설정입니다. 앱 전용 설정 파일에 둡니다.
+ * Settings shared by every Mac, stored in the app's private preferences file.
  *
- * - 값은 Compose 상태라 바뀌면 설정 화면이 다시 그려집니다. 세션은 접속할 때, 키 배치는 세션 화면을 열 때 읽으므로 바꾼 값은 그때부터 씁니다.
+ * - Values are Compose state, so the settings screen redraws when they change. The session reads them on connect and the key mapping when the session screen opens, so a change takes effect from then on.
  */
 class Preferences(context: Context) {
     private val store = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
     private val priorityState = mutableStateOf(store.getString(PRIORITY, null)?.let(::priorityOf) ?: Priority.LATENCY)
     private val swapState = mutableStateOf(store.getBoolean(SWAP_COMMAND_OPTION, true))
 
-    /** 패킷을 잃었을 때 지연과 화질 중 무엇을 우선할지. Screen Sharing 앱처럼 지연을 먼저 둡니다. */
+    /** Whether to favor latency or quality when packets are lost. Latency comes first, as in the Screen Sharing app. */
     var priority: Priority
         get() = priorityState.value
         set(value) {
@@ -22,7 +22,7 @@ class Preferences(context: Context) {
             store.edit().putString(PRIORITY, keyOf(value)).apply()
         }
 
-    /** Alt를 Command로, Meta(Windows 키)를 Option으로 보낼지 여부. 켜면 Mac 키보드의 자리와 맞습니다. */
+    /** Whether to send Alt as Command and Meta (the Windows key) as Option. When on, the keys sit where they do on a Mac keyboard. */
     var swapCommandOption: Boolean
         get() = swapState.value
         set(value) {
@@ -30,7 +30,7 @@ class Preferences(context: Context) {
             store.edit().putBoolean(SWAP_COMMAND_OPTION, value).apply()
         }
 
-    // 저장하는 값은 코어 열거형의 이름이 바뀌어도 그대로 읽히도록 따로 둡니다.
+    // Stored values are defined separately so they still read back if the core enum names change.
     private fun keyOf(priority: Priority) = when (priority) {
         Priority.LATENCY -> "latency"
         Priority.QUALITY -> "quality"

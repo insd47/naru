@@ -15,13 +15,13 @@ import dev.insd.naru.core.TouchPhase
 import kotlin.math.roundToInt
 
 /**
- * Mac 화면을 그리고 포인터 입력을 Mac 좌표로 바꿔 보냅니다.
+ * Draws the Mac screen and sends pointer input converted to Mac coordinates.
  *
- * - 뷰는 영상과 같은 비율로 놓이므로, 뷰 안의 위치를 레이아웃 픽셀 좌표로 비례해 옮기면 됩니다.
- * - 마우스는 버튼 상태를 그대로 보냅니다. 펜은 대면 왼쪽 버튼, 옆 버튼을 누른 채 대면 오른쪽 버튼이고, 띄우면 포인터만 움직입니다.
- * - 손가락 터치는 코어가 화면 전체를 트랙패드로 써서 커서를 상대 이동으로 옮깁니다. 터치패드 제스처는 [Touchpad]가 맡습니다.
- * - 커서 모양은 마우스와 펜이면 시스템 포인터 아이콘으로 바꿔 지연 없이 그립니다. 손가락 터치 중에는 시스템 포인터가 없으므로,
- *   코어가 알려 준 자리([setTouchCursor])에 직접 그립니다.
+ * - The view has the video's aspect ratio, so a position in the view scales proportionally to layout pixels.
+ * - A mouse sends its button state as is. A pen touching is the left button, touching with the side button held is the right button, and hovering only moves the pointer.
+ * - For finger touches the core uses the whole screen as a trackpad and moves the cursor relatively. [Touchpad] handles touchpad gestures.
+ * - With a mouse or pen, the cursor shape becomes the system pointer icon so it draws without lag. Finger touches have no system pointer, so
+ *   the view draws it at the position the core reports ([setTouchCursor]).
  */
 @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
 class ScreenView(context: Context) : SurfaceView(context) {
@@ -31,18 +31,18 @@ class ScreenView(context: Context) : SurfaceView(context) {
             value?.attach(holder.surface.takeIf { it.isValid })
         }
 
-    /** 레이아웃의 픽셀 크기. 오기 전에는 포인터를 보내지 않습니다. */
+    /** Pixel size of the layout. No pointer events are sent until it arrives. */
     var layoutSize: Pair<Int, Int>? = null
 
-    /** 레이아웃의 논리 폭. 커서 이미지는 논리 좌표 크기로 오므로 이 폭을 기준으로 키웁니다. */
+    /** Logical width of the layout. Cursor images arrive at logical size, so they are scaled relative to this width. */
     var logicalWidth: Int? = null
 
-    /** 키 입력 처리. IME보다 먼저 받아, One UI의 키보드가 한/영 키 등을 가로채지 않게 합니다. */
+    /** Key input handler. It runs before the IME so the One UI keyboard cannot intercept keys such as Korean/English. */
     var onKey: ((KeyEvent) -> Boolean)? = null
 
     private var buttons = 0
 
-    // 직접 그릴 커서 비트맵과 핫스팟(뷰 픽셀), 손가락 터치로 옮긴 커서 자리(뷰 픽셀). 마우스나 펜을 쓰면 자리를 지웁니다.
+    // Cursor bitmap and hotspot to draw (view pixels), and the cursor position moved by finger touches (view pixels). Using a mouse or pen clears the position.
     private var cursorBitmap: Bitmap? = null
     private var cursorHotspot = 0f to 0f
     private var touchCursor: Pair<Float, Float>? = null
@@ -55,7 +55,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
         isFocusableInTouchMode = true
         setWillNotDraw(false)
 
-        // 키를 누르면 터치 모드가 풀리며 포커스된 뷰에 흰 강조가 그려집니다. 화면 위에 덮이지 않게 끕니다.
+        // A key press exits touch mode and draws a white focus highlight on the focused view. Turned off so it does not cover the screen.
         defaultFocusHighlightEnabled = false
 
         holder.addCallback(object : SurfaceHolder.Callback {
@@ -74,7 +74,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
         setOnGenericMotionListener { _, event -> motion(event) }
     }
 
-    /** 커서 모양을 화면 배율에 맞춰 시스템 포인터 아이콘으로 씁니다. 이미지와 핫스팟은 Mac의 논리 좌표 크기입니다. */
+    /** Uses the cursor shape as the system pointer icon, scaled to the screen. The image and hotspot are in the Mac's logical size. */
     fun setCursor(cursor: Event.Cursor) {
         val width = cursor.width.toInt()
         val height = cursor.height.toInt()
@@ -85,7 +85,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
             (channel(3) shl 24) or (channel(0) shl 16) or (channel(1) shl 8) or channel(2)
         }
 
-        // setPixels는 미리 곱하지 않은 색을 받습니다.
+        // setPixels takes non-premultiplied colors.
         val source = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         source.setPixels(pixels, 0, width, 0, 0, width, height)
 
@@ -93,7 +93,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
         val scaledWidth = (width * scale).roundToInt().coerceAtLeast(1)
         val scaledHeight = (height * scale).roundToInt().coerceAtLeast(1)
 
-        // 커서는 논리 크기 비트맵뿐이라 키워야 합니다. Apple 클라이언트처럼 늘 보간해 계단 없이 매끄럽게 키웁니다.
+        // The cursor only comes as a logical-size bitmap, so it must be scaled up. Like Apple's client, it is always filtered so it scales smoothly without jaggies.
         val bitmap = Bitmap.createScaledBitmap(source, scaledWidth, scaledHeight, true)
 
         pointerIcon = PointerIcon.create(bitmap, cursor.hotspotX.toFloat() * scale, cursor.hotspotY.toFloat() * scale)
@@ -102,7 +102,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
         invalidate()
     }
 
-    /** 손가락 터치로 옮긴 커서 자리(레이아웃 픽셀). 이 자리에 커서를 그립니다. */
+    /** Cursor position moved by finger touches (layout pixels), where the cursor is drawn. */
     fun setTouchCursor(x: Int, y: Int) {
         val (layoutWidth, layoutHeight) = layoutSize ?: return
         touchCursor = x.toFloat() / layoutWidth * width to y.toFloat() / layoutHeight * height
@@ -139,7 +139,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
         return true
     }
 
-    // 손가락마다 위치를 레이아웃 픽셀로 바꿔 코어에 넘깁니다. 화면 밖으로 나가도 상대 이동이므로 자르지 않습니다.
+    // Converts each finger's position to layout pixels for the core. Positions off screen are not clamped, since movement is relative.
     private fun finger(event: MotionEvent) {
         val current = connection ?: return
         val (layoutWidth, layoutHeight) = layoutSize ?: return
@@ -162,7 +162,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
         }
     }
 
-    // 마우스나 펜을 쓰면 시스템 포인터가 커서를 그리므로 직접 그리던 커서를 지웁니다.
+    // With a mouse or pen the system pointer draws the cursor, so the self-drawn cursor is cleared.
     private fun clearTouchCursor() {
         if (touchCursor != null) {
             touchCursor = null
@@ -178,7 +178,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
                 buttons = mouseButtons(event.buttonState)
                 send(event)
             }
-            // Android는 오른쪽이 양수이고 Mac은 왼쪽이 양수입니다. 세로는 둘 다 위가 양수입니다.
+            // Android is positive to the right and the Mac to the left. Vertically, both are positive upward.
             MotionEvent.ACTION_SCROLL -> connection?.wheel(
                 -event.getAxisValue(MotionEvent.AXIS_HSCROLL),
                 event.getAxisValue(MotionEvent.AXIS_VSCROLL),
@@ -215,7 +215,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
     }
 
     companion object {
-        // 서버의 버튼 비트는 표준 RFB와 달리 오른쪽이 1, 가운데가 2입니다.
+        // Unlike standard RFB, the server's button bits are 1 for right and 2 for middle.
         private const val BUTTON_LEFT = 1 shl 0
         private const val BUTTON_RIGHT = 1 shl 1
         private const val BUTTON_MIDDLE = 1 shl 2

@@ -9,14 +9,14 @@ import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
 import dev.insd.naru.TAG
 
-/** 같은 네트워크에서 찾은 화면 공유 Mac. 주소는 고를 때 풉니다. */
+/** A Screen Sharing Mac found on the local network. Its address is resolved when picked. */
 data class Found(val name: String, val service: NsdServiceInfo)
 
 /**
- * 같은 네트워크의 화면 공유 Mac을 Bonjour(`_rfb._tcp`)로 찾습니다.
+ * Finds Screen Sharing Macs on the local network over Bonjour (`_rfb._tcp`).
  *
- * - [found]는 Compose 상태입니다. NSD 콜백은 다른 스레드에서 오므로 메인 스레드로 넘겨 고칩니다.
- * - 화면이 보이는 동안만 [start]와 [stop]으로 찾습니다.
+ * - [found] is Compose state. NSD callbacks arrive on another thread, so updates are posted to the main thread.
+ * - Discovery runs only while the screen is visible, between [start] and [stop].
  */
 class Discovery(context: Context) {
     private val manager = context.getSystemService(NsdManager::class.java)
@@ -45,7 +45,7 @@ class Discovery(context: Context) {
             override fun onDiscoveryStopped(serviceType: String) = Unit
 
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
-                Log.w(TAG, "네트워크 찾기를 시작하지 못했습니다: $errorCode")
+                Log.w(TAG, "Failed to start network discovery: $errorCode")
                 main.post { if (listener === this) listener = null }
             }
 
@@ -63,7 +63,7 @@ class Discovery(context: Context) {
         found.clear()
     }
 
-    /** 찾은 Mac의 IPv4 주소를 풉니다. 결과는 메인 스레드에서 [done]으로 옵니다. 실패하면 `null`입니다. */
+    /** Resolves the found Mac's IPv4 address. The result arrives on the main thread through [done], or `null` on failure. */
     @Suppress("DEPRECATION")
     fun resolve(target: Found, done: (String?) -> Unit) {
         manager.resolveService(target.service, object : NsdManager.ResolveListener {
@@ -73,7 +73,7 @@ class Discovery(context: Context) {
             }
 
             override fun onResolveFailed(service: NsdServiceInfo, errorCode: Int) {
-                Log.w(TAG, "주소를 풀지 못했습니다: $errorCode")
+                Log.w(TAG, "Failed to resolve the address: $errorCode")
                 main.post { done(null) }
             }
         })

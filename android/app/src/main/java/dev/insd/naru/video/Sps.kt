@@ -1,10 +1,10 @@
 package dev.insd.naru.video
 
 /**
- * SPS에서 디코더 설정과 시험에 필요한 값만 꺼낸 것입니다.
+ * The SPS values needed for the decoder config and tests.
  *
- * - [maxRefFrames]: 실측한 서버 SPS는 11장을 선언합니다. 디코더가 참조 버퍼를 그만큼 잡는지 볼 때 씁니다.
- * - [maxPocLsb]: POC 하위 비트가 이 값에서 넘어갑니다. 넘김 지점에서 조용히 깨지는 하드웨어 디코더가 있었습니다.
+ * - [maxRefFrames]: the server's SPS declares 11. Used to check that the decoder reserves that many reference buffers.
+ * - [maxPocLsb]: the POC LSBs wrap at this value. Some hardware decoders silently broke at the wrap point.
  */
 data class Sps(
     val profile: Int,
@@ -17,7 +17,7 @@ data class Sps(
     companion object {
         private val HIGH_PROFILES = setOf(100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135)
 
-        /** 시작 코드 없는 SPS NAL을 해석합니다. 형식이 맞지 않으면 예외를 던집니다. */
+        /** Parses an SPS NAL without a start code. Throws if it is malformed. */
         fun parse(nal: ByteArray): Sps {
             val bits = Bits(nal, at = 1)
             val profile = bits.bits(8)
@@ -77,7 +77,7 @@ data class Sps(
             var width = widthInMbs * 16
             var height = heightInMapUnits * 16 * (if (frameMbsOnly) 1 else 2)
 
-            // 크롭 단위는 4:2:0에서 가로 2, 세로 2(프레임 전용) 또는 4입니다.
+            // In 4:2:0 the crop unit is 2 horizontally and 2 (frames only) or 4 vertically.
             if (bits.flag()) {
                 val unitX = if (chromaFormat == 0 || chromaFormat == 3) 1 else 2
                 val unitY = (if (chromaFormat == 1) 2 else 1) * (if (frameMbsOnly) 1 else 2)

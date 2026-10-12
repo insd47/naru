@@ -1,8 +1,8 @@
 #!/bin/sh
-# Rust 코어 크레이트를 Android용으로 빌드하고 Kotlin 바인딩을 만듭니다. Gradle의 preBuild가 부릅니다.
+# Builds the Rust core crate for Android and generates its Kotlin bindings. Gradle's preBuild calls this.
 #
-# - 결과는 app/build/generated 아래에 두며 저장소에 올리지 않습니다.
-# - 필요한 것: rustup 대상 aarch64-linux-android, cargo-ndk, Android NDK
+# - Output goes under app/build/generated and is not committed.
+# - Requires the rustup target aarch64-linux-android, cargo-ndk, and the Android NDK
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -11,10 +11,10 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 cd "$here/.."
 
-# 암호 연산과 SRTP가 debug 빌드에서는 너무 느리므로 앱의 빌드 종류와 관계없이 release로 빌드합니다.
+# Crypto and SRTP are too slow in debug builds, so this always builds release regardless of the app's build type.
 cargo ndk -t arm64-v8a -P 29 -o "$out/jniLibs" build --release
 
-# 바인딩은 방금 만든 라이브러리의 메타데이터에서 만듭니다.
+# Bindings are generated from the metadata of the library just built.
 rm -rf "$out/uniffi"
 cargo run -q --example uniffi-bindgen -- \
     generate "$out/jniLibs/arm64-v8a/libnaru.so" -l kotlin -o "$out/uniffi" -n

@@ -8,14 +8,14 @@ import dev.insd.naru.home.Hosts
 import dev.insd.naru.home.Keychain
 import dev.insd.naru.home.ServerKeys
 
-/** 로그 태그. 앱의 모든 로그를 이 이름으로 모읍니다. */
+/** Log tag shared by every log line in the app */
 const val TAG = "Naru"
 
 /**
- * 앱 프로세스 하나에 하나씩 두는 저장소를 들고 있습니다.
+ * Holds the stores that exist once per app process.
  *
- * - 목록 화면과 세션 서비스가 같은 저장소를 보므로, 한쪽이 저장하면 다른 쪽이 다시 읽지 않아도 바뀐 값을 봅니다. 모두 메인 스레드에서만 고칩니다.
- * - 마우스나 터치패드를 쓰면 Material 컴포넌트를 더 촘촘한 크기로 그리게 합니다. 이 앱은 포인터로 쓰는 일이 많습니다.
+ * - The list screen and the session service share the same stores, so a save on one side is visible to the other without rereading. All of them are modified only on the main thread.
+ * - With a mouse or touchpad attached, Material components draw at a denser size, since this app is often used with a pointer.
  */
 class NaruApplication : Application() {
     val hosts by lazy { Hosts(this) }
@@ -30,6 +30,6 @@ class NaruApplication : Application() {
     }
 }
 
-/** 이 앱의 [NaruApplication] */
+/** This app's [NaruApplication] */
 val Context.naru: NaruApplication
     get() = applicationContext as NaruApplication

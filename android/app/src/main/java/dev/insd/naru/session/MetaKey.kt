@@ -5,10 +5,10 @@ import android.util.Log
 import dev.insd.naru.TAG
 
 /**
- * Samsung 기기에서 Meta 키를 앱이 받도록 요청합니다.
+ * Requests that the app receive the Meta key on Samsung devices.
  *
- * - One UI는 Meta 키를 시스템 단축키로 먼저 가져갑니다. Samsung 프레임워크의 `SemWindowManager.requestMetaKeyEvent`로
- *   요청하면 이 액티비티가 Meta 키를 받습니다. 공개 SDK에 없으므로 리플렉션으로 부르고, 없는 기기에서는 아무것도 하지 않습니다.
+ * - One UI takes the Meta key for system shortcuts first. Requesting it through the Samsung framework's `SemWindowManager.requestMetaKeyEvent`
+ *   delivers it to this activity. It is not in the public SDK, so it is called through reflection and does nothing on devices without it.
  */
 object MetaKey {
     fun request(activity: Activity, enabled: Boolean) {
@@ -18,9 +18,9 @@ object MetaKey {
             manager.getMethod("requestMetaKeyEvent", android.content.ComponentName::class.java, Boolean::class.javaPrimitiveType)
                 .invoke(instance, activity.componentName, enabled)
         }.onSuccess {
-            Log.i(TAG, "Meta 키 요청: $enabled")
+            Log.i(TAG, "Meta key request: $enabled")
         }.onFailure {
-            Log.i(TAG, "Meta 키를 요청할 수 없습니다: $it")
+            Log.i(TAG, "Cannot request the Meta key: $it")
         }
     }
 }

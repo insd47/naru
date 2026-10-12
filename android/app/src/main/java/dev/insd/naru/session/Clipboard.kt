@@ -7,18 +7,18 @@ import android.util.Log
 import dev.insd.naru.TAG
 
 /**
- * Mac과 태블릿의 클립보드 텍스트를 맞춥니다.
+ * Keeps clipboard text in sync between the Mac and the tablet.
  *
- * - Mac에서 바뀐 텍스트는 받는 대로 태블릿 클립보드에 넣습니다.
- * - Android는 포커스를 가진 앱만 클립보드를 읽게 하므로, 세션 화면이 포커스를 얻을 때 읽어 Mac에 보냅니다.
- * - 마지막으로 주고받은 텍스트를 기억해 같은 내용을 되돌려 보내지 않습니다. 내용은 로그에 남기지 않습니다.
- * - 접속할 때 이미 있던 텍스트는 보내지 않습니다. 접속한 뒤 새로 복사한 것만 보냅니다.
+ * - Text changed on the Mac goes into the tablet clipboard as soon as it arrives.
+ * - Android lets only the focused app read the clipboard, so it is read and sent to the Mac when the session screen gains focus.
+ * - The last text exchanged is remembered so the same content is not echoed back. Content is never logged.
+ * - Text already present at connect is not sent; only text copied after connecting is.
  */
 class Clipboard(private val context: Context, private val connection: Connection) {
     private val manager = context.getSystemService(ClipboardManager::class.java)
     private var last: String? = read()
 
-    /** Mac의 클립보드가 바뀌었습니다. 우리가 보낸 텍스트가 되돌아온 것이면 태블릿 클립보드를 건드리지 않습니다. */
+    /** The Mac's clipboard changed. If it is our own text echoed back, the tablet clipboard is left alone. */
     fun onServer(text: String) {
         if (text == last) {
             return
@@ -28,10 +28,10 @@ class Clipboard(private val context: Context, private val connection: Connection
         manager.setPrimaryClip(ClipData.newPlainText(LABEL, text))
     }
 
-    /** 태블릿 클립보드의 텍스트가 Mac과 다르면 보냅니다. */
+    /** Sends the tablet clipboard text if it differs from the Mac's. */
     fun sync() {
         val text = read() ?: run {
-            Log.i(TAG, "클립보드를 읽지 못했습니다")
+            Log.i(TAG, "Failed to read the clipboard")
             return
         }
 
@@ -40,15 +40,15 @@ class Clipboard(private val context: Context, private val connection: Connection
         }
 
         if (!connection.clipboard(text)) {
-            Log.w(TAG, "클립보드 ${text.length}자는 너무 커서 보내지 않습니다")
+            Log.w(TAG, "Not sending clipboard of ${text.length} chars: too large")
             return
         }
 
         last = text
-        Log.i(TAG, "클립보드 ${text.length}자를 Mac에 보냈습니다")
+        Log.i(TAG, "Sent clipboard of ${text.length} chars to the Mac")
     }
 
-    // Android는 포커스를 가진 앱에만 클립보드를 보여 주므로, 화면이 포커스를 가진 동안에만 부릅니다.
+    // Android shows the clipboard only to the focused app, so call this only while the screen has focus.
     private fun read(): String? = manager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
 
     companion object {

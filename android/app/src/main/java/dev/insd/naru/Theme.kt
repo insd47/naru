@@ -12,7 +12,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 
-/** Material 3 Expressive 테마. Android 12부터는 배경화면에서 뽑은 동적 색을 씁니다. */
+/** Material 3 Expressive theme. From Android 12 it uses dynamic colors drawn from the wallpaper. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun NaruTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {

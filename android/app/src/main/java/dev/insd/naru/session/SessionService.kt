@@ -30,23 +30,23 @@ import dev.insd.naru.home.Host
 import dev.insd.naru.naru
 
 /**
- * Mac 한 대와의 세션을 화면 밖에서도 이어 갑니다.
+ * Keeps a session with one Mac running off screen.
  *
- * - 세션이 살아 있는 동안만 알림과 함께 포그라운드 서비스로 돌고, 세션이 끝나면 곧바로 멈춥니다.
- * - 목록 화면은 [state]로 접속 단계와 실패를 봅니다. 인증에 성공하면 목록 화면이 세션 화면을 엽니다.
- * - 세션 화면은 바인드해서 Surface와 입력을 넘깁니다. 화면이 떠나도 세션과 소리는 이어지고, 다시 붙으면 마지막 상태를 되감아 줍니다.
- * - 접속 결과를 저장하는 일(Mac 목록, 비밀번호, 서버 키)과 클립보드는 화면이 없어도 일어나므로 여기서 합니다.
+ * - Runs as a foreground service with a notification only while the session is alive, and stops as soon as it ends.
+ * - The list screen watches the connection stage and failures through [state], and opens the session screen once authentication succeeds.
+ * - The session screen binds to hand over its Surface and input. The session and audio continue when it leaves, and the last state is replayed when it reattaches.
+ * - Saving connection results (the Mac list, password, server key) and the clipboard happen without a screen, so they live here.
  */
 class SessionService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private var session: Running? = null
     private var listener: Connection.Listener? = null
 
-    /** 지금 세션의 상태. 세션이 없으면 `null`이고, 실패는 [dismiss]할 때까지 남습니다. */
+    /** State of the current session, or `null` without one. A failure stays until [dismiss]. */
     var state by mutableStateOf<State?>(null)
         private set
 
-    /** 살아 있는 세션의 연결. 없으면 `null`입니다. */
+    /** Connection of the live session, or `null` */
     val connection: Connection? get() = session?.connection
 
     override fun onCreate() {
@@ -74,7 +74,7 @@ class SessionService : Service() {
         return START_NOT_STICKY
     }
 
-    // 최근 앱 목록에서 앱을 밀어 지우면 세션도 닫습니다.
+    // Swiping the app away from recents also closes the session.
     override fun onTaskRemoved(rootIntent: Intent?) {
         close()
         super.onTaskRemoved(rootIntent)
@@ -85,7 +85,7 @@ class SessionService : Service() {
         super.onDestroy()
     }
 
-    /** 이 Mac과의 세션을 엽니다. 이미 열린 세션이 있으면 닫고 새로 엽니다. */
+    /** Opens a session with this Mac, closing any session already open. */
     fun open(host: Host, credentials: Credentials, display: DisplayMode?) {
         session?.connection?.disconnect()
         state = State.Connecting(host, Stage.WARMUP)
@@ -99,7 +99,7 @@ class SessionService : Service() {
             display = display,
             audio = Player.supported(),
             priority = naru.preferences.priority,
-            // 서버의 HEVC는 4:4:4뿐인데, Android 하드웨어 디코더는 대부분 4:4:4를 풀지 못하고 지원 여부를 물을 프로파일 상수도 없습니다.
+            // The server's HEVC is 4:4:4 only, which most Android hardware decoders cannot decode, and there is no profile constant to query support.
             hevc = false,
         )
 
@@ -109,12 +109,12 @@ class SessionService : Service() {
         ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
     }
 
-    /** 실패를 보여 준 뒤 지웁니다. */
+    /** Clears a failure after it has been shown. */
     fun dismiss() {
         if (state is State.Failed) state = null
     }
 
-    /** 화면을 붙입니다. 마지막 레이아웃과 커서를 곧바로 되감아 줍니다. */
+    /** Attaches a screen and immediately replays the last layout and cursor. */
     fun attach(next: Connection.Listener) {
         listener = next
         val running = session ?: return
@@ -125,16 +125,16 @@ class SessionService : Service() {
         if (listener === previous) listener = null
     }
 
-    /** 알림을 다시 올립니다. 알림 권한을 접속 뒤에 허용하면 처음 올린 알림은 버려졌으므로 부릅니다. */
+    /** Reposts the notification. Called when notification permission is granted after connecting, since the first one was dropped. */
     fun notifyAgain() {
         val host = session?.host ?: return
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(host))
     }
 
     /**
-     * 가상 디스플레이를 이 크기로 바꿉니다. 화면 회전이나 창 크기 변경 뒤에 부릅니다.
+     * Resizes the virtual display to this size. Called after rotation or a window resize.
      *
-     * - Mac의 실제 화면으로 접속했으면 바꾸지 않습니다. 크기가 같아도 보내지 않습니다.
+     * - Does nothing when connected to the Mac's real display or when the size is unchanged.
      */
     fun resize(mode: DisplayMode) {
         val running = session ?: return
@@ -144,12 +144,12 @@ class SessionService : Service() {
             return
         }
 
-        Log.i(TAG, "가상 디스플레이: ${mode.width}×${mode.height}")
+        Log.i(TAG, "Virtual display: ${mode.width}×${mode.height}")
         running.display = mode
         running.connection.resize(mode)
     }
 
-    /** 다른 앱에서 복사한 텍스트를 Mac에 보냅니다. 화면이 포커스를 얻을 때 부릅니다. */
+    /** Sends text copied in another app to the Mac. Called when the screen gains focus. */
     fun syncClipboard() {
         session?.clipboard?.sync()
     }
@@ -177,7 +177,7 @@ class SessionService : Service() {
         listener?.onEvent(event)
     }
 
-    // 인증에 성공한 Mac을 목록에 저장하고, 원하면 비밀번호도 저장합니다. 비밀번호는 이 뒤로 들고 있지 않습니다.
+    // Saves the authenticated Mac to the list, and the password if requested. The password is not held after this.
     private fun remember(running: Running) {
         val credentials = running.credentials ?: return
         running.credentials = null
@@ -189,7 +189,7 @@ class SessionService : Service() {
         }
     }
 
-    // 이름 없이 추가한 Mac은 Mac이 알려 준 컴퓨터 이름으로 채웁니다. 사용자가 붙인 이름은 그대로 둡니다.
+    // A Mac added without a name gets the computer name it reports. A name given by the user is kept.
     private fun rename(running: Running, name: String) {
         val host = latest(running)
 
@@ -202,12 +202,12 @@ class SessionService : Service() {
         if (state is State.Connected) state = State.Connected(running.host)
     }
 
-    // 접속하는 동안 목록 화면에서 고친 내용을 덮어쓰지 않도록, 저장할 때는 저장소의 최신 값에 더합니다.
+    // Saves apply to the store's latest entry so edits made on the list screen while connecting are not overwritten.
     private fun latest(running: Running): Host = naru.hosts.find(running.host.id) ?: running.host
 
-    // 비밀번호가 틀렸으면 저장한 비밀번호를 지웁니다. 실패는 목록 화면이 보여 줄 때까지 [state]에 남깁니다.
+    // A wrong password deletes the saved one. The failure stays in [state] until the list screen shows it.
     private fun end(running: Running, event: Event.Closed) {
-        Log.i(TAG, "세션이 끝났습니다")
+        Log.i(TAG, "Session ended")
         session = null
         state = event.failure?.let { State.Failed(running.host, it) }
 
@@ -243,23 +243,23 @@ class SessionService : Service() {
             .build()
     }
 
-    /** 세션의 단계. 모두 어느 Mac과의 세션인지 [host]로 알려 줍니다. */
+    /** Stage of a session. Each one names its Mac through [host]. */
     sealed interface State {
         val host: Host
 
         data class Connecting(override val host: Host, val stage: Stage) : State
 
-        /** 인증에 성공했습니다. 화면은 아직 준비 중일 수 있습니다. */
+        /** Authentication succeeded. The video may still be getting ready. */
         data class Connected(override val host: Host) : State
 
         data class Failed(override val host: Host, val failure: Failure) : State
     }
 
-    /** 접속에 쓸 사용자 이름과 비밀번호. 인증에 성공하면 [remember]가 `true`일 때 비밀번호를 저장합니다. */
+    /** Username and password for connecting. On successful authentication, the password is saved if [remember] is `true`. */
     data class Credentials(val username: String, val password: String, val remember: Boolean)
 
-    // 열려 있는 세션 하나. 자격 증명은 인증할 때까지만 들고, 화면에 되감아 줄 레이아웃과 커서는 마지막 것만 남깁니다.
-    // 가상 디스플레이가 없으면(Mac의 실제 화면) `display`도 없습니다.
+    // The open session. Credentials are held only until authentication, and only the last layout and cursor are kept for replay to the screen.
+    // `display` is absent without a virtual display (the Mac's real display).
     private class Running(
         var host: Host,
         var credentials: Credentials?,
@@ -271,7 +271,7 @@ class SessionService : Service() {
         var cursor: Event.Cursor? = null
     }
 
-    // 세션의 사건과 첫 화면 알림을 메인 스레드로 넘깁니다. 새 세션으로 바뀐 뒤 늦게 도착한 이전 세션의 사건은 버립니다.
+    // Posts session events and the first-frame notice to the main thread. Late events from a previous session are dropped after switching to a new one.
     private inner class Relay : Connection.Listener {
         var owner: Running? = null
 

@@ -48,13 +48,13 @@ import dev.insd.naru.session.SessionService
 import dev.insd.naru.session.Touchpad
 
 /**
- * 살아 있는 세션의 화면입니다. 화면과 입력만 다룹니다.
+ * The screen of a live session, handling only display and input.
  *
- * - 접속과 로그인, 실패 안내는 목록 화면([MainActivity])이 합니다. 이 화면은 인증에 성공한 세션에만 열립니다.
- * - 세션은 [SessionService]가 소유합니다. 이 화면은 서비스에 붙어 Surface와 입력을 넘기므로, 화면을 떠나도 세션은 이어지고 돌아오면 다시 붙습니다.
- * - 몰입 모드, 키 가로채기, Meta 키 요청, 화면 켜짐 유지는 이 창에만 걸리므로 화면을 떠나면 함께 풀립니다.
- * - 세션 중에는 하드웨어 키보드의 키를 모두 Mac으로 보냅니다. 뒤로 가기는 세션을 둔 채 목록으로 돌아갑니다.
- * - 가상 디스플레이는 영상을 그리는 영역의 실제 크기에 맞춥니다. 화면 회전, 창 크기 변경, 숨길 수 없는 시스템 막대가 모두 이 크기에 드러납니다.
+ * - The list screen ([MainActivity]) handles connecting, login, and failure messages. This screen opens only for an authenticated session.
+ * - [SessionService] owns the session. This screen binds to the service and hands over its Surface and input, so the session continues after leaving and reattaches on return.
+ * - Immersive mode, key capture, the Meta key request, and keep-screen-on apply only to this window, so they are released on leaving.
+ * - During a session every hardware keyboard key goes to the Mac. Back returns to the list and keeps the session.
+ * - The virtual display matches the actual size of the area drawing the video, which reflects rotation, window resizes, and system bars that cannot be hidden.
  */
 class SessionActivity : ComponentActivity() {
     private var service: SessionService? = null
@@ -70,7 +70,7 @@ class SessionActivity : ComponentActivity() {
         }
     }
 
-    // 인증 전(접속 중에 알림을 누른 경우)이거나 이미 끝난 세션이면 보여 줄 것이 없으므로 목록 화면으로 돌아갑니다. 로그인과 실패는 목록 화면이 맡습니다.
+    // Before authentication (the notification tapped while connecting) or after the session ended there is nothing to show, so return to the list screen, which handles login and failures.
     private val binding = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val bound = (binder as SessionService.Local).service
@@ -90,10 +90,10 @@ class SessionActivity : ComponentActivity() {
     private var layout by mutableStateOf<Event.Layout?>(null)
     private var screen: ScreenView? = null
 
-    // 화면 뷰는 연결을 붙인 뒤 다음 프레임에 만들어지므로, 그 전에 온 커서는 남겨 두었다가 붙일 때 씁니다.
+    // The screen view is created on the frame after the connection attaches, so a cursor that arrives earlier is kept and applied on attach.
     private var cursor: Event.Cursor? = null
 
-    // 크기를 바꿀 때마다 Mac은 새 스트림을 열어 1.5~2초 걸리므로, 창을 끄는 동안의 변경은 멈출 때까지 모았다가 한 번만 보냅니다.
+    // Each resize makes the Mac open a new stream, taking 1.5 to 2 s, so changes during a window drag are collected until it stops and sent once.
     private val main = Handler(Looper.getMainLooper())
     private var area: IntSize? = null
     private val resize = Runnable { area?.let { service?.resize(virtualDisplay(it.width, it.height)) } }
@@ -119,22 +119,22 @@ class SessionActivity : ComponentActivity() {
         bindService(Intent(this, SessionService::class.java), binding, BIND_AUTO_CREATE)
     }
 
-    // 뒤에 남아 있던 화면이 다른 Mac과의 새 세션으로 바뀐 뒤 다시 보이면 닫습니다.
+    // Closes this screen if it reappears from the back stack after the session switched to another Mac.
     override fun onStart() {
         super.onStart()
         val current = service ?: return
         if (connection != null && current.connection !== connection) finish()
     }
 
-    // 화면을 떠날 때 Mac에 눌린 채 남는 키가 없게 합니다.
-    // 돌아오면 Surface와 디코더를 새로 만들어 첫 프레임까지 비어 있으므로 로딩 표시를 다시 띄웁니다.
+    // No key stays held on the Mac after leaving the screen.
+    // On return the Surface and decoder are recreated and stay blank until the first frame, so the loading indicator shows again.
     override fun onStop() {
         loading = true
         connection?.let { current -> keys.releaseAll().forEach { (keysym, down) -> current.key(keysym, down) } }
         super.onStop()
     }
 
-    // 화면만 사라집니다. 세션은 서비스에 남습니다.
+    // Only the screen goes away; the session stays in the service.
     override fun onDestroy() {
         main.removeCallbacks(resize)
         language?.stop()
@@ -143,20 +143,20 @@ class SessionActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    // 세션 중에는 키를 시스템이나 Compose보다 먼저 가로챕니다. 포커스 이동(Tab, 화살표)이 일어나지 않게 합니다.
+    // During a session keys are captured before the system and Compose so they do not move focus (Tab, arrows).
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = handleKey(event, afterIme = true) || super.dispatchKeyEvent(event)
 
-    // 터치패드 제스처는 Compose가 중간에 취소를 끼워 넣으므로 그보다 먼저 가로챕니다.
+    // Compose inserts a cancel into touchpad gestures, so they are captured before Compose.
     override fun dispatchTouchEvent(event: MotionEvent): Boolean =
         touchpad?.handle(event) == true || super.dispatchTouchEvent(event)
 
-    // 다른 앱에서 복사하고 돌아오면 그 텍스트를 Mac에 보냅니다.
+    // Text copied in another app is sent to the Mac on return.
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) service?.syncClipboard()
     }
 
-    // 세션 중이면 키를 Mac으로 보내고 `true`를 반환합니다. 화면 뷰가 IME보다 먼저 부르고, 포커스가 다른 곳이면 액티비티가 부릅니다.
+    // During a session, sends the key to the Mac and returns `true`. The screen view calls this before the IME, and the activity calls it when focus is elsewhere.
     private fun handleKey(event: KeyEvent, afterIme: Boolean = false): Boolean {
         val current = connection ?: return false
         val translated = keys.translate(event)
@@ -165,9 +165,9 @@ class SessionActivity : ComponentActivity() {
             current.key(keysym, down)
         }
 
-        // Mac으로 보내지 않는 키는 시스템과 IME에 그대로 넘깁니다. 한/영 키는 IME가 언어를 바꾸고, 볼륨 키는 볼륨을, 뒤로 가기는 화면을 바꿉니다.
+        // Keys not sent to the Mac pass through to the system and IME: Korean/English switches the IME language, volume keys change volume, and Back changes the screen.
         if (translated.isEmpty() && !KeyEvent.isModifierKey(event.keyCode) && !keys.isMouseNavigation(event) && !keys.isDeadKey(event)) {
-            // 화면 뷰(IME 전)와 액티비티(IME 후)가 같은 키를 두 번 볼 수 있으므로 IME 뒤에서만 언어를 다시 읽습니다.
+            // The screen view (before the IME) and the activity (after it) can both see the same key, so the language is reread only after the IME.
             if (event.keyCode == KeyEvent.KEYCODE_LANGUAGE_SWITCH && event.action == KeyEvent.ACTION_UP && afterIme) {
                 language?.sync()
             }
@@ -193,7 +193,7 @@ class SessionActivity : ComponentActivity() {
                 },
             )
 
-            // 첫 화면이 그려질 때까지 가운데에 진행 표시를 둡니다.
+            // A centered progress indicator shows until the first frame is drawn.
             if (loading) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(24.dp)) {
                     @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -211,7 +211,7 @@ class SessionActivity : ComponentActivity() {
         view.requestFocus()
     }
 
-    // 세션의 연결에 이 화면의 입력을 붙입니다.
+    // Attaches this screen's input to the session's connection.
     private fun adopt(next: Connection) {
         connection = next
         language = ImeLanguage(this, next).also { it.sync(delayMs = 0) }
@@ -237,9 +237,9 @@ class SessionActivity : ComponentActivity() {
         finish()
     }
 
-    // 남은 정리는 화면이 사라지며 합니다. 시스템 막대와 Meta 키 요청만 먼저 되돌립니다.
+    // The rest of the cleanup happens as the screen goes away. Only the system bars and the Meta key request are restored first.
     private fun closed() {
-        Log.i(TAG, "세션 화면을 닫습니다")
+        Log.i(TAG, "Closing the session screen")
         immersive(false)
         finish()
     }

@@ -10,10 +10,10 @@ import android.view.inputmethod.InputMethodManager
 import dev.insd.naru.TAG
 
 /**
- * 태블릿 IME의 입력 언어를 BCP 47 태그로 세션에 알립니다. 글자를 그 언어의 Mac 배열대로 바꾸는 일은 세션이 합니다.
+ * Reports the tablet IME's input language to the session as a BCP 47 tag. The session maps characters to that language's Mac layout.
  *
- * - 한/영 키는 One UI가 처리하므로 키가 눌린 뒤 [sync]로 다시 읽습니다. 키를 시스템이 먹는 경우에 대비해 선택한 IME 서브타입의 변경도 지켜봅니다.
- * - 같은 언어는 다시 알리지 않습니다. 메인 스레드에서만 부르십시오.
+ * - One UI handles the Korean/English key, so [sync] rereads the language after it is pressed. The selected IME subtype is also observed in case the system consumes the key.
+ * - The same language is not reported twice. Call only on the main thread.
  */
 class ImeLanguage(private val context: Context, private val connection: Connection) {
     private val handler = Handler(Looper.getMainLooper())
@@ -27,7 +27,7 @@ class ImeLanguage(private val context: Context, private val connection: Connecti
         context.contentResolver.registerContentObserver(Settings.Secure.getUriFor(SELECTED_SUBTYPE), false, observer)
     }
 
-    /** 입력 언어를 다시 읽어 바뀌었으면 알립니다. 한/영 키가 눌린 뒤에는 IME가 언어를 바꿀 때까지 조금 기다립니다. */
+    /** Rereads the input language and reports it if it changed. After the Korean/English key, waits briefly for the IME to switch. */
     fun sync(delayMs: Long = SETTLE_MS) {
         handler.postDelayed({ report(read()) }, delayMs)
     }
@@ -43,11 +43,11 @@ class ImeLanguage(private val context: Context, private val connection: Connecti
         }
 
         reported = language
-        Log.i(TAG, "태블릿 입력 언어: $language")
+        Log.i(TAG, "Tablet input language: $language")
         connection.language(language)
     }
 
-    // 서브타입이 언어를 알리지 않으면 빈 태그입니다. 세션은 모르는 언어처럼 라틴 문자를 그대로 보냅니다.
+    // An empty tag when the subtype reports no language. The session then sends Latin characters as is, as for an unknown language.
     private fun read(): String {
         val subtype = context.getSystemService(InputMethodManager::class.java).currentInputMethodSubtype
         return subtype?.languageTag?.takeIf { it.isNotEmpty() } ?: subtype?.let { @Suppress("DEPRECATION") it.locale } ?: ""
@@ -56,7 +56,7 @@ class ImeLanguage(private val context: Context, private val connection: Connecti
     companion object {
         private const val SETTLE_MS = 150L
 
-        // Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE는 공개 API에 없으므로 이름을 직접 씁니다.
+        // Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE is not public API, so the name is spelled out.
         private const val SELECTED_SUBTYPE = "selected_input_method_subtype"
     }
 }

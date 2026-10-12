@@ -4,16 +4,16 @@ import android.content.Context
 import java.io.File
 
 /**
- * 접속한 Mac의 공개키입니다. 처음 접속할 때 저장하고, 다음 접속부터 바뀌었는지 확인하는 데 씁니다.
+ * Public keys of connected Macs, saved on first connection and checked for changes on later ones.
  *
- * - Mac의 공개키에는 인증서 체인이 없으므로, 처음 본 키를 믿고 이후 바뀌면 사용자에게 묻습니다.
+ * - A Mac's public key has no certificate chain, so the first key seen is trusted and the user is asked if it later changes.
  */
 class ServerKeys(context: Context) {
     private val directory = File(context.filesDir, "server-keys")
 
     fun find(host: Host): ByteArray? = file(host).takeIf { it.exists() }?.readBytes()
 
-    /** 저장한 키가 없을 때만 저장합니다. */
+    /** Saves only when no key is stored yet. */
     fun remember(host: Host, der: ByteArray) {
         val file = file(host)
 

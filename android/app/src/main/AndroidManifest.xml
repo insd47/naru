@@ -3,7 +3,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- 앱을 떠나도 세션을 이어 가는 포그라운드 서비스입니다. connectedDevice 종류는 아래 멀티캐스트 같은 네트워크 권한 하나를 요구하며, Bonjour 탐색이 멀티캐스트를 씁니다. -->
+    <!-- Foreground service that keeps the session alive after leaving the app. The connectedDevice type requires a network permission such as the multicast one below, which Bonjour discovery uses. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
@@ -26,7 +26,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <!-- Mac 한 대와의 세션 화면입니다. 회전과 키보드 연결로 다시 만들어지지 않게 합니다. -->
+        <!-- Session screen for one Mac. It is not recreated on rotation or keyboard attach. -->
         <activity
             android:name=".SessionActivity"
             android:exported="false"

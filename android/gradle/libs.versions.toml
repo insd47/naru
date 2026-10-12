@@ -4,7 +4,7 @@ kotlin = "2.2.10"
 activityCompose = "1.11.0"
 lifecycle = "2.10.0"
 composeBom = "2025.11.00"
-# Material 3 Expressive API는 1.5부터 공개되므로 material3만 BOM보다 앞선 버전으로 고정합니다.
+# The Material 3 Expressive API is public from 1.5, so only material3 is pinned ahead of the BOM.
 material3 = "1.5.0-beta01"
 junit = "4.13.2"
 jna = "5.17.0"

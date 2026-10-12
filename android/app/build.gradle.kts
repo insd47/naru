@@ -5,20 +5,20 @@ plugins {
 
 android {
     namespace = "dev.insd.naru"
-    // Material 3 Expressive(material3 1.5)가 API 37 이상으로 컴파일할 것을 요구합니다.
+    // Material 3 Expressive (material3 1.5) requires compiling against API 37 or later.
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
         applicationId = "dev.insd.naru"
-        // MediaCodecInfo.isHardwareAccelerated가 29부터 있습니다.
+        // MediaCodecInfo.isHardwareAccelerated exists from API 29.
         minSdk = 29
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
 
-        // Rust 프로토콜 크레이트는 arm64만 빌드합니다.
+        // The Rust protocol crate is built for arm64 only.
         ndk { abiFilters += "arm64-v8a" }
     }
 
@@ -31,7 +31,7 @@ android {
         compose = true
     }
 
-    // Rust 코어 크레이트와 그 Kotlin 바인딩은 build-core.sh가 만듭니다.
+    // build-core.sh builds the Rust core crate and its Kotlin bindings.
     sourceSets {
         getByName("main") {
             jniLibs.directories += "build/generated/jniLibs"
@@ -41,7 +41,7 @@ android {
 }
 
 val buildCore by tasks.registering(Exec::class) {
-    description = "Rust 코어 크레이트를 Android용으로 빌드하고 Kotlin 바인딩을 만듭니다"
+    description = "Builds the Rust core crate for Android and generates its Kotlin bindings"
     workingDir = rootDir
     commandLine("sh", "build-core.sh")
     environment("ANDROID_HOME", androidComponents.sdkComponents.sdkDirectory.get().asFile.absolutePath)

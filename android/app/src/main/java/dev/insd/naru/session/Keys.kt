@@ -5,21 +5,21 @@ import android.view.KeyCharacterMap
 import android.view.KeyEvent
 
 /**
- * Android 키 이벤트를 X11 keysym으로 바꿉니다.
+ * Converts Android key events to X11 keysyms.
  *
- * - 수식 키는 자리를 기준으로 옮깁니다. PC 배열에서 스페이스 옆의 Alt가 Mac 배열의 Command 자리이므로 Alt → Command,
- *   Meta → Option입니다. [swapCommandOption]이 `false`면 이름대로(Alt → Option, Meta → Command) 옮깁니다.
- * - Mac은 Super_L을 Command로, Meta_L을 Option으로 받습니다. Alt_L도 Command로 받으므로 Option에는 쓰지 않습니다.
- * - 글자 키는 물리 키의 라틴 문자를 보냅니다. Mac의 입력 소스가 2벌식처럼 라틴 문자를 칠 수 없는 배열이면 세션이 그 배열의 글자로 바꿉니다.
- * - Control, Option, Command가 눌려 있지 않으면 Shift를 적용한 문자(`A`, `!`)를, 눌려 있으면 소문자(`c`)를 보냅니다.
- * - 뗄 때는 누를 때 보낸 keysym을 그대로 보냅니다. 그 사이 Shift가 바뀌어도 Mac에 눌린 키가 남지 않게 합니다.
- * - 데드 키(`´` 다음 `e`)는 태블릿 배열대로 합친 글자(`é`)를 보냅니다. Mac은 배열에 없는 글자를 그대로 넣습니다.
- * - Caps Lock은 보내지 않습니다. 대소문자는 글자에 이미 담겨 있고, Mac이 Caps Lock으로 ABC로 바뀌면 한국어가 낱자로 들어갑니다.
+ * - Modifiers map by position. On a PC layout the Alt next to the space bar sits where Command is on a Mac, so Alt → Command and
+ *   Meta → Option. When [swapCommandOption] is `false`, they map by name (Alt → Option, Meta → Command).
+ * - The Mac treats Super_L as Command and Meta_L as Option. It also treats Alt_L as Command, so Alt_L is not used for Option.
+ * - Character keys send the physical key's Latin character. If the Mac's input source is a layout that cannot type Latin, such as Dubeolsik, the session converts to that layout's characters.
+ * - Without Control, Option, or Command held, sends the shifted character (`A`, `!`); with any held, sends the lowercase one (`c`).
+ * - A release sends the same keysym as the press, so no key stays held on the Mac if Shift changed in between.
+ * - Dead keys (`´` then `e`) send the character composed by the tablet layout (`é`). The Mac inserts characters missing from its layout as is.
+ * - Caps Lock is not sent. Case is already in the character, and if Caps Lock switches the Mac to ABC, Korean comes out as separate jamo.
  */
 class Keys(swapCommandOption: Boolean) {
     private val pressed = HashMap<Int, Int>()
 
-    // 눌러 둔 데드 키의 결합 문자. 다음 글자와 합칩니다.
+    // Combining character of the pending dead key, composed with the next character.
     private var accent = 0
 
     private val modifiers = if (swapCommandOption) {
@@ -38,7 +38,7 @@ class Keys(swapCommandOption: Boolean) {
         )
     }
 
-    /** 보낼 (keysym, 누름) 목록. 모르는 키면 빈 목록입니다. */
+    /** The (keysym, down) pairs to send, empty for an unknown key */
     fun translate(event: KeyEvent): List<Pair<Int, Boolean>> {
         val down = when (event.action) {
             KeyEvent.ACTION_DOWN -> true
@@ -56,25 +56,25 @@ class Keys(swapCommandOption: Boolean) {
     }
 
     /**
-     * 마우스의 뒤로/앞으로 버튼에서 온 키인지 여부.
+     * Whether the key came from a mouse back/forward button.
      *
-     * - Android는 이 버튼을 BACK/FORWARD 키로 바꿔 보내므로, 시스템에 넘기면 세션 화면을 떠납니다. 삼키기만 합니다.
-     * - Screen Sharing에는 이 버튼이 없어 Mac에도 보내지 않습니다.
+     * - Android turns these buttons into BACK/FORWARD keys, so passing them to the system would leave the session screen. They are swallowed.
+     * - Screen Sharing has no such buttons, so they are not sent to the Mac either.
      */
     fun isMouseNavigation(event: KeyEvent): Boolean =
         (event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_FORWARD) &&
             event.isFromSource(InputDevice.SOURCE_MOUSE)
 
-    /** 데드 키인지 여부. 다음 글자와 합쳐 보내므로 시스템에 넘기지 않고 삼킵니다. */
+    /** Whether this is a dead key. It is swallowed rather than passed to the system, since it is sent composed with the next character. */
     fun isDeadKey(event: KeyEvent): Boolean = char(event) and KeyCharacterMap.COMBINING_ACCENT != 0
 
-    /** 눌린 채로 남은 키를 모두 뗍니다. 화면을 떠날 때 Mac에 키가 눌린 채 남지 않게 합니다. */
+    /** Releases every held key so none stays held on the Mac when leaving the screen. */
     fun releaseAll(): List<Pair<Int, Boolean>> = pressed.values.map { it to false }.also { pressed.clear() }
 
     private fun keysym(event: KeyEvent): Int? {
         modifiers[event.keyCode]?.let { return it }
 
-        // 데드 키 다음에 스페이스나 화살표를 누르면 데드 키를 버립니다. Shift는 `É`처럼 함께 쓰므로 남깁니다.
+        // A space or arrow after a dead key discards the dead key. Shift is kept, since it combines as in `É`.
         SPECIAL[event.keyCode]?.let { keysym ->
             if (!KeyEvent.isModifierKey(event.keyCode)) accent = 0
             return keysym
@@ -91,11 +91,11 @@ class Keys(swapCommandOption: Boolean) {
             return null
         }
 
-        // 합칠 수 없는 글자면 데드 키를 버리고 글자만 보냅니다.
+        // If the character cannot be composed, the dead key is discarded and only the character is sent.
         val combined = KeyCharacterMap.getDeadChar(accent, char).takeIf { accent != 0 && it != 0 } ?: char
         accent = 0
 
-        // 라틴-1은 문자 코드 그대로, 그 밖은 유니코드 keysym입니다.
+        // Latin-1 uses the character code directly; anything else uses a Unicode keysym.
         return if (combined in 0x20..0x7e || combined in 0xa0..0xff) combined else 0x0100_0000 + combined
     }
 
@@ -106,7 +106,7 @@ class Keys(swapCommandOption: Boolean) {
     }
 
     companion object {
-        // Super_L/R은 Command, Meta_L은 Option으로 확인했습니다. Meta_R은 Meta_L에 맞춘 것으로 아직 확인하지 않았습니다.
+        // Super_L/R are confirmed as Command and Meta_L as Option. Meta_R mirrors Meta_L and is unverified.
         private const val COMMAND_LEFT = 0xffeb
         private const val COMMAND_RIGHT = 0xffec
         private const val OPTION_LEFT = 0xffe7

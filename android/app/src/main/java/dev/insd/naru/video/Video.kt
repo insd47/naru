@@ -13,13 +13,13 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * 세션의 영상을 Surface에 그립니다.
+ * Draws the session's video to a Surface.
  *
- * - 디코더와 그 콜백은 전용 스레드 하나에서만 다룹니다. 어느 스레드에서 불러도 그 스레드로 넘겨 차례로 처리합니다.
- * - 디코더는 설정(SPS, PPS)과 Surface가 모두 있을 때만 있습니다. 둘 중 하나가 바뀌면 새로 만들고 키프레임부터 넣습니다.
- * - 키프레임은 Surface가 바뀌었거나, 디코더가 오류를 냈거나, 입력이 밀렸을 때 [requestKeyframe]으로 요청합니다. 새 설정과 멈춤 복구에는 세션이 보냅니다.
- * - 디코더를 새로 만들 때마다 첫 프레임을 그리면 [onFirstFrame]을 부릅니다. 그때까지 화면은 비어 있습니다.
- * - [release] 뒤에 들어온 일은 하지 않습니다.
+ * - The decoder and its callbacks live on one dedicated thread. Calls from any thread are posted there and handled in order.
+ * - A decoder exists only while both a config (SPS, PPS) and a Surface exist. When either changes, a new one is created and fed from a keyframe.
+ * - A keyframe is requested through [requestKeyframe] when the Surface changed, the decoder failed, or input backed up. The session requests one itself for a new config and for frame stall recovery.
+ * - Each new decoder calls [onFirstFrame] once it draws its first frame. The screen is blank until then.
+ * - Work arriving after [release] is ignored.
  */
 class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: () -> Unit) {
     private val thread = HandlerThread("naru-video").apply { start() }
@@ -32,12 +32,12 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
     private var shown = false
     private var released = false
 
-    // 디코더를 새로 만든 뒤에는 키프레임이 올 때까지 넣지 않습니다.
-    // 요청이 서버에 닿지 않았을 수 있으므로, 기다리는 동안 프레임이 오면 일정 간격으로 다시 요청합니다.
+    // After a new decoder is created, nothing is queued until a keyframe arrives.
+    // The request may not have reached the server, so frames arriving while waiting trigger a new request at a fixed interval.
     private var awaitingKeyframe = true
     private var requestedAt = 0L
 
-    // 통계 사건마다 남기는 수신 기록입니다.
+    // Receive counters logged on each stats event.
     private var frames = 0
     private var keyframes = 0
     private var dropped = 0
@@ -53,24 +53,24 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
             }
         }
 
-        // 코덱의 콜백 안에서 그 코덱을 해제하지 않도록 콜백이 끝난 뒤에 새로 만듭니다.
+        // Recreated after the callback returns so the codec is not released inside its own callback.
         override fun onError(error: RuntimeException) {
-            Log.w(TAG, "디코더 오류: ${(error as? MediaCodec.CodecException)?.diagnosticInfo ?: error.message}")
+            Log.w(TAG, "Decoder error: ${(error as? MediaCodec.CodecException)?.diagnosticInfo ?: error.message}")
             handler.post { rebuild(keyframe = true) }
         }
     }
 
     /**
-     * 영상을 그릴 Surface. 사라지면 `null`을 넘깁니다.
+     * Surface to draw video on, or `null` once it is gone.
      *
-     * - Surface가 사라진 뒤에는 그리면 안 되므로, `null`이면 디코더를 해제할 때까지 기다립니다.
+     * - Drawing to a Surface after it is gone is not allowed, so `null` blocks until the decoder is released.
      */
     fun attach(next: Surface?) {
         val detached = CountDownLatch(1)
 
         val posted = handler.post {
             if (next == null || next !== surface || decoder == null) {
-                Log.i(TAG, "Surface ${if (next == null) "사라짐" else "연결"}")
+                Log.i(TAG, "Surface ${if (next == null) "gone" else "attached"}")
                 surface = next
                 rebuild(keyframe = true)
             }
@@ -83,8 +83,8 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
         }
     }
 
-    // 서버는 키프레임마다 같은 설정을 다시 보냅니다. 같은 설정이면 디코더를 그대로 두고, 바뀌었을 때만 새로 만듭니다.
-    // 새로 만들 때는 뒤따르는 키프레임이 곧 오므로 따로 요청하지 않습니다.
+    // The server resends the same config with every keyframe. The decoder is kept for an identical config and recreated only when it changes.
+    // When recreating, the following keyframe arrives shortly, so none is requested.
     fun configure(config: DecoderConfig) {
         handler.post {
             val nextSps = config.sps.firstOrNull() ?: return@post
@@ -102,7 +102,7 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
         handler.post { decode(unit) }
     }
 
-    /** 프레임이 오래 나오지 않았습니다. 디코더를 새로 만듭니다. 키프레임은 세션이 요청합니다. */
+    /** No frame has come out for a while, so the decoder is recreated. The session requests the keyframe. */
     fun reset() {
         handler.post { rebuild(keyframe = false) }
     }
@@ -111,9 +111,9 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
         handler.post {
             Log.i(
                 TAG,
-                "수신(0.5초): 프레임 $frames (키 $keyframes, 버림 $dropped), 출력 $rendered | 데이터그램 ${stats.datagrams}, " +
-                    "인증 ${stats.authenticated}, SSRC ${stats.ssrc?.toString(16)}, 순번 ${stats.highest}, 후보 ${stats.candidates}, " +
-                    "오퍼 ${stats.offers}, NACK ${stats.nacked}, 메움 ${stats.filled}, 손실 ${stats.losses}",
+                "Received (0.5 s): frames $frames (key $keyframes, dropped $dropped), rendered $rendered | datagrams ${stats.datagrams}, " +
+                    "authenticated ${stats.authenticated}, SSRC ${stats.ssrc?.toString(16)}, sequence ${stats.highest}, candidates ${stats.candidates}, " +
+                    "offers ${stats.offers}, NACK ${stats.nacked}, filled ${stats.filled}, lost ${stats.losses}",
             )
             frames = 0
             keyframes = 0
@@ -151,18 +151,18 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
 
         awaitingKeyframe = false
 
-        // RTP 타임스탬프는 90 kHz입니다. 출력 순서에만 쓰므로 넘어감은 신경 쓰지 않습니다.
+        // RTP timestamps are 90 kHz. They only order output, so wraparound does not matter.
         val ptsUs = unit.timestamp.toLong() * 1_000 / 90
 
         if (!current.queue(unit, ptsUs)) {
-            Log.w(TAG, "디코더 입력이 밀려 쌓인 프레임을 버립니다")
+            Log.w(TAG, "Decoder input backed up; dropping pending frames")
             dropped += Decoder.BACKLOG + 1
             awaitingKeyframe = true
             askKeyframe()
         }
     }
 
-    // 디코더를 지금의 설정과 Surface로 다시 만듭니다. 둘 중 하나가 없으면 디코더 없이 기다립니다.
+    // Recreates the decoder with the current config and Surface. If either is missing, waits without a decoder.
     private fun rebuild(keyframe: Boolean) {
         decoder?.release()
         decoder = null
@@ -176,8 +176,8 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
         val pps = pps ?: return
 
         decoder = runCatching { Decoder(sps, pps, target, handler, listener) }
-            .onSuccess { Log.i(TAG, "디코더: ${it.info.name}") }
-            .onFailure { Log.e(TAG, "디코더를 만들 수 없습니다", it) }
+            .onSuccess { Log.i(TAG, "Decoder: ${it.info.name}") }
+            .onFailure { Log.e(TAG, "Cannot create the decoder", it) }
             .getOrNull()
 
         if (keyframe) {
@@ -192,10 +192,10 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
 
     companion object {
 
-        // Surface가 사라질 때 디코더 해제를 기다리는 한도. 디코더 해제는 보통 수십 ms 안에 끝납니다.
+        // How long to wait for the decoder release when the Surface goes away. A release usually finishes within tens of ms.
         private const val DETACH_TIMEOUT_MS = 500L
 
-        // 키프레임을 기다리며 다시 요청하는 간격. 세션도 요청 사이에 최소 간격을 둡니다.
+        // Interval between keyframe re-requests while waiting. The session also enforces a minimum interval between requests.
         private const val KEYFRAME_RETRY_NS = 1_000_000_000L
     }
 }

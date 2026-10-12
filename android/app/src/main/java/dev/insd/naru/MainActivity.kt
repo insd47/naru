@@ -81,13 +81,13 @@ import dev.insd.naru.home.formatDate
 import dev.insd.naru.session.SessionService
 
 /**
- * 저장한 Mac과 같은 네트워크에서 찾은 Mac, 그리고 모든 Mac에 함께 쓰는 설정을 보여 주는 첫 화면입니다.
+ * The first screen, showing saved Macs, Macs found on the local network, and settings shared by every Mac.
  *
- * - 항목을 누르면 이 화면에서 사용자 이름과 비밀번호를 묻고 접속합니다. 저장한 비밀번호가 있으면 묻지 않습니다.
- * - Mac처럼 인증에 성공한 뒤에야 세션 화면([SessionActivity])을 엽니다. 실패는 이 화면이 알립니다.
- * - 세션은 [SessionService]가 소유하므로 이 화면에 있는 동안에도 이어집니다. 그 Mac의 항목에는 Disconnect 버튼을 늘 보여 줍니다.
- * - 내비게이션과 새 연결 버튼의 자리는 창 크기에 따라 [NavigationSuiteScaffold]가 고릅니다(넓으면 레일, 좁으면 아래 막대).
- * - 네트워크 탭은 보이는 동안만 찾습니다.
+ * - Tapping an item asks for the username and password on this screen and connects. A saved password skips the prompt.
+ * - As on the Mac, the session screen ([SessionActivity]) opens only after authentication succeeds. This screen reports failures.
+ * - [SessionService] owns the session, so it continues while this screen is shown. That Mac's item always shows a Disconnect button.
+ * - [NavigationSuiteScaffold] places the navigation and the new connection button by window size (a rail when wide, a bottom bar when narrow).
+ * - The network tab discovers only while visible.
  */
 class MainActivity : ComponentActivity() {
     private lateinit var discovery: Discovery
@@ -98,7 +98,7 @@ class MainActivity : ComponentActivity() {
     private var signingIn by mutableStateOf<Host?>(null)
     private var loginMessage by mutableStateOf<String?>(null)
 
-    // 인증에 성공하면 세션 화면을 열 Mac의 ID. 이 화면에서 접속을 시작했을 때만 둡니다.
+    // ID of the Mac whose session screen opens once authentication succeeds. Set only when the connection started from this screen.
     private var opening: String? = null
 
     private var service by mutableStateOf<SessionService?>(null)
@@ -113,7 +113,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 알림을 못 띄우면 세션은 이어지지만 알림의 연결 끊기 버튼이 보이지 않습니다. 거절해도 접속은 그대로 합니다.
+    // Without notifications the session still runs, but the notification's disconnect button is missing. Connecting proceeds even if denied.
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) service?.notifyAgain()
     }
@@ -144,7 +144,7 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    // 다크 모드를 바꿔도 화면을 다시 만들지 않으므로, 시스템 막대의 아이콘 색을 새 모드에 맞춥니다.
+    // Switching dark mode does not recreate the activity, so the system bar icon colors are updated to match.
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         enableEdgeToEdge()
@@ -164,10 +164,10 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             },
-            // 태블릿의 레일은 항목을 세로 가운데에 모으고, 새 연결 버튼은 위에 둡니다.
+            // On tablets the rail centers its items vertically and puts the new connection button at the top.
             navigationItemVerticalArrangement = Arrangement.Center,
-            // 레일(96dp) 머리는 내용을 왼쪽에 붙이므로 FAB(56dp)를 가운데에 오게 띄웁니다. 레일 안의 FAB는 그림자가 없습니다.
-            // 설정 탭에는 새 연결이 어울리지 않으므로 두지 않습니다.
+            // The rail (96dp) header aligns content to the start, so the FAB (56dp) is padded to center it. A FAB inside the rail has no shadow.
+            // A new connection button does not fit the settings tab, so it is omitted there.
             primaryActionContent = {
                 if (tab != Tab.SETTINGS) {
                     FloatingActionButton(
@@ -229,7 +229,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 찾기는 화면이 보이는 동안 계속되므로, 끝이 없는 진행 막대를 위에 둡니다. 앱을 떠나면 멈추고 돌아오면 다시 찾습니다.
+    // Discovery runs as long as the screen is visible, so an indeterminate progress bar sits on top. It stops on leaving the app and resumes on return.
     @Composable
     private fun Network() {
         LifecycleStartEffect(Unit) {
@@ -261,7 +261,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 접속하는 동안에는 창을 둔 채 입력을 막고, 인증에 성공하면 [react]가 창을 닫습니다.
+    // While connecting, the dialog stays open with input disabled, and [react] closes it once authentication succeeds.
     @Composable
     private fun Login(host: Host) {
         var username by remember(host.id) { mutableStateOf(host.username) }
@@ -347,7 +347,7 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    // 세션 중인 Mac이면 세션 화면으로 돌아가고, 아니면 저장한 비밀번호로 접속하거나 로그인 창을 엽니다.
+    // Returns to the session screen for a Mac in session; otherwise connects with the saved password or opens the login dialog.
     private fun connect(host: Host) {
         val state = service?.state?.takeIf { it.host.id == host.id && it !is SessionService.State.Failed }
 
@@ -365,7 +365,7 @@ class MainActivity : ComponentActivity() {
         open(host, SessionService.Credentials(host.username, password, remember = false))
     }
 
-    // 찾은 Mac의 주소를 풀어 접속합니다. 같은 주소로 저장한 Mac이 있으면 그것으로 접속합니다.
+    // Resolves a found Mac's address and connects, using a saved Mac with the same address if there is one.
     private fun connect(found: Found) {
         discovery.resolve(found) { address ->
             address ?: return@resolve
@@ -374,7 +374,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 접속하는 동안에는 목록을 막아 다른 Mac으로 접속을 겹쳐 시작하지 않게 합니다.
+    // The list is disabled while connecting so a second connection to another Mac cannot start.
     private fun connecting(): Boolean = service?.state is SessionService.State.Connecting
 
     private fun open(host: Host, credentials: SessionService.Credentials) {
@@ -391,7 +391,7 @@ class MainActivity : ComponentActivity() {
         bound.open(host, credentials, if (host.virtualDisplay) virtualDisplay() else null)
     }
 
-    // 인증에 성공하면 세션 화면을 열고, 비밀번호가 틀리면 로그인 창에 표시합니다. 그 밖의 실패는 [Failure]가 보여 줍니다.
+    // Opens the session screen on successful authentication and shows a wrong password in the login dialog. [Failure] shows other failures.
     private fun react(state: SessionService.State?) {
         when (state) {
             is SessionService.State.Connected -> if (opening == state.host.id) {
@@ -414,7 +414,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 다이얼로그를 여는 사이 세션이 저장한 접속 시각이나 이름을 덮어쓰지 않도록, 고친 항목만 최신 값에 더합니다.
+    // Only the edited fields are applied to the latest entry, so a connection time or name the session saved while the dialog was open is not overwritten.
     private fun save(edited: Host) {
         val latest = naru.hosts.find(edited.id) ?: edited
         val merged = latest.copy(

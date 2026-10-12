@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import dev.insd.naru.core.Priority
 import dev.insd.naru.home.Group
 
-/** 모든 Mac에 함께 쓰는 설정 화면입니다. 키 배치는 Parsec처럼 켜고 끄고, 화질은 Screen Sharing 앱처럼 두 가지 중 하나를 고릅니다. */
+/** Settings screen shared by every Mac. The key mapping is an on/off toggle as in Parsec, and quality is one of two choices as in the Screen Sharing app. */
 @Composable
 fun Settings(preferences: Preferences) {
     val qualities = listOf(

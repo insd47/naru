@@ -13,10 +13,10 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * 저장한 Mac의 비밀번호를 Android 키 저장소의 키로 암호화해 둡니다.
+ * Stores saved Macs' passwords encrypted with a key in the Android Keystore.
  *
- * - 키(AES-GCM)는 키 저장소 밖으로 나오지 않고, 앱 설정 파일에는 IV와 암호문만 남습니다.
- * - 키가 무효가 되어 풀 수 없는 비밀번호는 지우고 없는 것으로 봅니다. 그러면 다음 접속에서 다시 묻습니다.
+ * - The AES-GCM key never leaves the Keystore; the preferences file holds only the IV and ciphertext.
+ * - A password that cannot be decrypted because the key was invalidated is deleted and treated as missing, so the next connection asks again.
  */
 class Keychain(context: Context) {
     private val preferences = context.getSharedPreferences("passwords", Context.MODE_PRIVATE)
@@ -29,7 +29,7 @@ class Keychain(context: Context) {
             cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, sealed, 0, IV_BYTES))
             String(cipher.doFinal(sealed, IV_BYTES, sealed.size - IV_BYTES), Charsets.UTF_8)
         }.onFailure {
-            Log.w(TAG, "저장한 비밀번호를 풀지 못해 지웁니다", it)
+            Log.w(TAG, "Deleting a saved password that failed to decrypt", it)
             remove(hostId)
         }.getOrNull()
     }

@@ -6,20 +6,20 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-/** 저장한 Mac 하나. 비밀번호는 [Keychain]이 따로 둡니다. */
+/** A saved Mac. [Keychain] keeps the password separately. */
 data class Host(
     val id: String = UUID.randomUUID().toString(),
-    /** 사용자가 붙인 이름. 비어 있으면 접속할 때 Mac이 알려 준 컴퓨터 이름으로 채웁니다. */
+    /** Name given by the user. If empty, it is filled with the computer name the Mac reports on connect. */
     val name: String = "",
     val address: String,
     val username: String = "",
     val port: Int = DEFAULT_PORT,
-    /** 태블릿 화면 크기의 가상 디스플레이로 접속할지 여부. 끄면 Mac의 실제 화면을 받습니다. */
+    /** Whether to connect with a virtual display sized to the tablet screen. When off, the Mac's real display is shown. */
     val virtualDisplay: Boolean = true,
-    /** 마지막으로 접속에 성공한 시각(epoch ms) */
+    /** Time of the last successful connection (epoch ms) */
     val lastConnected: Long? = null,
 ) {
-    /** 화면에 보일 이름. 이름이 없으면 주소입니다. */
+    /** Name to display. Falls back to the address when there is no name. */
     val title: String get() = name.ifEmpty { address }
 
     companion object {
@@ -28,20 +28,20 @@ data class Host(
 }
 
 /**
- * 저장한 Mac 목록입니다. 앱 전용 설정 파일에 JSON으로 둡니다.
+ * The list of saved Macs, stored as JSON in the app's private preferences file.
  *
- * - [list]는 Compose 상태라 바뀌면 화면이 다시 그려집니다. 메인 스레드에서만 고칩니다.
- * - 프로세스에 하나만 둡니다([dev.insd.naru.NaruApplication]). 세션 서비스가 접속에 성공하며 저장한 것도 목록 화면이 곧바로 봅니다.
+ * - [list] is Compose state, so the screen redraws when it changes. Modified only on the main thread.
+ * - One instance per process ([dev.insd.naru.NaruApplication]), so the list screen immediately sees what the session service saves on a successful connection.
  */
 class Hosts(context: Context) {
     private val preferences = context.getSharedPreferences("hosts", Context.MODE_PRIVATE)
 
     val list = mutableStateListOf<Host>().apply { addAll(load()) }
 
-    /** 이 ID로 저장한 Mac. 없으면 `null`입니다. */
+    /** The Mac saved under this ID, or `null` */
     fun find(id: String): Host? = list.find { it.id == id }
 
-    /** 같은 ID가 있으면 바꾸고, 없으면 끝에 더합니다. */
+    /** Replaces the entry with the same ID, or appends it if there is none. */
     fun save(host: Host) {
         val index = list.indexOfFirst { it.id == host.id }
         if (index >= 0) list[index] = host else list += host
@@ -60,7 +60,7 @@ class Hosts(context: Context) {
             val item = array.getJSONObject(index)
             val address = item.getString("address")
 
-            // 예전에는 이름 없이 추가한 Mac의 이름을 주소로 저장했습니다. 이름 없음으로 읽습니다.
+            // Older versions saved the address as the name of a Mac added without one. Read it as no name.
             Host(
                 id = item.getString("id"),
                 name = item.getString("name").takeIf { it != address } ?: "",
