@@ -7,7 +7,6 @@ import dev.insd.naru.audio.Player
 import dev.insd.naru.core.Config
 import dev.insd.naru.core.DisplayMode
 import dev.insd.naru.core.Event
-import dev.insd.naru.core.Language
 import dev.insd.naru.core.Phase
 import dev.insd.naru.core.Session
 import dev.insd.naru.core.SessionListener
@@ -50,7 +49,7 @@ class Connection(config: Config, private val listener: Listener) {
     /** 보냈으면 `true`. 크기 한도를 넘으면 보내지 않고 `false`입니다. */
     fun clipboard(text: String): Boolean = session.clipboard(text)
 
-    fun language(language: Language) = session.language(language)
+    fun language(language: String) = session.language(language)
 
     fun resize(mode: DisplayMode) = session.resize(mode)
 

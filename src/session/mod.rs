@@ -9,7 +9,6 @@ use crate::message::gesture::Phase;
 use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, clipboard};
 use control::Control;
 use engine::Engine;
-pub use keyboard::Language;
 use media::Sockets;
 use std::fmt;
 use std::net::IpAddr;
@@ -207,7 +206,7 @@ enum Command {
     },
     /// 입력과 그 입력이 일어난 시각. 관성 속도는 엔진이 처리한 시각이 아니라 이 시각으로 계산합니다.
     Input(input::Event, Instant),
-    Language(Language),
+    Language(String),
     Clipboard(Vec<u8>),
     Keyframe,
     Resize(Vec<u8>),
@@ -279,11 +278,12 @@ impl Session {
         self.send(Command::Resize(display.encode()?))
     }
 
-    /// 키보드 언어를 고릅니다. 태블릿의 입력 언어가 바뀌면 부릅니다.
+    /// 키보드 언어를 고릅니다. 태블릿의 입력 언어가 바뀌면 BCP 47 태그(`ko-KR`)로 부릅니다.
     ///
+    /// - 세션이 언어에 맞는 Mac 입력 소스를 지정합니다. 대응하는 입력 소스가 없는 언어는 ABC로 칩니다.
     /// - Mac이 새 입력 소스를 확인할 때까지 친 키는 세션이 붙잡아 두었다가 보냅니다.
-    pub fn language(&self, language: Language) -> Result<()> {
-        self.send(Command::Language(language))
+    pub fn language(&self, language: &str) -> Result<()> {
+        self.send(Command::Language(language.to_owned()))
     }
 
     /// 세션을 닫습니다. 접속 중이어도 곧바로 멈추고, `Event::Closed(None)`이 마지막으로 옵니다.

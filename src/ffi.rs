@@ -2,9 +2,7 @@
 //!
 //! - 네이티브 쪽은 [`Session::connect`]에 [`SessionListener`]를 넘겨 세션을 열고, 사건은 세션 전용 스레드에서 차례로 받습니다.
 //! - 코어 타입 가운데 튜플이나 내부 필드가 없는 것은 그대로 넘기고, 나머지는 여기서 네이티브 쪽에 맞는 모양으로 옮깁니다.
-use crate::{
-    AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, Language, MediaStats, Mode, Phase, Priority, Stage,
-};
+use crate::{AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, MediaStats, Mode, Phase, Priority, Stage};
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, LazyLock};
 use tokio::runtime::Runtime;
@@ -296,9 +294,9 @@ impl Session {
         let _ = self.session.resize(&mode.into());
     }
 
-    /// 키보드 언어를 고릅니다. 태블릿의 입력 언어가 바뀌면 부릅니다.
-    pub fn language(&self, language: Language) {
-        let _ = self.session.language(language);
+    /// 키보드 언어를 고릅니다. 태블릿의 입력 언어가 바뀌면 BCP 47 태그(`ko-KR`)로 부릅니다.
+    pub fn language(&self, language: String) {
+        let _ = self.session.language(&language);
     }
 
     /// 세션을 닫습니다. Kotlin 객체의 `close`(네이티브 자원 해제)와 이름이 겹치지 않게 따로 둡니다.

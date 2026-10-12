@@ -10,7 +10,7 @@ import android.view.KeyEvent
  * - 수식 키는 자리를 기준으로 옮깁니다. PC 배열에서 스페이스 옆의 Alt가 Mac 배열의 Command 자리이므로 Alt → Command,
  *   Meta → Option입니다. [swapCommandOption]이 `false`면 이름대로(Alt → Option, Meta → Command) 옮깁니다.
  * - Mac은 Super_L을 Command로, Meta_L을 Option으로 받습니다. Alt_L도 Command로 받으므로 Option에는 쓰지 않습니다.
- * - 글자 키는 물리 키의 라틴 문자를 보냅니다. Mac의 입력 소스가 한국어면 세션이 2벌식 자모로 바꿉니다.
+ * - 글자 키는 물리 키의 라틴 문자를 보냅니다. Mac의 입력 소스가 2벌식처럼 라틴 문자를 칠 수 없는 배열이면 세션이 그 배열의 글자로 바꿉니다.
  * - Control, Option, Command가 눌려 있지 않으면 Shift를 적용한 문자(`A`, `!`)를, 눌려 있으면 소문자(`c`)를 보냅니다.
  * - 뗄 때는 누를 때 보낸 keysym을 그대로 보냅니다. 그 사이 Shift가 바뀌어도 Mac에 눌린 키가 남지 않게 합니다.
  */

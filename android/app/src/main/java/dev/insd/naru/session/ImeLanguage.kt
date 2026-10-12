@@ -8,17 +8,16 @@ import android.provider.Settings
 import android.util.Log
 import android.view.inputmethod.InputMethodManager
 import dev.insd.naru.TAG
-import dev.insd.naru.core.Language
 
 /**
- * 태블릿 IME의 입력 언어를 세션에 알립니다. Mac의 입력 소스를 지정하고 글자를 자모로 바꾸는 일은 세션이 합니다.
+ * 태블릿 IME의 입력 언어를 BCP 47 태그로 세션에 알립니다. 언어에 맞는 Mac 입력 소스를 고르고 글자를 그 배열대로 바꾸는 일은 세션이 합니다.
  *
  * - 한/영 키는 One UI가 처리하므로 키가 눌린 뒤 [sync]로 다시 읽습니다. 키를 시스템이 먹는 경우에 대비해 선택한 IME 서브타입의 변경도 지켜봅니다.
  * - 같은 언어는 다시 알리지 않습니다. 메인 스레드에서만 부르십시오.
  */
 class ImeLanguage(private val context: Context, private val connection: Connection) {
     private val handler = Handler(Looper.getMainLooper())
-    private var reported: Language? = null
+    private var reported: String? = null
 
     private val observer = object : ContentObserver(handler) {
         override fun onChange(selfChange: Boolean) = sync(delayMs = 0)
@@ -38,7 +37,7 @@ class ImeLanguage(private val context: Context, private val connection: Connecti
         context.contentResolver.unregisterContentObserver(observer)
     }
 
-    private fun report(language: Language) {
+    private fun report(language: String) {
         if (language == reported) {
             return
         }
@@ -48,10 +47,10 @@ class ImeLanguage(private val context: Context, private val connection: Connecti
         connection.language(language)
     }
 
-    private fun read(): Language {
+    // 서브타입이 언어를 알리지 않으면 빈 태그입니다. 세션은 모르는 언어처럼 ABC로 칩니다.
+    private fun read(): String {
         val subtype = context.getSystemService(InputMethodManager::class.java).currentInputMethodSubtype
-        val tag = subtype?.languageTag?.takeIf { it.isNotEmpty() } ?: subtype?.let { @Suppress("DEPRECATION") it.locale } ?: ""
-        return if (tag.startsWith("ko")) Language.KOREAN else Language.ENGLISH
+        return subtype?.languageTag?.takeIf { it.isNotEmpty() } ?: subtype?.let { @Suppress("DEPRECATION") it.locale } ?: ""
     }
 
     companion object {

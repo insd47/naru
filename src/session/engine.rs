@@ -256,7 +256,7 @@ impl Engine {
     async fn command(&mut self, command: Command, now: Instant) -> Result<()> {
         match command {
             Command::Key { keysym, down } => self.control.send_all(self.keyboard.key(keysym, down)).await,
-            Command::Language(language) => self.control.send_all(self.keyboard.select(language, now)).await,
+            Command::Language(language) => self.control.send_all(self.keyboard.select(&language, now)).await,
             Command::Input(event, at) => self.control.send_all(self.input.handle(event, at)).await,
             Command::Clipboard(message) => self.control.send(&message).await,
             // 화면이 멈춰 서버가 조용하면 키프레임 요청에 답하지 않습니다(2026-10-12 실측, 26초 동안 응답 없음).
