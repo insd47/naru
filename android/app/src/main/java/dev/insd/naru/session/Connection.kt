@@ -26,7 +26,7 @@ class Connection(config: Config, private val listener: Listener) {
     interface Listener {
         fun onEvent(event: Event)
 
-        /** 첫 화면이 그려졌습니다. 접속 중 표시를 거둘 때 씁니다. 영상 스레드에서 부릅니다. */
+        /** 디코더를 새로 만든 뒤 첫 화면을 그렸습니다. 로딩 표시를 거둘 때 씁니다. 영상 스레드에서 부릅니다. */
         fun onFirstFrame()
     }
 

@@ -99,7 +99,9 @@ class SessionActivity : ComponentActivity() {
     }
 
     // 화면을 떠날 때 Mac에 눌린 채 남는 키가 없게 합니다.
+    // 돌아오면 Surface와 디코더를 새로 만들어 첫 프레임까지 비어 있으므로 로딩 표시를 다시 띄웁니다.
     override fun onStop() {
+        loading = true
         connection?.let { current -> keys.releaseAll().forEach { (keysym, down) -> current.key(keysym, down) } }
         super.onStop()
     }

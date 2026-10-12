@@ -120,7 +120,6 @@ class SessionService : Service() {
         listener = next
         val running = session ?: return
         running.replay.values.forEach(next::onEvent)
-        if (running.firstFrame) next.onFirstFrame()
     }
 
     fun detach(previous: Connection.Listener) {
@@ -249,7 +248,6 @@ class SessionService : Service() {
     // 열려 있는 세션 하나. 화면에 되감아 줄 사건은 종류마다 마지막 것만 남깁니다.
     private class Running(var host: Host, val credentials: Credentials, val connection: Connection, val clipboard: Clipboard) {
         val replay = LinkedHashMap<Any, Event>()
-        var firstFrame = false
     }
 
     // 세션의 사건과 첫 화면 알림을 메인 스레드로 넘깁니다. 새 세션으로 바뀐 뒤 늦게 도착한 이전 세션의 사건은 버립니다.
@@ -261,12 +259,7 @@ class SessionService : Service() {
         }
 
         override fun onFirstFrame() {
-            main.post {
-                owner?.takeIf { it === session }?.let {
-                    it.firstFrame = true
-                    listener?.onFirstFrame()
-                }
-            }
+            main.post { owner?.takeIf { it === session }?.let { listener?.onFirstFrame() } }
         }
     }
 

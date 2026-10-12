@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit
  * - 디코더와 그 콜백은 전용 스레드 하나에서만 다룹니다. 어느 스레드에서 불러도 그 스레드로 넘겨 차례로 처리합니다.
  * - 디코더는 설정(SPS, PPS)과 Surface가 모두 있을 때만 있습니다. 둘 중 하나가 바뀌면 새로 만들고 키프레임부터 넣습니다.
  * - 키프레임은 Surface가 바뀌었거나, 디코더가 오류를 냈거나, 입력이 밀렸을 때 [requestKeyframe]으로 요청합니다. 새 설정과 멈춤 복구에는 세션이 보냅니다.
+ * - 디코더를 새로 만들 때마다 첫 프레임을 그리면 [onFirstFrame]을 부릅니다. 그때까지 화면은 비어 있습니다.
  * - [release] 뒤에 들어온 일은 하지 않습니다.
  */
 class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: () -> Unit) {
@@ -165,6 +166,7 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
         decoder?.release()
         decoder = null
         awaitingKeyframe = true
+        shown = false
 
         if (released) return
 

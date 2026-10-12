@@ -334,6 +334,11 @@ impl Engine {
             Command::Language(language) => self.control.send_all(self.keyboard.select(language, now)).await,
             Command::Input(event, at) => self.control.send_all(self.input.handle(event, at)).await,
             Command::Clipboard(text) => self.control.send(&clipboard::message(&text)).await,
+            // 화면이 멈춰 서버가 조용하면 키프레임 요청에 답하지 않습니다(2026-10-12 실측, 26초 동안 응답 없음).
+            // 이때는 오퍼를 다시 보냅니다. 서버는 새 스트림을 열며 화면이 멈춰 있어도 설정과 키프레임을 보냅니다.
+            Command::Keyframe if self.answered.is_some() && !self.media.active(now) => {
+                self.control.send(&self.offer.encode()).await
+            }
             Command::Keyframe => {
                 self.media.request_keyframe(now).await;
                 Ok(())
