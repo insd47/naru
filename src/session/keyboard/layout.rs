@@ -107,4 +107,13 @@ mod tests {
             assert_eq!(table.shift.chars().count(), width, "{}", table.id);
         }
     }
+
+    #[test]
+    fn traditional_chinese_and_kana_modes_translate() {
+        let zhuyin = Layout::find("com.apple.inputmethod.TCIM.Zhuyin").unwrap();
+        assert_eq!(zhuyin.translate(u32::from(b'q')), keysym('ㄆ'));
+
+        let kana = Layout::find("com.apple.inputmethod.Kotoeri.KanaTyping.Japanese").unwrap();
+        assert_eq!(kana.translate(u32::from(b'q')), keysym('た'));
+    }
 }
