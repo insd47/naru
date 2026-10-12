@@ -14,6 +14,7 @@ import android.view.KeyEvent
  * - Control, Option, Command가 눌려 있지 않으면 Shift를 적용한 문자(`A`, `!`)를, 눌려 있으면 소문자(`c`)를 보냅니다.
  * - 뗄 때는 누를 때 보낸 keysym을 그대로 보냅니다. 그 사이 Shift가 바뀌어도 Mac에 눌린 키가 남지 않게 합니다.
  * - 데드 키(`´` 다음 `e`)는 태블릿 배열대로 합친 글자(`é`)를 보냅니다. Mac은 배열에 없는 글자를 그대로 넣습니다.
+ * - Caps Lock은 보내지 않습니다. 대소문자는 글자에 이미 담겨 있고, Mac이 Caps Lock으로 ABC로 바뀌면 한국어가 낱자로 들어갑니다.
  */
 class Keys(swapCommandOption: Boolean) {
     private val pressed = HashMap<Int, Int>()
@@ -116,7 +117,6 @@ class Keys(swapCommandOption: Boolean) {
             KeyEvent.KEYCODE_SHIFT_RIGHT to 0xffe2,
             KeyEvent.KEYCODE_CTRL_LEFT to 0xffe3,
             KeyEvent.KEYCODE_CTRL_RIGHT to 0xffe4,
-            KeyEvent.KEYCODE_CAPS_LOCK to 0xffe5,
             KeyEvent.KEYCODE_ESCAPE to 0xff1b,
             KeyEvent.KEYCODE_TAB to 0xff09,
             KeyEvent.KEYCODE_DEL to 0xff08,
