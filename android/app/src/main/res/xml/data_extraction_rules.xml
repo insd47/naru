@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Passwords stay on this device, as on iPad. They are encrypted with a Keystore key that cannot be restored elsewhere anyway. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="passwords.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="passwords.xml" />
+    </device-transfer>
+</data-extraction-rules>
