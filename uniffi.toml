@@ -1,3 +1,7 @@
 [bindings.kotlin]
 package_name = "dev.insd.naru.core"
 cdylib_name = "naru"
+
+[bindings.swift]
+ffi_module_name = "NaruFFI"
+ffi_module_filename = "NaruFFI"

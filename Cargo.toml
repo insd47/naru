@@ -7,9 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-# Android는 cdylib를 읽어 들입니다.
+# Android는 cdylib를 읽어 들이고, iOS 앱은 staticlib를 링크합니다.
 [lib]
-crate-type = ["lib", "cdylib"]
+crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
 aes.workspace = true
