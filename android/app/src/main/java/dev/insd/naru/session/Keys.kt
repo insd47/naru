@@ -13,7 +13,7 @@ import android.view.KeyEvent
  * - Control, Option, Command가 눌려 있지 않으면 Shift를 적용한 문자(`A`, `!`)를, 눌려 있으면 소문자(`c`)를 보냅니다.
  * - 뗄 때는 누를 때 보낸 keysym을 그대로 보냅니다. 그 사이 Shift가 바뀌어도 Mac에 눌린 키가 남지 않게 합니다.
  */
-class Keys(private val swapCommandOption: Boolean) {
+class Keys(swapCommandOption: Boolean) {
     private val pressed = HashMap<Int, Int>()
 
     private val modifiers = if (swapCommandOption) {

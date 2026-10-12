@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
 import android.view.Surface
+import dev.insd.naru.TAG
 import dev.insd.naru.protocol.AccessUnit
 import dev.insd.naru.protocol.DecoderConfig
 import dev.insd.naru.protocol.MediaStats
@@ -190,7 +191,6 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
     }
 
     companion object {
-        private const val TAG = "Naru"
 
         // Surface가 사라질 때 디코더 해제를 기다리는 한도. 디코더 해제는 보통 수십 ms 안에 끝납니다.
         private const val DETACH_TIMEOUT_MS = 500L

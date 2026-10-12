@@ -9,7 +9,8 @@ import java.util.UUID
 /** 저장한 Mac 하나. 비밀번호는 [Keychain]이 따로 둡니다. */
 data class Host(
     val id: String = UUID.randomUUID().toString(),
-    val name: String,
+    /** 사용자가 붙인 이름. 비어 있으면 접속할 때 Mac이 알려 준 컴퓨터 이름으로 채웁니다. */
+    val name: String = "",
     val address: String,
     val username: String = "",
     val port: Int = DEFAULT_PORT,
@@ -18,6 +19,9 @@ data class Host(
     /** 마지막으로 접속에 성공한 시각(epoch ms) */
     val lastConnected: Long? = null,
 ) {
+    /** 화면에 보일 이름. 이름이 없으면 주소입니다. */
+    val title: String get() = name.ifEmpty { address }
+
     companion object {
         const val DEFAULT_PORT = 5900
     }
@@ -27,21 +31,15 @@ data class Host(
  * 저장한 Mac 목록입니다. 앱 전용 설정 파일에 JSON으로 둡니다.
  *
  * - [list]는 Compose 상태라 바뀌면 화면이 다시 그려집니다. 메인 스레드에서만 고칩니다.
- * - 세션 화면도 접속에 성공하면 저장하므로, 목록 화면은 다시 보일 때 [reload]로 파일을 다시 읽습니다.
+ * - 프로세스에 하나만 둡니다([dev.insd.naru.NaruApplication]). 세션 서비스가 접속에 성공하며 저장한 것도 목록 화면이 곧바로 봅니다.
  */
 class Hosts(context: Context) {
     private val preferences = context.getSharedPreferences("hosts", Context.MODE_PRIVATE)
 
     val list = mutableStateListOf<Host>().apply { addAll(load()) }
 
-    fun reload() {
-        val loaded = load()
-
-        if (loaded != list) {
-            list.clear()
-            list.addAll(loaded)
-        }
-    }
+    /** 이 ID로 저장한 Mac. 없으면 `null`입니다. */
+    fun find(id: String): Host? = list.find { it.id == id }
 
     /** 같은 ID가 있으면 바꾸고, 없으면 끝에 더합니다. */
     fun save(host: Host) {
@@ -60,10 +58,13 @@ class Hosts(context: Context) {
 
         return (0 until array.length()).map { index ->
             val item = array.getJSONObject(index)
+            val address = item.getString("address")
+
+            // 예전에는 이름 없이 추가한 Mac의 이름을 주소로 저장했습니다. 이름 없음으로 읽습니다.
             Host(
                 id = item.getString("id"),
-                name = item.getString("name"),
-                address = item.getString("address"),
+                name = item.getString("name").takeIf { it != address } ?: "",
+                address = address,
                 username = item.getString("username"),
                 port = item.optInt("port", Host.DEFAULT_PORT),
                 virtualDisplay = item.optBoolean("virtualDisplay", true),

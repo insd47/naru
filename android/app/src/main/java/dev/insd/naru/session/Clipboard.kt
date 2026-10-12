@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.util.Log
+import dev.insd.naru.TAG
 
 /**
  * Mac과 태블릿의 클립보드 텍스트를 맞춥니다.
@@ -51,7 +52,6 @@ class Clipboard(private val context: Context, private val connection: Connection
     private fun read(): String? = manager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
 
     companion object {
-        private const val TAG = "Naru"
         private const val LABEL = "Mac"
     }
 }

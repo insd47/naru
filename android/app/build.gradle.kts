@@ -60,6 +60,7 @@ tasks.named("preBuild") { dependsOn(buildProtocol) }
 
 dependencies {
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.jna) { artifact { type = "aar" } }
     implementation(libs.androidx.compose.ui)

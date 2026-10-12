@@ -7,6 +7,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.view.inputmethod.InputMethodManager
+import dev.insd.naru.TAG
 import dev.insd.naru.protocol.Language
 
 /**
@@ -54,7 +55,6 @@ class ImeLanguage(private val context: Context, private val connection: Connecti
     }
 
     companion object {
-        private const val TAG = "Naru"
         private const val SETTLE_MS = 150L
 
         // Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE는 공개 API에 없으므로 이름을 직접 씁니다.

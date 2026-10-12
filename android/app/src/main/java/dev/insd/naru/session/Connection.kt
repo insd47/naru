@@ -2,6 +2,7 @@ package dev.insd.naru.session
 
 import android.util.Log
 import android.view.Surface
+import dev.insd.naru.TAG
 import dev.insd.naru.audio.Player
 import dev.insd.naru.protocol.Config
 import dev.insd.naru.protocol.Event
@@ -19,6 +20,8 @@ import dev.insd.naru.video.Video
  * - 세션이 끝난 뒤에 보낸 입력은 코어가 버립니다.
  */
 class Connection(config: Config, private val listener: Listener) {
+    // 세션은 연결하면서 사건 스레드를 시작하므로, 사건을 받을 영상과 소리가 먼저 있어야 합니다.
+    // 영상이 부르는 세션은 Surface가 붙은 뒤에야 쓰이므로 아직 없을 때 불리지 않습니다.
     private val video = Video(requestKeyframe = { session.requestKeyframe() }, onFirstFrame = { listener.onFirstFrame() })
     private var audio: Player? = null
     private val session = Session.connect(config, Events())
@@ -51,7 +54,7 @@ class Connection(config: Config, private val listener: Listener) {
     fun disconnect() = session.disconnect()
 
     // 영상과 소리는 초당 수십 번 오므로 기록하지 않고 화면 쪽에도 넘기지 않습니다.
-    // 여기서 예외가 나가면 코어의 사건 스레드가 멈추므로, 소리를 끄는 것으로 막고 나머지 사건은 계속 받습니다.
+    // 오디오 코덱이 예외를 던지면 다음 프레임에서도 같은 예외가 나므로 소리를 끕니다. 영상과 나머지 사건은 계속 받습니다.
     private inner class Events : SessionListener {
         override fun onEvent(event: Event) {
             when (event) {
@@ -116,7 +119,4 @@ class Connection(config: Config, private val listener: Listener) {
         else -> event.javaClass.simpleName
     }
 
-    companion object {
-        private const val TAG = "Naru"
-    }
 }

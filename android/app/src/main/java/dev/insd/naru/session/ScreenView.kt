@@ -70,10 +70,11 @@ class ScreenView(context: Context) : SurfaceView(context) {
     fun setCursor(cursor: Event.Cursor) {
         val width = cursor.width.toInt()
         val height = cursor.height.toInt()
+        val rgba = cursor.rgba
         val pixels = IntArray(width * height) { index ->
             val at = index * 4
-            val (r, g, b, a) = (0 until 4).map { cursor.rgba[at + it].toInt() and 0xff }
-            (a shl 24) or (r shl 16) or (g shl 8) or b
+            val channel = { offset: Int -> rgba[at + offset].toInt() and 0xff }
+            (channel(3) shl 24) or (channel(0) shl 16) or (channel(1) shl 8) or channel(2)
         }
 
         // setPixels는 미리 곱하지 않은 색을 받습니다.

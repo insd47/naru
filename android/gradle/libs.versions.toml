@@ -2,6 +2,7 @@
 agp = "9.1.0"
 kotlin = "2.2.10"
 activityCompose = "1.11.0"
+lifecycle = "2.10.0"
 composeBom = "2025.11.00"
 # Material 3 Expressive API는 1.5부터 공개되므로 material3만 BOM보다 앞선 버전으로 고정합니다.
 material3 = "1.5.0-beta01"
@@ -10,6 +11,7 @@ jna = "5.17.0"
 
 [libraries]
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }

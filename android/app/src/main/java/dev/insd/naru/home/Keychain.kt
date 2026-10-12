@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
+import dev.insd.naru.TAG
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -57,7 +58,6 @@ class Keychain(context: Context) {
     }
 
     companion object {
-        private const val TAG = "Naru"
         private const val PROVIDER = "AndroidKeyStore"
         private const val ALIAS = "passwords"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"

@@ -2,6 +2,7 @@ package dev.insd.naru.session
 
 import android.app.Activity
 import android.util.Log
+import dev.insd.naru.TAG
 
 /**
  * Samsung 기기에서 Meta 키를 앱이 받도록 요청합니다.
@@ -17,9 +18,9 @@ object MetaKey {
             manager.getMethod("requestMetaKeyEvent", android.content.ComponentName::class.java, Boolean::class.javaPrimitiveType)
                 .invoke(instance, activity.componentName, enabled)
         }.onSuccess {
-            Log.i("Naru", "Meta 키 요청: $enabled")
+            Log.i(TAG, "Meta 키 요청: $enabled")
         }.onFailure {
-            Log.i("Naru", "Meta 키를 요청할 수 없습니다: $it")
+            Log.i(TAG, "Meta 키를 요청할 수 없습니다: $it")
         }
     }
 }

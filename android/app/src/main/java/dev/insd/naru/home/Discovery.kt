@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
+import dev.insd.naru.TAG
 
 /** 같은 네트워크에서 찾은 화면 공유 Mac. 주소는 고를 때 풉니다. */
 data class Found(val name: String, val service: NsdServiceInfo)
@@ -79,7 +80,6 @@ class Discovery(context: Context) {
     }
 
     companion object {
-        private const val TAG = "Naru"
         private const val SERVICE_TYPE = "_rfb._tcp."
     }
 }

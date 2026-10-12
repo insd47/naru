@@ -65,12 +65,14 @@ class SessionActivity : ComponentActivity() {
         }
     }
 
-    // 세션이 이미 끝났으면 보여 줄 것이 없으므로 닫습니다. 실패는 목록 화면이 알립니다.
+    // 인증 전(접속 중에 알림을 누른 경우)이거나 이미 끝난 세션이면 보여 줄 것이 없으므로 목록 화면으로 돌아갑니다. 로그인과 실패는 목록 화면이 맡습니다.
     private val binding = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val bound = (binder as SessionService.Local).service
             service = bound
-            bound.connection?.let(::adopt) ?: return finish()
+
+            val connection = bound.connection?.takeIf { bound.state is SessionService.State.Connected } ?: return home()
+            adopt(connection)
             bound.attach(listener)
         }
 
@@ -83,9 +85,12 @@ class SessionActivity : ComponentActivity() {
     private var layout by mutableStateOf<Event.Layout?>(null)
     private var screen: ScreenView? = null
 
+    // 화면 뷰는 연결을 붙인 뒤 다음 프레임에 만들어지므로, 그 전에 온 커서는 남겨 두었다가 붙일 때 씁니다.
+    private var cursor: Event.Cursor? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        keys = Keys(swapCommandOption = Preferences(this).swapCommandOption)
+        keys = Keys(swapCommandOption = naru.preferences.swapCommandOption)
 
         setContent {
             NaruTheme(dark = true) {
@@ -96,6 +101,13 @@ class SessionActivity : ComponentActivity() {
         }
 
         bindService(Intent(this, SessionService::class.java), binding, BIND_AUTO_CREATE)
+    }
+
+    // 뒤에 남아 있던 화면이 다른 Mac과의 새 세션으로 바뀐 뒤 다시 보이면 닫습니다.
+    override fun onStart() {
+        super.onStart()
+        val current = service ?: return
+        if (connection != null && current.connection !== connection) finish()
     }
 
     // 화면을 떠날 때 Mac에 눌린 채 남는 키가 없게 합니다.
@@ -177,6 +189,7 @@ class SessionActivity : ComponentActivity() {
 
     private fun bind(view: ScreenView) {
         view.connection = connection
+        cursor?.let(view::setCursor)
         view.onKey = { handleKey(it) }
         view.requestFocus()
     }
@@ -184,8 +197,6 @@ class SessionActivity : ComponentActivity() {
     // 세션의 연결에 이 화면의 입력을 붙입니다.
     private fun adopt(next: Connection) {
         connection = next
-        screen?.connection = next
-        language?.stop()
         language = ImeLanguage(this, next).also { it.sync(delayMs = 0) }
         touchpad = Touchpad(next, resources.displayMetrics.density)
         immersive(true)
@@ -194,21 +205,23 @@ class SessionActivity : ComponentActivity() {
     private fun handle(event: Event) {
         when (event) {
             is Event.Layout -> layout = event
-            is Event.Cursor -> screen?.setCursor(event)
+            is Event.Cursor -> {
+                cursor = event
+                screen?.setCursor(event)
+            }
             is Event.Closed -> closed()
             else -> Unit
         }
     }
 
+    private fun home() {
+        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+        finish()
+    }
+
+    // 남은 정리는 화면이 사라지며 합니다. 시스템 막대와 Meta 키 요청만 먼저 되돌립니다.
     private fun closed() {
         Log.i(TAG, "세션 화면을 닫습니다")
-        connection = null
-        language?.stop()
-        language = null
-        touchpad = null
-        keys.releaseAll()
-        screen?.connection = null
-        screen = null
         immersive(false)
         finish()
     }
@@ -226,9 +239,5 @@ class SessionActivity : ComponentActivity() {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             controller.show(WindowInsetsCompat.Type.systemBars())
         }
-    }
-
-    companion object {
-        private const val TAG = "Naru"
     }
 }

@@ -19,12 +19,10 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import dev.insd.naru.R
 import dev.insd.naru.SessionActivity
-import dev.insd.naru.Preferences
+import dev.insd.naru.TAG
 import dev.insd.naru.audio.Player
 import dev.insd.naru.home.Host
-import dev.insd.naru.home.Hosts
-import dev.insd.naru.home.Keychain
-import dev.insd.naru.home.ServerKeys
+import dev.insd.naru.naru
 import dev.insd.naru.protocol.Config
 import dev.insd.naru.protocol.DisplayMode
 import dev.insd.naru.protocol.Event
@@ -40,24 +38,21 @@ import dev.insd.naru.protocol.Stage
  * - 접속 결과를 저장하는 일(Mac 목록, 비밀번호, 서버 키)과 클립보드는 화면이 없어도 일어나므로 여기서 합니다.
  */
 class SessionService : Service() {
-    private lateinit var hosts: Hosts
-    private lateinit var keychain: Keychain
-    private lateinit var serverKeys: ServerKeys
     private val main = Handler(Looper.getMainLooper())
-
     private var session: Running? = null
+    private var listener: Connection.Listener? = null
 
     /** 지금 세션의 상태. 세션이 없으면 `null`이고, 실패는 [dismiss]할 때까지 남습니다. */
     var state by mutableStateOf<State?>(null)
         private set
 
-    private var listener: Connection.Listener? = null
+    /** 살아 있는 세션의 연결. 없으면 `null`입니다. */
+    val connection: Connection? get() = session?.connection
 
     override fun onCreate() {
         super.onCreate()
-        hosts = Hosts(this)
-        keychain = Keychain(this)
-        serverKeys = ServerKeys(this)
+        val channel = NotificationChannel(CHANNEL, "Screen Sharing", NotificationManager.IMPORTANCE_LOW)
+        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     override fun onBind(intent: Intent): IBinder = Local()
@@ -68,7 +63,13 @@ class SessionService : Service() {
             return START_NOT_STICKY
         }
 
-        val host = session?.host ?: return START_NOT_STICKY.also { stopSelf() }
+        val host = session?.host
+
+        if (host == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(host), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         return START_NOT_STICKY
     }
@@ -85,7 +86,7 @@ class SessionService : Service() {
     }
 
     /** 이 Mac과의 세션을 엽니다. 이미 열린 세션이 있으면 닫고 새로 엽니다. */
-    fun open(host: Host, credentials: Credentials, display: DisplayMode?): Connection {
+    fun open(host: Host, credentials: Credentials, display: DisplayMode?) {
         session?.connection?.disconnect()
         state = State.Connecting(host, Stage.WARMUP)
 
@@ -94,21 +95,17 @@ class SessionService : Service() {
             port = host.port.toUShort(),
             username = credentials.username,
             password = credentials.password,
-            knownKey = serverKeys.find(host),
+            knownKey = naru.serverKeys.find(host),
             display = display,
             audio = Player.supported(),
-            priority = Preferences(this).priority,
+            priority = naru.preferences.priority,
         )
 
         val relay = Relay()
         val connection = Connection(config, relay)
         session = Running(host, credentials, connection, Clipboard(this, connection)).also { relay.owner = it }
         ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
-        return connection
     }
-
-    /** 살아 있는 세션의 연결. 없으면 `null`입니다. */
-    val connection: Connection? get() = session?.connection
 
     /** 실패를 보여 준 뒤 지웁니다. */
     fun dismiss() {
@@ -119,7 +116,7 @@ class SessionService : Service() {
     fun attach(next: Connection.Listener) {
         listener = next
         val running = session ?: return
-        running.replay.values.forEach(next::onEvent)
+        listOfNotNull(running.layout, running.cursor).forEach(next::onEvent)
     }
 
     fun detach(previous: Connection.Listener) {
@@ -143,51 +140,50 @@ class SessionService : Service() {
 
     private fun handle(running: Running, event: Event) {
         when (event) {
-            is Event.ServerKey -> serverKeys.remember(running.host, event.der)
+            is Event.ServerKey -> naru.serverKeys.remember(running.host, event.der)
             is Event.Authenticated -> {
                 remember(running)
                 state = State.Connected(running.host)
             }
             is Event.ServerName -> rename(running, event.name)
             is Event.Clipboard -> running.clipboard.onServer(event.text)
+            is Event.Layout -> running.layout = event
+            is Event.Cursor -> running.cursor = event
+            is Event.Progress -> if (state is State.Connecting) state = State.Connecting(running.host, event.stage)
             is Event.Closed -> end(running, event)
             else -> Unit
-        }
-
-        if (event is Event.Progress && state is State.Connecting) {
-            state = State.Connecting(running.host, event.stage)
-        }
-
-        if (event is Event.Layout || event is Event.Cursor) {
-            running.replay[event::class] = event
         }
 
         listener?.onEvent(event)
     }
 
-    // 인증에 성공한 Mac을 목록에 저장하고, 원하면 비밀번호도 저장합니다.
+    // 인증에 성공한 Mac을 목록에 저장하고, 원하면 비밀번호도 저장합니다. 비밀번호는 이 뒤로 들고 있지 않습니다.
     private fun remember(running: Running) {
-        val credentials = running.credentials
-        running.host = running.host.copy(username = credentials.username, lastConnected = System.currentTimeMillis())
-        hosts.reload()
-        hosts.save(running.host)
+        val credentials = running.credentials ?: return
+        running.credentials = null
+        running.host = latest(running).copy(username = credentials.username, lastConnected = System.currentTimeMillis())
+        naru.hosts.save(running.host)
 
         if (credentials.remember) {
-            keychain.save(running.host.id, credentials.password)
+            naru.keychain.save(running.host.id, credentials.password)
         }
     }
 
-    // 주소로만 추가한 Mac은 Mac이 알려 준 컴퓨터 이름으로 바꿉니다. 사용자가 붙인 이름은 그대로 둡니다.
+    // 이름 없이 추가한 Mac은 Mac이 알려 준 컴퓨터 이름으로 채웁니다. 사용자가 붙인 이름은 그대로 둡니다.
     private fun rename(running: Running, name: String) {
-        if (name.isEmpty() || running.host.name != running.host.address) {
+        val host = latest(running)
+
+        if (name.isEmpty() || host.name.isNotEmpty()) {
             return
         }
 
-        running.host = running.host.copy(name = name)
-        hosts.reload()
-        hosts.save(running.host)
+        running.host = host.copy(name = name)
+        naru.hosts.save(running.host)
         if (state is State.Connected) state = State.Connected(running.host)
     }
+
+    // 접속하는 동안 목록 화면에서 고친 내용을 덮어쓰지 않도록, 저장할 때는 저장소의 최신 값에 더합니다.
+    private fun latest(running: Running): Host = naru.hosts.find(running.host.id) ?: running.host
 
     // 비밀번호가 틀렸으면 저장한 비밀번호를 지웁니다. 실패는 목록 화면이 보여 줄 때까지 [state]에 남깁니다.
     private fun end(running: Running, event: Event.Closed) {
@@ -196,7 +192,7 @@ class SessionService : Service() {
         state = event.failure?.let { State.Failed(running.host, it) }
 
         if (event.failure is Failure.Rejected) {
-            keychain.remove(running.host.id)
+            naru.keychain.remove(running.host.id)
         }
 
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -204,9 +200,6 @@ class SessionService : Service() {
     }
 
     private fun notification(host: Host): Notification {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Screen Sharing", NotificationManager.IMPORTANCE_LOW))
-
         val open = PendingIntent.getActivity(
             this,
             0,
@@ -222,7 +215,7 @@ class SessionService : Service() {
 
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(host.name.ifEmpty { host.address })
+            .setContentTitle(host.title)
             .setContentText("Sharing this Mac's screen")
             .setContentIntent(open)
             .addAction(Notification.Action.Builder(null, "Disconnect", disconnect).build())
@@ -245,9 +238,10 @@ class SessionService : Service() {
     /** 접속에 쓸 사용자 이름과 비밀번호. 인증에 성공하면 [remember]가 `true`일 때 비밀번호를 저장합니다. */
     data class Credentials(val username: String, val password: String, val remember: Boolean)
 
-    // 열려 있는 세션 하나. 화면에 되감아 줄 사건은 종류마다 마지막 것만 남깁니다.
-    private class Running(var host: Host, val credentials: Credentials, val connection: Connection, val clipboard: Clipboard) {
-        val replay = LinkedHashMap<Any, Event>()
+    // 열려 있는 세션 하나. 자격 증명은 인증할 때까지만 들고, 화면에 되감아 줄 레이아웃과 커서는 마지막 것만 남깁니다.
+    private class Running(var host: Host, var credentials: Credentials?, val connection: Connection, val clipboard: Clipboard) {
+        var layout: Event.Layout? = null
+        var cursor: Event.Cursor? = null
     }
 
     // 세션의 사건과 첫 화면 알림을 메인 스레드로 넘깁니다. 새 세션으로 바뀐 뒤 늦게 도착한 이전 세션의 사건은 버립니다.
@@ -268,7 +262,6 @@ class SessionService : Service() {
     }
 
     companion object {
-        private const val TAG = "Naru"
         private const val CHANNEL = "session"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_DISCONNECT = "dev.insd.naru.DISCONNECT"
