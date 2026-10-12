@@ -10,7 +10,6 @@ import android.view.PointerIcon
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import dev.insd.naru.core.Event
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -85,9 +84,8 @@ class ScreenView(context: Context) : SurfaceView(context) {
         val scaledWidth = (width * scale).roundToInt().coerceAtLeast(1)
         val scaledHeight = (height * scale).roundToInt().coerceAtLeast(1)
 
-        // 커서는 논리 크기 비트맵뿐이라 키워야 합니다. 정수배면 보간 없이 픽셀을 그대로 키워 번지지 않게 합니다.
-        val integral = abs(scale - scale.roundToInt()) < INTEGRAL_SCALE_TOLERANCE
-        val bitmap = Bitmap.createScaledBitmap(source, scaledWidth, scaledHeight, !integral)
+        // 커서는 논리 크기 비트맵뿐이라 키워야 합니다. Apple 클라이언트처럼 늘 보간해 계단 없이 매끄럽게 키웁니다.
+        val bitmap = Bitmap.createScaledBitmap(source, scaledWidth, scaledHeight, true)
 
         pointerIcon = PointerIcon.create(bitmap, cursor.hotspotX.toFloat() * scale, cursor.hotspotY.toFloat() * scale)
     }
@@ -160,6 +158,5 @@ class ScreenView(context: Context) : SurfaceView(context) {
         private const val BUTTON_LEFT = 1 shl 0
         private const val BUTTON_RIGHT = 1 shl 1
         private const val BUTTON_MIDDLE = 1 shl 2
-        private const val INTEGRAL_SCALE_TOLERANCE = 0.01f
     }
 }
