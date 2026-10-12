@@ -169,7 +169,7 @@ async fn session(args: Args) -> Result<()> {
             _ = &mut stop, if !closing => {
                 println!("[{}] {}초가 지나 세션을 닫습니다", elapsed(started), args.seconds);
                 closing = true;
-                let _ = session.close();
+                session.close();
                 continue;
             }
             _ = &mut unlock, if !unlocked => {
@@ -184,7 +184,7 @@ async fn session(args: Args) -> Result<()> {
             }
             _ = tokio::signal::ctrl_c(), if !closing => {
                 closing = true;
-                let _ = session.close();
+                session.close();
                 continue;
             }
         };

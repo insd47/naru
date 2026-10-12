@@ -297,6 +297,6 @@ impl Session {
 
     /// 세션을 닫습니다. Kotlin 객체의 `close`(네이티브 자원 해제)와 이름이 겹치지 않게 따로 둡니다.
     pub fn disconnect(&self) {
-        let _ = self.session.close();
+        self.session.close();
     }
 }

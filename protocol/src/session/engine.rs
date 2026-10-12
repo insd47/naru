@@ -117,7 +117,7 @@ impl Engine {
                     }
                 }
                 Wake::Confirm => self.control.send_all(self.keyboard.expire(now)).await?,
-                Wake::Command(None | Some(Command::Close)) => return Ok(()),
+                Wake::Command(None) => return Ok(()),
                 Wake::Command(Some(command)) => self.command(command, now).await?,
             }
 
@@ -274,7 +274,6 @@ impl Engine {
                     .send(&client::framebuffer_request(false, u16::MAX, u16::MAX))
                     .await
             }
-            Command::Close => Ok(()),
         }
     }
 

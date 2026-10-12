@@ -15,7 +15,8 @@ use std::fmt;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
+use tokio::task::JoinSet;
 
 mod control;
 mod engine;
@@ -210,13 +211,14 @@ enum Command {
     Clipboard(String),
     Keyframe,
     Resize(Vec<u8>),
-    Close,
 }
 
 /// 실행 중인 세션에 입력과 명령을 보냅니다. 복제하면 같은 세션을 가리킵니다.
 #[derive(Clone)]
 pub struct Session {
     commands: mpsc::UnboundedSender<Command>,
+    // 닫기는 명령과 따로 알립니다. 명령은 엔진이 돌 때만 읽으므로, 접속 중이나 재시도 대기 중에도 닫히게 합니다.
+    closed: Arc<Notify>,
 }
 
 impl Session {
@@ -224,9 +226,10 @@ impl Session {
     pub fn start(config: Config) -> (Self, mpsc::Receiver<Event>) {
         let (commands, receiver) = mpsc::unbounded_channel();
         let (events, events_receiver) = mpsc::channel(EVENT_CAPACITY);
+        let closed = Arc::new(Notify::new());
 
-        tokio::spawn(run(config, receiver, events));
-        (Self { commands }, events_receiver)
+        tokio::spawn(run(config, receiver, events, closed.clone()));
+        (Self { commands, closed }, events_receiver)
     }
 
     /// 키를 누르거나 뗍니다. 키는 X11 키심이며, Command는 Super(`0xffeb`), Option은 Alt(`0xffe9`)입니다.
@@ -283,9 +286,9 @@ impl Session {
         self.send(Command::Language(language))
     }
 
-    /// 세션을 닫습니다. `Event::Closed(None)`이 마지막으로 옵니다.
-    pub fn close(&self) -> Result<()> {
-        self.send(Command::Close)
+    /// 세션을 닫습니다. 접속 중이어도 곧바로 멈추고, `Event::Closed(None)`이 마지막으로 옵니다.
+    pub fn close(&self) {
+        self.closed.notify_one();
     }
 
     fn input(&self, event: input::Event) -> Result<()> {
@@ -297,22 +300,37 @@ impl Session {
     }
 }
 
-async fn run(config: Config, mut commands: mpsc::UnboundedReceiver<Command>, events: mpsc::Sender<Event>) {
+async fn run(
+    config: Config,
+    mut commands: mpsc::UnboundedReceiver<Command>,
+    events: mpsc::Sender<Event>,
+    closed: Arc<Notify>,
+) {
     let mut events = Events::new(events);
-    let mut result = Ok(());
 
-    for attempt in 1..=ATTEMPTS {
-        result = attempt_session(&config, &mut commands, &mut events).await;
-
-        if !matches!(result, Err(Error::NoMedia { .. })) || attempt == ATTEMPTS {
-            break;
-        }
-
-        tokio::time::sleep(RETRY_DELAY).await;
-    }
+    // 닫으면 진행 중인 시도를 그 자리에서 버립니다. 소켓은 함께 닫힙니다.
+    let result = tokio::select! {
+        result = attempts(&config, &mut commands, &mut events) => result,
+        () = closed.notified() => Ok(()),
+    };
 
     let error = result.err().map(|error| events.failed(error));
     let _ = events.send(Event::Closed(error)).await;
+}
+
+async fn attempts(config: &Config, commands: &mut mpsc::UnboundedReceiver<Command>, events: &mut Events) -> Result<()> {
+    let mut attempt = 1;
+
+    loop {
+        let result = attempt_session(config, commands, events).await;
+
+        if !matches!(result, Err(Error::NoMedia { .. })) || attempt == ATTEMPTS {
+            return result;
+        }
+
+        attempt += 1;
+        tokio::time::sleep(RETRY_DELAY).await;
+    }
 }
 
 async fn attempt_session(
@@ -326,9 +344,11 @@ async fn attempt_session(
     let sockets = Sockets::bind(server, config.port, local_ports)?;
 
     // 핸드셰이크 동안 로컬 방화벽이 서버의 미디어를 응답으로 받아들이도록 UDP를 보냅니다. 레코드 계층이 켜지면 멈춥니다.
-    let punch = tokio::spawn(sockets.clone().punch());
+    // 시도가 중간에 버려져도 멈추도록 JoinSet에 둡니다.
+    let mut punch = JoinSet::new();
+    punch.spawn(sockets.clone().punch());
     let control = Control::connect(config, server, events).await;
-    punch.abort();
+    punch.abort_all();
 
     Engine::new(control?, sockets, config).run(commands, events).await
 }

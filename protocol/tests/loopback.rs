@@ -65,7 +65,7 @@ async fn session_reaches_the_first_keyframe_against_a_loopback_server() {
     assert!(seen.iter().any(|event| event.starts_with("DecoderConfig")));
     assert!(seen.iter().any(|event| event == "Authenticated { server_proof: true }"));
 
-    session.close().unwrap();
+    session.close();
 
     loop {
         if let Event::Closed(error) = events.recv().await.unwrap() {
