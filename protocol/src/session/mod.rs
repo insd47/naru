@@ -22,6 +22,7 @@ mod engine;
 mod input;
 mod keyboard;
 mod media;
+mod negotiation;
 
 const ATTEMPTS: u32 = 3;
 const RETRY_DELAY: Duration = Duration::from_millis(800);
@@ -146,7 +147,7 @@ pub struct MediaStats {
     pub highest: Option<u32>,
     /// 넘어갈지 지켜보는 다른 SSRC의 수
     pub candidates: u32,
-    /// 응답을 받기까지 보낸 오퍼의 수
+    /// 보낸 오퍼의 수. 협상 뒤 크기 변경과 키프레임을 위한 재전송도 셉니다.
     pub offers: u32,
     /// 재전송을 요청한 순번의 수
     pub nacked: u64,

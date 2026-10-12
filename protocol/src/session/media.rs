@@ -23,6 +23,11 @@ const SENDER_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 const KEYFRAME_INTERVAL: Duration = Duration::from_millis(250);
 const QUIET_AFTER: Duration = Duration::from_millis(1500);
 
+// 프레임이 나오지 않을 때의 조치입니다. 화면이 정지하면 서버가 영상을 보내지 않으므로, 최근에 패킷이 온 경우에만 조치합니다.
+const STALL_KEYFRAME: Duration = Duration::from_secs(3);
+const STALL_KEYFRAME_REPEAT: Duration = Duration::from_millis(1500);
+const STALL_RESETS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(15)];
+
 /// 오디오(P)와 비디오(P+1) UDP 소켓입니다. 인증보다 먼저 열어 둡니다.
 #[derive(Clone)]
 pub struct Sockets {
@@ -90,6 +95,14 @@ pub struct Media {
     last_packet: Option<Instant>,
     last_frame: Option<Instant>,
     configured: bool,
+    stall: Stall,
+}
+
+// 프레임 정지 감시 상태입니다. 프레임이 나오면 초기화합니다.
+#[derive(Default)]
+struct Stall {
+    last_request: Option<Instant>,
+    resets: usize,
 }
 
 impl Media {
@@ -119,6 +132,7 @@ impl Media {
             last_packet: None,
             last_frame: None,
             configured: false,
+            stall: Stall::default(),
         }
     }
 
@@ -208,6 +222,7 @@ impl Media {
                 }
                 Assembled::Frame(unit) => {
                     self.last_frame = Some(now);
+                    self.stall = Stall::default();
                     self.streams.mark_frame(now);
                     events.push(Event::Frame(unit));
                 }
@@ -237,6 +252,37 @@ impl Media {
     pub fn active(&self, now: Instant) -> bool {
         self.last_packet
             .is_some_and(|last| now.duration_since(last) <= QUIET_AFTER)
+    }
+
+    /// 프레임이 나오지 않는지 지켜봅니다. 패킷은 오는데 프레임이 멈추면 키프레임을 요청하고, 오래 가면 디코더를 다시 만들게 합니다.
+    ///
+    /// - `answered`는 미디어 응답을 받은 시각입니다. 프레임이 한 번도 나오지 않았으면 그때부터 잽니다.
+    pub async fn watch(&mut self, now: Instant, answered: Instant, events: &mut Vec<Event>) {
+        let since = self.last_frame.unwrap_or(answered);
+
+        if !self.active(now) {
+            return;
+        }
+
+        let stalled = now.duration_since(since);
+
+        if let Some(&threshold) = STALL_RESETS.get(self.stall.resets)
+            && stalled >= threshold
+        {
+            self.stall.resets += 1;
+            events.push(Event::ResetDecoder);
+            self.stall.last_request = None;
+        }
+
+        let due = self
+            .stall
+            .last_request
+            .is_none_or(|last| now.duration_since(last) >= STALL_KEYFRAME_REPEAT);
+
+        if stalled >= STALL_KEYFRAME && due {
+            self.stall.last_request = Some(now);
+            self.request_keyframe(now).await;
+        }
     }
 
     pub fn stats(&self, offers: u32) -> MediaStats {
