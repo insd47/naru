@@ -13,7 +13,45 @@ const ATTEMPTS: u32 = 2;
 const ENGLISH: &str = "com.apple.keylayout.ABC";
 
 // 태블릿 언어(BCP 47 주 언어)에 대응하는 Mac 입력 소스. 없는 언어는 ABC로 칩니다.
-const SOURCES: [(&str, &str); 1] = [("ko", "com.apple.inputmethod.Korean.2SetKorean")];
+// 라틴 문자를 칠 수 없는 언어만 둡니다. 한국어 밖은 각 언어에서 Apple이 기본으로 두는 배열을 고른 것이며 기기에서 확인하지 않았습니다.
+// 일본어와 중국어는 입력 모드가 덮어쓰는 배열을 확인하지 못해 아직 두지 않습니다.
+const SOURCES: [(&str, &str); 35] = [
+    ("ko", "com.apple.inputmethod.Korean.2SetKorean"),
+    ("ar", "com.apple.keylayout.Arabic"),
+    ("be", "com.apple.keylayout.Byelorussian"),
+    ("bg", "com.apple.keylayout.Bulgarian"),
+    ("bn", "com.apple.keylayout.Bangla"),
+    ("el", "com.apple.keylayout.Greek"),
+    ("fa", "com.apple.keylayout.Persian"),
+    ("gu", "com.apple.keylayout.Gujarati"),
+    ("he", "com.apple.keylayout.Hebrew"),
+    ("hi", "com.apple.keylayout.Devanagari"),
+    ("hy", "com.apple.keylayout.Armenian-HMQWERTY"),
+    ("ka", "com.apple.keylayout.Georgian-QWERTY"),
+    ("kk", "com.apple.keylayout.Kazakh"),
+    ("km", "com.apple.keylayout.Khmer"),
+    ("kn", "com.apple.keylayout.Kannada"),
+    ("ky", "com.apple.keylayout.Kyrgyz-Cyrillic"),
+    ("lo", "com.apple.keylayout.Lao"),
+    ("mk", "com.apple.keylayout.Macedonian"),
+    ("ml", "com.apple.keylayout.Malayalam"),
+    ("mn", "com.apple.keylayout.Mongolian-Cyrillic"),
+    ("mr", "com.apple.keylayout.Marathi"),
+    ("my", "com.apple.keylayout.Myanmar"),
+    ("ne", "com.apple.keylayout.Nepali"),
+    ("or", "com.apple.keylayout.Oriya"),
+    ("pa", "com.apple.keylayout.Gurmukhi"),
+    ("ru", "com.apple.keylayout.Russian"),
+    ("si", "com.apple.keylayout.Sinhala"),
+    ("sr", "com.apple.keylayout.Serbian"),
+    ("ta", "com.apple.keylayout.Tamil99"),
+    ("te", "com.apple.keylayout.Telugu"),
+    ("tg", "com.apple.keylayout.Tajik-Cyrillic"),
+    ("th", "com.apple.keylayout.Thai"),
+    ("ug", "com.apple.keylayout.Uyghur"),
+    ("uk", "com.apple.keylayout.Ukrainian"),
+    ("ur", "com.apple.keylayout.Urdu"),
+];
 
 // Control, Option(Meta, Alt), Command(Super)의 왼쪽과 오른쪽. 이 키가 눌려 있으면 단축키이므로 글자를 바꾸지 않습니다.
 const SHORTCUT_MODIFIERS: [u32; 8] = [0xffe3, 0xffe4, 0xffe7, 0xffe8, 0xffe9, 0xffea, 0xffeb, 0xffec];
@@ -61,10 +99,13 @@ impl Keyboard {
 
     /// 언어를 고릅니다. `language`는 BCP 47 태그(`ko-KR`, `en-US`)입니다. Mac에 지정할 메시지를 돌려줍니다.
     pub fn select(&mut self, language: &str, now: Instant) -> Option<Vec<u8>> {
-        let primary = language.split(['-', '_']).next().unwrap_or_default();
+        // 라틴 문자로 쓰는 언어(`sr-Latn`)는 표의 배열이 맞지 않으므로 ABC로 칩니다.
+        let mut subtags = language.split(['-', '_']);
+        let primary = subtags.next().unwrap_or_default();
+        let latin = subtags.any(|subtag| subtag.eq_ignore_ascii_case("Latn"));
         let source = SOURCES
             .iter()
-            .find_map(|&(tag, source)| tag.eq_ignore_ascii_case(primary).then_some(source))
+            .find_map(|&(tag, source)| (tag.eq_ignore_ascii_case(primary) && !latin).then_some(source))
             .unwrap_or(ENGLISH);
 
         self.selected = Some(source);
@@ -169,7 +210,7 @@ impl Keyboard {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIRM, ENGLISH, Keyboard};
+    use super::{CONFIRM, ENGLISH, Keyboard, SOURCES, layout::Layout};
     use crate::message::{InputSource, client};
     use std::time::Instant;
 
@@ -340,5 +381,22 @@ mod tests {
     fn languages_without_a_source_type_in_english() {
         let mut keyboard = korean_mac();
         assert_eq!(keyboard.select("ja-JP", Instant::now()), request(ENGLISH));
+    }
+
+    #[test]
+    fn every_language_source_has_a_layout() {
+        for (tag, source) in SOURCES {
+            assert!(Layout::find(source).is_some(), "{tag}: {source}");
+        }
+    }
+
+    #[test]
+    fn latin_script_tags_type_in_english() {
+        let mut keyboard = english_mac();
+        assert_eq!(keyboard.select("sr-Latn-RS", Instant::now()), None);
+        assert_eq!(
+            keyboard.select("sr-RS", Instant::now()),
+            request("com.apple.keylayout.Serbian")
+        );
     }
 }
