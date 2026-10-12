@@ -13,6 +13,7 @@
 //! - 가상 디스플레이(`--display`)로 붙으면 잠금 화면부터 나옵니다. `--unlock N`은 N초 뒤 접속 비밀번호를 키 입력으로 쳐서 풉니다.
 //! - 저장한 파일은 `ffplay capture.h264`로 재생할 수 있습니다.
 //! - `--hevc N`은 H.264 대신 HEVC 4:4:4를 띠 N개로 요청합니다. HEVC는 아직 조립하지 않으므로 `--raw`와 함께 씁니다.
+//! - `--local-ports 오디오,비디오`는 로컬 UDP 포트를 바꿉니다. 같은 Mac에서 Apple 화면 공유가 5900과 5901을 쥐고 있을 때 씁니다.
 //! - `--bank`, `--field4`, `--features h264|hevc`, `--tiles`, `--ltr 0|1`은 오퍼의 코덱 뱅크를 하나씩 바꿉니다. 바꾸지 않은 값은 H.264(또는 `--hevc`)의 값을 씁니다.
 //! - `--raw 파일`은 영상을 조립하지 않고 복호화한 RTP 패킷을 그대로 저장합니다. 패킷마다 받은 시각(µs, u64), SSRC(u32), 순번(u16),
 //!   타임스탬프(u32), 마커(u8), 페이로드 길이(u32)를 빅엔디언으로 쓰고 페이로드를 잇습니다. 끝나면 SSRC별 패킷 수와 비트레이트를 찍습니다.
@@ -28,7 +29,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--display 1280x800@2] [--unlock N] [--audio] [--out 파일] [--hevc N] [--bank N] [--field4 N] [--features h264|hevc] [--tiles N] [--ltr 0|1] [--raw 파일] [--seconds N] [--handshake-only]";
+const USAGE: &str = "사용법: probe <호스트> [사용자] [--port N] [--local-ports N,N] [--display 1280x800@2] [--unlock N] [--audio] [--out 파일] [--hevc N] [--bank N] [--field4 N] [--features h264|hevc] [--tiles N] [--ltr 0|1] [--raw 파일] [--seconds N] [--handshake-only]";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -45,6 +46,7 @@ struct Args {
     host: String,
     username: Option<String>,
     port: u16,
+    local_ports: Option<(u16, u16)>,
     display: Option<Mode>,
     unlock: Option<u64>,
     audio: bool,
@@ -66,6 +68,7 @@ impl Args {
             host: String::new(),
             username: None,
             port: 5900,
+            local_ports: None,
             display: None,
             unlock: None,
             audio: false,
@@ -88,6 +91,11 @@ impl Args {
 
             match arg.as_str() {
                 "--port" => parsed.port = value()?.parse()?,
+                "--local-ports" => {
+                    let text = value()?;
+                    let (audio, video) = text.split_once(',').context("--local-ports 15900,15901")?;
+                    parsed.local_ports = Some((audio.parse()?, video.parse()?));
+                }
                 "--display" => parsed.display = Some(display(&value()?).context("--display 1280x800@2")?),
                 "--unlock" => parsed.unlock = Some(value()?.parse()?),
                 "--audio" => parsed.audio = true,
@@ -219,6 +227,7 @@ async fn session(args: Args) -> Result<()> {
 
     let mut config = Config::new(&args.host, username, password);
     config.port = args.port;
+    config.local_ports = args.local_ports;
     config.audio = args.audio;
     config.known_key = std::fs::read(&key_path).ok();
     config.display = args.display.map(DisplayConfig::from);
