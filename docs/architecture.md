@@ -111,7 +111,7 @@ do what those views do, so a fling feels the way it does elsewhere on the device
 `src/keyboard/tables.rs` is generated on a Mac from the system keyboard layouts:
 
 ```sh
-swift layouts.swift > src/keyboard/tables.rs
+swift tools/layouts.swift > src/keyboard/tables.rs
 ```
 
 Regenerate it when adding a language. The table only covers layouts that cannot type Latin letters; Latin layouts send

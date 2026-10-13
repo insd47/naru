@@ -3,3 +3,4 @@
 /target
 # Screen captures saved by probe.
 *.h264
+.idea/

@@ -3,7 +3,7 @@
 Read these before changing anything:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md): layout, setup, local checks, testing against a Mac, and style.
-- [.docs/architecture.md](.docs/architecture.md): how the core and the apps divide the work.
+- [docs/architecture.md](docs/architecture.md): how the core and the apps divide the work.
 
 On top of those:
 
