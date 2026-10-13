@@ -205,21 +205,21 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
                 typing.insert(key.keyCode)
                 typed.append(key)
             } else {
-                send(key, language: before)
+                send(key, language: before, switched: false)
             }
         }
 
         if !system.isEmpty { super.pressesBegan(system, with: event) }
 
         let language = textInputMode?.primaryLanguage
-        typed.forEach { send($0, language: language) }
+        typed.forEach { send($0, language: language, switched: language != before) }
         log.record("KEY", "after lang \(language ?? "nil") first responder \(isFirstResponder) passed \(system.count)")
     }
 
-    private func send(_ key: UIKey, language: String?) {
+    private func send(_ key: UIKey, language: String?, switched: Bool) {
         let log = DiagnosticsLog.shared
 
-        guard let keysym = keys.press(key, language: language, source: connection?.source) else {
+        guard let keysym = keys.press(key, language: language, switched: switched, source: connection?.source) else {
             log.key("down", key, "lang \(language ?? "nil") not sent")
             return
         }

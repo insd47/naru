@@ -35,8 +35,9 @@ struct Keys {
     /// The keysym for a pressed key, or `nil` for a key that is not sent.
     ///
     /// - `language` is the input language after the text system saw the press, and `source` the Mac's latest input source.
-    mutating func press(_ key: UIKey, language: String?, source: InputSource?) -> UInt32? {
-        guard let keysym = Self.keysym(key, language: language, source: source) else {
+    /// - `switched` tells that the language changed while the text system saw the press, so the key's characters are still the old language's.
+    mutating func press(_ key: UIKey, language: String?, switched: Bool, source: InputSource?) -> UInt32? {
+        guard let keysym = Self.keysym(key, language: language, switched: switched, source: source) else {
             return nil
         }
 
@@ -55,7 +56,7 @@ struct Keys {
         return Array(pressed.values)
     }
 
-    private static func keysym(_ key: UIKey, language: String?, source: InputSource?) -> UInt32? {
+    private static func keysym(_ key: UIKey, language: String?, switched: Bool, source: InputSource?) -> UInt32? {
         if let special = special[key.keyCode.rawValue] {
             return special
         }
@@ -69,6 +70,11 @@ struct Keys {
         if let latin = latin(usage, shifted: key.modifierFlags.contains(.shift)), let language,
            let typed = character(latin: keysym(latin.value), language: language, source: source) {
             return typed
+        }
+
+        // Right after a switch to a language typed in Latin, the key's characters are still the old language's.
+        if switched, let latin = latin(usage, shifted: key.modifierFlags.contains(.shift)) {
+            return keysym(latin.value)
         }
 
         let scalars = key.characters.unicodeScalars
