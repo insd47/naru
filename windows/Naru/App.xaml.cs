@@ -28,7 +28,30 @@ public partial class App : Application
         Sessions.Failed += OnFailed;
         // The check opens a Direct3D device and a decoder, so it runs once in the background rather than on the first connect.
         _ = Task.Run(Video.Decoder.SupportsHevc444);
+
+        Home.Recent.Update(Hosts.List);
+        Hosts.List.CollectionChanged += (_, _) => Home.Recent.Update(Hosts.List);
+
+        // Later launches, such as from the jump list, arrive here from their own process.
+        var queue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().Activated += (_, activation) =>
+        {
+            var arguments = (activation.Data as Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs)?.Arguments;
+            queue.TryEnqueue(() => Open(arguments));
+        };
+
+        Open(args.Arguments);
+    }
+
+    // Shows the connection window, and connects to the Mac a jump list item named.
+    private void Open(string? arguments)
+    {
         ShowConnections();
+
+        if (Home.Recent.HostId(arguments) is { } id && Hosts.Find(id) is { } host)
+        {
+            window!.Connector.Connect(host);
+        }
     }
 
     // The connection window reports failures while it is open. Without it, it reopens to report this one.

@@ -20,6 +20,8 @@
     <Nullable>enable</Nullable>
     <!-- The generated bindings call the core through LibraryImport. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Program.cs is the entry point, so that a second launch can hand over to the running instance. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>
 
   <!-- MRT picks the scale, target size, and theme variant of each image, so every file ships. -->
