@@ -35,7 +35,6 @@ pub fn character(latin: u32, language: &str, source: Option<&InputSource>) -> Op
 /// does. `None` in secure input, where the Mac forces ABC.
 ///
 /// - A Mac already on another mode of the same language (Sebeolsik, Kana typing) keeps it. Latin languages get ABC.
-/// - The Mac switches at the next key and applies it to that key, so send this right before it, without waiting.
 pub fn source(language: &str, current: Option<&InputSource>) -> Option<String> {
     if current.is_some_and(|current| current.secure) {
         return None;

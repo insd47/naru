@@ -2,6 +2,7 @@ use super::control::Control;
 use super::input::Input;
 use super::media::{Media, Sockets};
 use super::negotiation::Negotiation;
+use super::switching::Switching;
 use super::{Command, Config, Event, Events, Stage};
 use crate::error::{Error, Result};
 use crate::media::VideoCodec;
@@ -32,6 +33,8 @@ pub struct Engine {
     pixels: Option<(u16, u16)>,
     // The latest resize asked before the first frame, sent once it arrives, since its framebuffer request derails the start
     display: Option<Vec<u8>>,
+    // An input source the Mac is switching to, holding keys until it reports it
+    switching: Option<Switching>,
 }
 
 // Whichever awaited source finished first
@@ -42,6 +45,7 @@ enum Wake {
     Tick,
     Retry,
     Deadline,
+    Switched,
     Command(Option<Command>),
 }
 
@@ -60,6 +64,7 @@ impl Engine {
             cursors: Cursors::default(),
             pixels: None,
             display: None,
+            switching: None,
         }
     }
 
@@ -81,6 +86,7 @@ impl Engine {
         loop {
             let deadline = self.media.deadline();
             let retry = self.negotiation.deadline();
+            let switched = self.switching.as_ref().map(Switching::deadline);
 
             let wake = tokio::select! {
                 opened = self.control.receive(&mut tcp_buffer) => Wake::Tcp(opened),
@@ -89,6 +95,7 @@ impl Engine {
                 _ = ticker.tick() => Wake::Tick,
                 _ = sleep_until(retry) => Wake::Retry,
                 _ = sleep_until(deadline) => Wake::Deadline,
+                _ = sleep_until(switched) => Wake::Switched,
                 command = commands.recv() => Wake::Command(command),
             };
 
@@ -107,6 +114,7 @@ impl Engine {
                 Wake::Tick => self.tick(now, &mut outgoing).await?,
                 Wake::Retry => self.retry(now).await?,
                 Wake::Deadline => self.media.drain(now, &mut outgoing).await,
+                Wake::Switched => self.switched().await?,
                 Wake::Command(None) => return Ok(()),
                 Wake::Command(Some(command)) => self.command(command, now).await?,
             }
@@ -207,6 +215,14 @@ impl Engine {
                         continue;
                     };
 
+                    if self
+                        .switching
+                        .as_ref()
+                        .is_some_and(|switching| switching.done(&source.id))
+                    {
+                        self.switched().await?;
+                    }
+
                     outgoing.push(Event::InputSource(source));
                 }
                 Rect::Skipped(_) => {}
@@ -248,12 +264,28 @@ impl Engine {
 
     async fn command(&mut self, command: Command, now: Instant) -> Result<()> {
         match command {
-            Command::Key { keysym, down } => self.control.send(&client::key(keysym, down)).await,
+            Command::Key { keysym, down } => match &mut self.switching {
+                Some(switching) => {
+                    switching.hold(client::key(keysym, down));
+                    Ok(())
+                }
+                None => self.control.send(&client::key(keysym, down)).await,
+            },
+            Command::InputSource(id) => {
+                let (switching, messages) = Switching::start(&id, self.switching.take(), now);
+                self.switching = Some(switching);
+
+                for message in messages {
+                    self.control.send(&message).await?;
+                }
+
+                Ok(())
+            }
             Command::Input(event, at) => match self.input.handle(event, at) {
                 Some(message) => self.control.send(&message).await,
                 None => Ok(()),
             },
-            Command::Clipboard(message) | Command::InputSource(message) => self.control.send(&message).await,
+            Command::Clipboard(message) => self.control.send(&message).await,
             // A server gone quiet on a still screen ignores keyframe requests.
             // Resend the offer instead; the server opens a new stream and sends a config and keyframe even for a still screen.
             Command::Keyframe if !self.media.active(now) => match self.negotiation.reoffer(now) {
@@ -274,6 +306,19 @@ impl Engine {
                 self.resize(&display).await
             }
         }
+    }
+
+    // Sends the keys held for an input source switch, once the Mac reported it or stopped being waited for.
+    async fn switched(&mut self) -> Result<()> {
+        let Some(switching) = self.switching.take() else {
+            return Ok(());
+        };
+
+        for key in switching.release() {
+            self.control.send(&key).await?;
+        }
+
+        Ok(())
     }
 
     async fn resize(&mut self, display: &[u8]) -> Result<()> {

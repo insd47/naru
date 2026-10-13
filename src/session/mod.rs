@@ -6,7 +6,7 @@
 use crate::error::{Error, Result};
 use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority, VideoCodec};
 use crate::message::gesture::{MomentumPhase, Phase};
-use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, client, clipboard};
+use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, clipboard};
 use control::Control;
 use engine::Engine;
 use media::Sockets;
@@ -22,6 +22,7 @@ mod engine;
 mod input;
 mod media;
 mod negotiation;
+mod switching;
 
 const ATTEMPTS: u32 = 3;
 const RETRY_DELAY: Duration = Duration::from_millis(800);
@@ -209,7 +210,7 @@ enum Command {
     /// An input and when it happened. Double clicks are judged from this time, not from when the engine handled it.
     Input(input::Event, Instant),
     Clipboard(Vec<u8>),
-    InputSource(Vec<u8>),
+    InputSource(String),
     Keyframe,
     Resize(Vec<u8>),
 }
@@ -277,9 +278,12 @@ impl Session {
         self.input(input::Event::Magnify { phase, scale })
     }
 
-    /// Selects the Mac's input source by its ID. The Mac switches at the next key and applies it to that key.
+    /// Selects the Mac's input source by its ID, as Apple's "Sync Keyboard Language" does.
+    ///
+    /// - Keys sent after this wait until the Mac reports the new source, usually a few milliseconds, so they reach the
+    ///   new input method.
     pub fn select_input_source(&self, id: &str) -> Result<()> {
-        self.send(Command::InputSource(client::input_source(id)))
+        self.send(Command::InputSource(id.to_owned()))
     }
 
     /// Puts text on the Mac's clipboard. Past the same size limit used when receiving, nothing is sent and `TooLong` is returned.

@@ -84,9 +84,11 @@ itself. What differs is what each system hands the app:
 | iPad | the character iPadOS typed in its input language | `character(physical Latin, language)` for languages with a Mac layout, otherwise iPadOS's character |
 
 With "Sync Keyboard Language" on, as in Apple's client, each app also selects the Mac's input source when its own
-input language changes: `input_source(language, source)` gives the ID and `select_input_source` sends it right before
-the next key. The Mac switches at that key, which also commits a composition its input method still holds; without the
-option, Korean typed before switching to English stays composing until Space. The Mac shows the new source but may keep
+input language changes: `input_source(language, source)` gives the ID and `select_input_source` sends it. The Mac's
+agent switches only at the next key and the app's input method follows a moment later, so the core follows the request
+with a lone Control press and holds keys until the Mac reports the new source, usually a few milliseconds. Switching
+also commits a composition the Mac's input method still holds; without the option, Korean typed before switching to
+English stays composing until Space. The Mac shows the new source but may keep
 typing with the old input method when more than one non-Latin source is involved, the same as with Apple's client.
 
 iPadOS applies a hardware keyboard language switch only when its text system sees the next key, and that key's
