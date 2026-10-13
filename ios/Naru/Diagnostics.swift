@@ -35,7 +35,7 @@ private struct ProbeView: UIViewRepresentable {
     func updateUIView(_ view: ProbeInput, context: Context) {}
 }
 
-final class ProbeInput: UIView {
+final class ProbeInput: UIView, UIKeyInput {
     var show: (String) -> Void = { _ in }
     private let logger = Logger(subsystem: "dev.insd.naru", category: "Diagnostics")
 
@@ -55,6 +55,13 @@ final class ProbeInput: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var canBecomeFirstResponder: Bool { true }
+
+    // Being a text input client may let iPadOS apply hardware keyboard language switches here. Text it inserts is ignored.
+    private let noKeyboard = UIView()
+    override var inputView: UIView? { noKeyboard }
+    var hasText: Bool { false }
+    func insertText(_ text: String) { log("\(Self.time()) insertText [\(text)]") }
+    func deleteBackward() { log("\(Self.time()) deleteBackward") }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         for press in presses {
