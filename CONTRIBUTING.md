@@ -55,8 +55,9 @@ cargo run --example probe -- my-mac.local myname --display 1280x800@2 --seconds 
 
 - `probe` reads the password from `NARU_PASSWORD` or asks for it. It never prints passwords, keys, or clipboard
   contents, and neither may any log line you add.
-- Only one High Performance session can run per Mac, and the Apple Screen Sharing app holds UDP ports 5900 and 5901
-  while it is connected. Quit other clients before testing.
+- Other clients can share the Mac with you: an HEVC session seems to allow no second HEVC session, while H.264
+  sessions join alongside other sessions and get the existing virtual display's size. The Apple Screen Sharing app
+  also holds UDP ports 5900 and 5901 while it is connected. Quit other clients before testing.
 
 ## Style
 
