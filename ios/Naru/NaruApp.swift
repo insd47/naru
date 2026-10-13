@@ -15,7 +15,7 @@ struct NaruApp: App {
         _hosts = State(initialValue: hosts)
         _preferences = State(initialValue: preferences)
         _session = State(initialValue: SessionController(hosts: hosts, preferences: preferences))
-        _ = DiagnosticsLog.shared
+        Diagnostics.start()
     }
 
     var body: some Scene {

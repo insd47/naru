@@ -1,37 +1,23 @@
-import GameController
+import OSLog
 import UIKit
 
-/// A temporary log for diagnosing input on real devices, exported from Help > Export Diagnostics.
+/// The app's log, written with the system logger and exported from Help > Export Diagnostics for bug reports.
 ///
-/// - It records keys, text input, language changes, focus, key windows, GameController keys, and session events, in time order.
-/// - It stays in memory and becomes a file only when exported. While the Mac reports secure input, keys are recorded without their characters or codes.
-final class DiagnosticsLog: @unchecked Sendable {
-    static let shared = DiagnosticsLog()
+/// - Export reads back this launch's entries of the app's subsystem, so it needs no log of its own.
+/// - Entries use the default level, which the system keeps; values are public because nothing logged is sensitive.
+///   Never log passwords, keys, typed text or key codes, or clipboard contents.
+enum Diagnostics {
+    static let subsystem = "dev.insd.naru"
+    static let input = Logger(subsystem: subsystem, category: "Input")
 
-    /// Whether the Mac is in secure input, such as a password field
-    var secure: Bool {
-        get { lock.withLock { secureInput } }
-        set { lock.withLock { secureInput = newValue } }
-    }
-
-    private let lock = NSLock()
-    private var entries: [String] = []
-    private var last: String?
-    private var secureInput = false
-    private let start = Date()
-
-    private init() {
-        NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.watchGameController() }
-        }
-        Task { @MainActor in watchGameController() }
-
-        // Keys reach only the key window, so key window changes are recorded to explain keys that never arrive.
-        for (name, label) in [(UIWindow.didBecomeKeyNotification, "key"), (UIWindow.didResignKeyNotification, "not key")] {
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+    /// Records key window changes, since keys reach only the key window.
+    @MainActor
+    static func start() {
+        for (name, label) in [(UIWindow.didBecomeKeyNotification, "became"), (UIWindow.didResignKeyNotification, "is no longer")] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
                 // Delivered on the main queue, where the window belongs.
                 nonisolated(unsafe) let window = note.object as? UIWindow
-                MainActor.assumeIsolated { self?.record("WIN", "\(label): \(Self.describe(window))") }
+                MainActor.assumeIsolated { input.log("\(describe(window), privacy: .public) \(label, privacy: .public) the key window") }
             }
         }
     }
@@ -39,9 +25,9 @@ final class DiagnosticsLog: @unchecked Sendable {
     /// The window's type and its root view controller's type, to tell the app's windows apart
     @MainActor
     static func describe(_ window: UIWindow?) -> String {
-        guard let window else { return "none" }
+        guard let window else { return "no window" }
         let root = window.rootViewController.map { String(describing: type(of: $0)) } ?? "no root"
-        return "\(type(of: window)) \(root) level \(window.windowLevel.rawValue)"
+        return "\(type(of: window)) (\(root), level \(window.windowLevel.rawValue))"
     }
 
     /// The key window of the app's foreground scene
@@ -50,44 +36,20 @@ final class DiagnosticsLog: @unchecked Sendable {
         UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
     }
 
-    /// Adds an entry. An entry identical to the previous one is skipped.
-    func record(_ kind: String, _ text: String) {
-        let stamp = String(format: "%9.3f", Date().timeIntervalSince(start))
+    /// Writes the header and this launch's log to a text file and returns its location.
+    static func export(header: [String]) throws -> URL {
+        let store = try OSLogStore(scope: .currentProcessIdentifier)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss.SSS"
 
-        lock.withLock {
-            let body = "\(kind) \(text)"
-            guard body != last else { return }
-            last = body
-            entries.append("\(stamp) \(body)")
-            if entries.count > 5000 { entries.removeFirst(entries.count - 5000) }
-        }
-    }
+        let lines = try store.getEntries(matching: NSPredicate(format: "subsystem == %@", subsystem))
+            .compactMap { $0 as? OSLogEntryLog }
+            .map { "\(formatter.string(from: $0.date)) \($0.category) \($0.composedMessage)" }
 
-    /// A key, without its characters or code while the Mac is in secure input.
-    func key(_ phase: String, _ key: UIKey, _ detail: String) {
-        if secure {
-            record("KEY", "\(phase) (secure input) \(detail)")
-        } else {
-            record("KEY", "\(phase) code \(key.keyCode.rawValue) chars [\(key.characters)] mods \(key.modifierFlags.rawValue) \(detail)")
-        }
-    }
-
-    /// Writes the header and the log to a text file and returns its location.
-    func export(header: [String]) throws -> URL {
-        let lines = lock.withLock { entries }
-        let text = (header + ["", "time(s) kind detail"] + lines).joined(separator: "\n")
+        let text = (header + [""] + lines).joined(separator: "\n")
         let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
         let file = FileManager.default.temporaryDirectory.appending(path: "naru-diagnostics-\(stamp).txt")
         try text.write(to: file, atomically: true, encoding: .utf8)
         return file
-    }
-
-    // GameController sees physical keys separately from UIKit, including some that UIKit never delivers.
-    @MainActor
-    private func watchGameController() {
-        GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = { [weak self] _, _, code, pressed in
-            guard let self else { return }
-            record("GC", secure ? "\(pressed ? "down" : "up") (secure input)" : "\(pressed ? "down" : "up") code \(code.rawValue)")
-        }
     }
 }

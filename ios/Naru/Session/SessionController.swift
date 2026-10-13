@@ -173,7 +173,7 @@ final class SessionController {
             "Input modes: \(UITextInputMode.activeInputModes.compactMap(\.primaryLanguage).joined(separator: ", "))",
         ]
 
-        guard let file = try? DiagnosticsLog.shared.export(header: header),
+        guard let file = try? Diagnostics.export(header: header),
               let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
               var top = scene.keyWindow?.rootViewController
         else { return }

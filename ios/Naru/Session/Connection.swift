@@ -10,7 +10,7 @@ final class Connection: SessionListener, @unchecked Sendable {
     private var audio: Audio?
     private var session: Session!
     private let announce: @Sendable (Event) -> Void
-    private let log = Logger(subsystem: "dev.insd.naru", category: "Connection")
+    private let log = Logger(subsystem: Diagnostics.subsystem, category: "Connection")
     private let sourceLock = NSLock()
     private var latestSource: InputSource?
 
@@ -22,7 +22,7 @@ final class Connection: SessionListener, @unchecked Sendable {
     init(config: Config, announce: @escaping @Sendable (Event) -> Void, firstFrame: @escaping @Sendable () -> Void) {
         self.announce = announce
         video = Video(firstFrame: firstFrame)
-        log.info("requested codec: \(config.codec == .hevc ? "HEVC 4:4:4" : "H.264", privacy: .public)")
+        log.log("requested codec: \(config.codec == .hevc ? "HEVC 4:4:4" : "H.264", privacy: .public)")
         session = Session.connect(config: config, listener: self)
         video.requestKeyframe = { [weak self] in self?.session.requestKeyframe() }
     }
@@ -56,12 +56,10 @@ final class Connection: SessionListener, @unchecked Sendable {
         case .frame, .audio, .stats:
             break
         default:
-            log.info("\(Self.describe(event), privacy: .public)")
-            DiagnosticsLog.shared.record("EVT", Self.describe(event))
+            log.log("\(Self.describe(event), privacy: .public)")
         }
 
         if case let .source(source) = event {
-            DiagnosticsLog.shared.secure = source.secure
             sourceLock.withLock { latestSource = source }
         }
 

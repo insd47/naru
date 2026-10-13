@@ -70,6 +70,10 @@ cargo run --example probe -- my-mac.local myname --display 1280x800@2 --seconds 
 ## Style
 
 - Comments, docs, log and error messages, and commit messages are written in English.
+- Each app logs with its platform's logger (`os.Logger`, `android.util.Log`, `Log` on Windows), and users export that
+  log from Help or Settings for bug reports. Log what happened (stages, failures, codec, layout, focus, input language,
+  the Mac input source selected), never what was typed: no passwords, keys, typed characters or key codes, or
+  clipboard contents.
 - Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org/): `type: subject`, lowercase and
   imperative, one concern per commit.
 - Comments explain what the code cannot show: a contract, a constraint, or the reason for a choice that looks wrong.

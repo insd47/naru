@@ -131,13 +131,13 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
-        DiagnosticsLog.shared.record("FOCUS", "become \(became) key window \(window?.isKeyWindow == true), key is \(DiagnosticsLog.describe(DiagnosticsLog.keyWindow))")
+        Diagnostics.input.log("Screen became first responder: \(became), in the key window: \(self.window?.isKeyWindow == true), key window \(Diagnostics.describe(Diagnostics.keyWindow), privacy: .public)")
         return became
     }
 
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        DiagnosticsLog.shared.record("FOCUS", "resign \(resigned)")
+        Diagnostics.input.log("Screen resigned first responder: \(resigned)")
         return resigned
     }
 
@@ -148,13 +148,12 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     var hasText: Bool { false }
 
     func insertText(_ text: String) {
-        let keyWindow = "key window \(window?.isKeyWindow == true)"
-        DiagnosticsLog.shared.record("TXT", DiagnosticsLog.shared.secure ? "insert (secure input) \(keyWindow)" : "insert [\(text)] \(keyWindow)")
+        Diagnostics.input.log("Text input: insert, in the key window: \(self.window?.isKeyWindow == true)")
         repeatHeld()
     }
 
     func deleteBackward() {
-        DiagnosticsLog.shared.record("TXT", "delete")
+        Diagnostics.input.log("Text input: delete")
         repeatHeld()
     }
 
@@ -174,7 +173,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
                 repeatTiming.delay = Date.now.timeIntervalSince(held.pressed)
             }
 
-            DiagnosticsLog.shared.record("KEY", "repeat")
             connection?.key(held.keysym, down: true)
         }
 
@@ -203,7 +201,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     // Typing keys go to the text system before they are translated: a pending hardware keyboard language switch takes
     // effect only when the text system sees the next key, so the language read afterwards is the one that key types in.
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        let log = DiagnosticsLog.shared
         let before = textInputMode?.primaryLanguage
         var system = Set<UIPress>()
         var typed: [UIKey] = []
@@ -213,7 +210,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
             if Keys.isSystem(key) {
                 system.insert(press)
-                log.key("down", key, "lang \(before ?? "nil") system")
             } else if Keys.isTyping(key) {
                 system.insert(press)
                 typing.insert(key.keyCode)
@@ -227,14 +223,11 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
         let language = textInputMode?.primaryLanguage
         typed.forEach { send($0, language: language, switched: language != before) }
-        log.record("KEY", "after lang \(language ?? "nil") first responder \(isFirstResponder) passed \(system.count)")
+        Diagnostics.input.log("Keys down: \(presses.count), to the text system: \(system.count), language \(language ?? "none", privacy: .public)")
     }
 
     private func send(_ key: UIKey, language: String?, switched: Bool) {
-        let log = DiagnosticsLog.shared
-
         guard let keysym = keys.press(key, language: language, switched: switched, source: connection?.source) else {
-            log.key("down", key, "lang \(language ?? "nil") not sent")
             return
         }
 
@@ -243,7 +236,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         }
 
         connection?.key(keysym, down: true)
-        log.key("down", key, "lang \(language ?? "nil") sent \(log.secure ? "-" : String(keysym, radix: 16))")
 
         if typing.contains(key.keyCode) {
             held = (keysym, key.keyCode, .now, nil)
@@ -261,7 +253,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
         connection.selectInputSource(source)
         selectedSource = source
-        DiagnosticsLog.shared.record("LANG", "selected Mac source \(source)")
+        Diagnostics.input.log("Mac input source selected: \(source, privacy: .public)")
     }
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -269,7 +261,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     }
 
     override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        DiagnosticsLog.shared.record("KEY", "cancelled \(presses.count)")
         release(presses, with: event) { super.pressesCancelled($0, with: $1) }
     }
 
@@ -278,7 +269,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
         for press in presses {
             guard let key = press.key else { continue }
-            DiagnosticsLog.shared.key("up", key, "lang \(textInputMode?.primaryLanguage ?? "nil")")
 
             if Keys.isSystem(key) {
                 system.insert(press)
@@ -307,7 +297,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     }
 
     @objc private func languageChanged() {
-        DiagnosticsLog.shared.record("LANG", "changed to \(textInputMode?.primaryLanguage ?? "nil") first responder \(isFirstResponder)")
+        Diagnostics.input.log("Input language changed to \(self.textInputMode?.primaryLanguage ?? "none", privacy: .public)")
     }
 
     // MARK: Pointer
