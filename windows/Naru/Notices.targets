@@ -45,8 +45,10 @@ public class WriteNotices : Task
         {
             var directory = Path.Combine(PackageRoot, id.ToLowerInvariant(), version.ToLowerInvariant());
             var metadata = XDocument.Load(Path.Combine(directory, id.ToLowerInvariant() + ".nuspec")).Root.Elements().First(e => e.Name.LocalName == "metadata");
+            // The project link also points to the source, which licenses such as FDK AAC's require.
+            var project = Field(metadata, "projectUrl");
             var copyright = Field(metadata, "copyright");
-            var user = $"- {id} {version}" + (copyright is null ? "" : $", {copyright}");
+            var user = $"- {id} {version}" + (project is null ? "" : $" ({project})") + (copyright is null ? "" : $", {copyright}");
             var files = Directory.GetFiles(directory).Where(IsLicense).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
             var license = metadata.Elements().FirstOrDefault(e => e.Name.LocalName == "license");
             var url = Field(metadata, "licenseUrl");
