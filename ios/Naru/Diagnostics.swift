@@ -1,123 +1,70 @@
-import os
-import SwiftUI
+import GameController
 import UIKit
 
-// A temporary screen for testing on real devices. Shows decoder support, the current session's codec, and the characters and input language the hardware keyboard produces.
-struct Diagnostics: View {
-    let session: SessionController
-    @State private var lines: [String] = []
-    @State private var trace: [String] = []
+/// A temporary log for diagnosing input on real devices, exported from Help > Export Diagnostics.
+///
+/// - It records keys, text input, language changes, GameController keys, pointer and scroll input, and session events, in time order.
+/// - It stays in memory and becomes a file only when exported. While the Mac reports secure input, keys are recorded without their characters or codes.
+final class DiagnosticsLog: @unchecked Sendable {
+    static let shared = DiagnosticsLog()
 
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text("HEVC 4:4:4 hardware decoding: \(Video.decodesHevc444 ? "supported" : "unsupported")")
-            Text("Current session codec: \(session.codec.map { $0 == .hevc ? "HEVC 4:4:4" : "H.264" } ?? "no session")")
-            Text("Last session ended: \(session.closedDetail ?? "none")")
-                .textSelection(.enabled)
-            Text("Type on the hardware keyboard").font(.headline).padding(.top)
-            ProbeView { line in lines.insert(line, at: 0) }
-                .frame(height: 1)
-            HStack(alignment: .top) {
-                List(lines, id: \.self) { Text($0).font(.system(.footnote, design: .monospaced)) }
-                VStack(alignment: .leading) {
-                    HStack {
-                        Text("Pointer and scroll sent in the session").font(.headline)
-                        Spacer()
-                        Button("Refresh") { trace = InputTrace.shared.lines() }
-                    }
-                    List(Array(trace.enumerated()), id: \.offset) { Text($0.element).font(.system(.footnote, design: .monospaced)) }
-                }
-            }
-        }
-        .padding()
-        .onAppear { trace = InputTrace.shared.lines() }
+    /// Whether the Mac is in secure input, such as a password field
+    var secure: Bool {
+        get { lock.withLock { secureInput } }
+        set { lock.withLock { secureInput = newValue } }
     }
-}
 
-/// The last pointer, scroll, wheel, and magnify calls the session screen made, newest first, for diagnosing scrolling on real devices.
-final class InputTrace: @unchecked Sendable {
-    static let shared = InputTrace()
     private let lock = NSLock()
     private var entries: [String] = []
+    private var last: String?
+    private var secureInput = false
+    private let start = Date()
 
-    func record(_ entry: String) {
-        let now = Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 60)
+    private init() {
+        NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.watchGameController() }
+        }
+        Task { @MainActor in watchGameController() }
+    }
+
+    /// Adds an entry. An entry identical to the previous one is skipped, so a resting pointer does not fill the log.
+    func record(_ kind: String, _ text: String) {
+        let stamp = String(format: "%9.3f", Date().timeIntervalSince(start))
+
         lock.withLock {
-            entries.append(String(format: "%06.3f ", now) + entry)
-            if entries.count > 400 { entries.removeFirst(entries.count - 400) }
+            let body = "\(kind) \(text)"
+            guard body != last else { return }
+            last = body
+            entries.append("\(stamp) \(body)")
+            if entries.count > 5000 { entries.removeFirst(entries.count - 5000) }
         }
     }
 
-    func lines() -> [String] {
-        lock.withLock { entries.reversed() }
-    }
-}
-
-private struct ProbeView: UIViewRepresentable {
-    let log: (String) -> Void
-
-    func makeUIView(context: Context) -> ProbeInput {
-        let view = ProbeInput()
-        view.show = log
-        DispatchQueue.main.async { view.becomeFirstResponder() }
-        return view
-    }
-
-    func updateUIView(_ view: ProbeInput, context: Context) {}
-}
-
-final class ProbeInput: UIView, UIKeyInput {
-    var show: (String) -> Void = { _ in }
-    private let logger = Logger(subsystem: "dev.insd.naru", category: "Diagnostics")
-
-    private func log(_ line: String) {
-        logger.info("\(line, privacy: .public)")
-        show(line)
-    }
-    private var count = 0
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        NotificationCenter.default.addObserver(forName: UITextInputMode.currentInputModeDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.report("language changed") }
+    /// A key, without its characters or code while the Mac is in secure input.
+    func key(_ phase: String, _ key: UIKey, _ detail: String) {
+        if secure {
+            record("KEY", "\(phase) (secure input) \(detail)")
+        } else {
+            record("KEY", "\(phase) code \(key.keyCode.rawValue) chars [\(key.characters)] mods \(key.modifierFlags.rawValue) \(detail)")
         }
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    /// Writes the header and the log to a text file and returns its location.
+    func export(header: [String]) throws -> URL {
+        let lines = lock.withLock { entries }
+        let text = (header + ["", "time(s) kind detail"] + lines).joined(separator: "\n")
+        let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
+        let file = FileManager.default.temporaryDirectory.appending(path: "naru-diagnostics-\(stamp).txt")
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        return file
+    }
 
-    override var canBecomeFirstResponder: Bool { true }
-
-    // Being a text input client may let iPadOS apply hardware keyboard language switches here. Text it inserts is ignored.
-    private let noKeyboard = UIView()
-    override var inputView: UIView? { noKeyboard }
-    var hasText: Bool { false }
-    func insertText(_ text: String) { log("\(Self.time()) insertText [\(text)]") }
-    func deleteBackward() { log("\(Self.time()) deleteBackward") }
-
-    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        for press in presses {
-            guard let key = press.key else { continue }
-            count += 1
-            log("\(Self.time()) \(count) press code \(key.keyCode.rawValue) chars [\(key.characters)] ignoring [\(key.charactersIgnoringModifiers)] mods \(key.modifierFlags.rawValue) lang \(textInputMode?.primaryLanguage ?? "nil")")
+    // GameController sees physical keys separately from UIKit, including some that UIKit never delivers.
+    @MainActor
+    private func watchGameController() {
+        GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = { [weak self] _, _, code, pressed in
+            guard let self else { return }
+            record("GC", secure ? "\(pressed ? "down" : "up") (secure input)" : "\(pressed ? "down" : "up") code \(code.rawValue)")
         }
-        super.pressesBegan(presses, with: event)
-    }
-
-    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        for press in presses {
-            guard let key = press.key else { continue }
-            log("\(Self.time()) release code \(key.keyCode.rawValue) lang \(textInputMode?.primaryLanguage ?? "nil")")
-        }
-        super.pressesEnded(presses, with: event)
-    }
-
-    // Seconds and milliseconds within the minute, enough to see the gap between a language switch and the next key
-    private static func time() -> String {
-        let now = Date().timeIntervalSince1970
-        return String(format: "%06.3f", now.truncatingRemainder(dividingBy: 60))
-    }
-
-    private func report(_ tag: String) {
-        log("\(Self.time()) \(tag): textInputMode \(textInputMode?.primaryLanguage ?? "nil"), current \(UITextInputMode.activeInputModes.first?.primaryLanguage ?? "nil")")
     }
 }

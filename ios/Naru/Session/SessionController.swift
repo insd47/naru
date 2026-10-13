@@ -158,6 +158,35 @@ final class SessionController {
         keysyms.reversed().forEach { connection.key($0, down: false) }
     }
 
+    /// Writes the diagnostics log to a file and offers it in the share sheet.
+    func exportDiagnostics() {
+        let info = Bundle.main.infoDictionary
+        var system = utsname()
+        uname(&system)
+        let model = withUnsafeBytes(of: system.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+
+        let header = [
+            "Naru \(info?["CFBundleShortVersionString"] ?? "?") (\(info?["CFBundleVersion"] ?? "?")), iPadOS \(UIDevice.current.systemVersion), \(model)",
+            "HEVC 4:4:4 hardware decoding: \(Video.decodesHevc444 ? "supported" : "unsupported")",
+            "Session codec: \(codec.map { $0 == .hevc ? "HEVC 4:4:4" : "H.264" } ?? "no session")",
+            "Last session ended: \(closedDetail ?? "none")",
+            "Pass keys to the text system: \(UserDefaults.standard.bool(forKey: "passKeysToTextSystem"))",
+            "Input modes: \(UITextInputMode.activeInputModes.compactMap(\.primaryLanguage).joined(separator: ", "))",
+        ]
+
+        guard let file = try? DiagnosticsLog.shared.export(header: header),
+              let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+              var top = scene.keyWindow?.rootViewController
+        else { return }
+
+        while let presented = top.presentedViewController { top = presented }
+
+        let share = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+        share.popoverPresentationController?.sourceView = top.view
+        share.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.minY, width: 0, height: 0)
+        top.present(share, animated: true)
+    }
+
     func enterBackground() {
         guard connection != nil, background == .invalid else {
             return

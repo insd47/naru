@@ -16,6 +16,11 @@ struct Keys {
         key.keyCode == .keyboardCapsLock || (key.keyCode == .keyboardErrorUndefined && key.modifierFlags.rawValue & globe != 0)
     }
 
+    /// Whether the key types text rather than triggering a shortcut or being a modifier.
+    static func isTyping(_ key: UIKey) -> Bool {
+        key.modifierFlags.isDisjoint(with: [.command, .control, .alternate]) && !(224...231).contains(key.keyCode.rawValue)
+    }
+
     /// The keysym for a pressed key, or `nil` for a key that is not sent.
     mutating func press(_ key: UIKey) -> UInt32? {
         guard let keysym = Self.keysym(key) else {
