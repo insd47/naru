@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
@@ -33,6 +34,7 @@ internal sealed partial class SessionWindow : Window
     private readonly Clipboard clipboard;
     private readonly MacCursor cursor;
     private readonly TouchCursor touchCursor;
+    private readonly Touchpad? touchpad;
 
     // Where finger touches last moved the Mac's cursor, in layout pixels, while it is drawn
     private Point? touchPoint;
@@ -67,6 +69,15 @@ internal sealed partial class SessionWindow : Window
         clipboard = new Clipboard(session.Connection, App.Current.Preferences);
         cursor = new MacCursor(Screen);
         touchCursor = new TouchCursor(TouchImage);
+        // Without the tracker, the touchpad still scrolls through the wheel handler, only in steps.
+        try
+        {
+            touchpad = new Touchpad(Screen, session.Connection.Scroll, MacPointsPerDip);
+        }
+        catch (Exception error) when (error is COMException or InvalidOperationException)
+        {
+            Log.Error("Cannot take touchpad scrolling", error);
+        }
 
         AppWindow.Closing += (_, _) =>
         {
