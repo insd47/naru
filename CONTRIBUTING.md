@@ -52,7 +52,8 @@ of date or a dependency brings a license `licenses/about.toml` does not accept.
 
 ```sh
 cargo install cargo-about --locked --version 0.9.2 --features cli
-licenses/generate.sh
+cargo about generate --frozen --fail -c licenses/about.toml licenses/text.hbs -o licenses/notices/core.txt
+cargo about generate --frozen --fail -c licenses/about.toml licenses/plist.hbs -o ios/Naru/Settings.bundle/Acknowledgements.plist
 ```
 
 For app changes, also build the app you touched. The Android JVM tests run with

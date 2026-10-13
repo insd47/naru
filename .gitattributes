@@ -1,0 +1,4 @@
+# Generated third-party notices keep the line endings of the license files they quote, so regenerating them matches
+# what is committed on every platform.
+licenses/notices/core.txt -text
+ios/Naru/Settings.bundle/Acknowledgements.plist -text
