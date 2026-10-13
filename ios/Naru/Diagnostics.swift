@@ -3,7 +3,7 @@ import UIKit
 
 /// A temporary log for diagnosing input on real devices, exported from Help > Export Diagnostics.
 ///
-/// - It records keys, text input, language changes, GameController keys, pointer and scroll input, and session events, in time order.
+/// - It records keys, text input, language changes, focus, GameController keys, and session events, in time order.
 /// - It stays in memory and becomes a file only when exported. While the Mac reports secure input, keys are recorded without their characters or codes.
 final class DiagnosticsLog: @unchecked Sendable {
     static let shared = DiagnosticsLog()
@@ -27,7 +27,7 @@ final class DiagnosticsLog: @unchecked Sendable {
         Task { @MainActor in watchGameController() }
     }
 
-    /// Adds an entry. An entry identical to the previous one is skipped, so a resting pointer does not fill the log.
+    /// Adds an entry. An entry identical to the previous one is skipped.
     func record(_ kind: String, _ text: String) {
         let stamp = String(format: "%9.3f", Date().timeIntervalSince(start))
 
