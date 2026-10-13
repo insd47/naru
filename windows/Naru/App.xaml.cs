@@ -21,6 +21,7 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        Log.ToFile();
         Hosts = new Hosts();
         Preferences = new Preferences();
         Sessions = new Sessions(Hosts, Preferences);

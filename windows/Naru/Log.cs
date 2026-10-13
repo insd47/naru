@@ -8,7 +8,15 @@ namespace Naru;
 /// <remarks>Never pass passwords, keys, or clipboard contents.</remarks>
 internal static class Log
 {
-    public static void Info(string message) => Trace.WriteLine($"[Naru] {message}");
+    /// <summary>Also writes to naru.log in the app's local folder, replaced on each launch, so a session can be traced without a debugger.</summary>
+    public static void ToFile()
+    {
+        var path = Path.Combine(Windows.Storage.ApplicationData.Current.LocalFolder.Path, "naru.log");
+        Trace.Listeners.Add(new TextWriterTraceListener(new StreamWriter(path, append: false)));
+        Trace.AutoFlush = true;
+    }
 
-    public static void Error(string message, Exception error) => Trace.WriteLine($"[Naru] {message}: {error}");
+    public static void Info(string message) => Trace.WriteLine($"[Naru] {DateTime.Now:HH:mm:ss.fff} {message}");
+
+    public static void Error(string message, Exception error) => Trace.WriteLine($"[Naru] {DateTime.Now:HH:mm:ss.fff} {message}: {error}");
 }
