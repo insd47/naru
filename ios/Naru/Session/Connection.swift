@@ -68,6 +68,9 @@ final class Connection: SessionListener, @unchecked Sendable {
         case let .audioConfig(config):
             // If audio cannot play, continue with video only.
             audio = Audio(config: config)
+            if audio == nil {
+                log.error("audio decoder could not be created")
+            }
             announce(event)
         case .closed:
             audio = nil
