@@ -210,8 +210,14 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     }
 
     // When the pointer leaves the view, the ending hover reports (0, 0), which would throw the Mac's cursor into the corner.
+    // The Mac's cursor stays where it was, and the drawn one is hidden until the pointer comes back.
     @objc private func hover(_ recognizer: UIHoverGestureRecognizer) {
-        guard recognizer.state == .began || recognizer.state == .changed else { return }
+        guard recognizer.state == .began || recognizer.state == .changed else {
+            pointer = nil
+            placeCursor()
+            return
+        }
+
         move(to: recognizer.location(in: self))
     }
 
