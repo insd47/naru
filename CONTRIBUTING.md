@@ -12,8 +12,10 @@ own UI.
 | `ios/`     | The iPad app (SwiftUI, iPadOS 26)                                          |
 | `android/` | The Android tablet app (Jetpack Compose, API 29+)                          |
 | `windows/` | The Windows app (WinUI 3, Windows 11)                                      |
+| `tools/`   | `layouts.swift`, which generates the Mac keyboard layout tables            |
+| `docs/`    | Design notes for maintainers                                               |
 
-[`.docs/architecture.md`](.docs/architecture.md) describes how the core is put together.
+[`docs/architecture.md`](docs/architecture.md) describes how the core is put together.
 
 ## Setup
 
@@ -66,6 +68,15 @@ cargo run --example probe -- my-mac.local myname --display 1280x800@2 --seconds 
 - Other clients can share the Mac with you: an HEVC session seems to allow no second HEVC session, while H.264
   sessions join alongside other sessions and get the existing virtual display's size. The Apple Screen Sharing app
   also holds UDP ports 5900 and 5901 while it is connected. Quit other clients before testing.
+
+## Issues and pull requests
+
+- Bug reports go through the issue form, with the diagnostics each app exports from Help or Settings. Security
+  problems go through [SECURITY.md](SECURITY.md) instead.
+- Open an issue before a large change, so the design can be agreed first.
+- Keep a pull request to one concern, run the local checks, build every app you touched, and say how you tested it:
+  offline only, or against which macOS version and app.
+- Never attach screen captures, or logs and recordings that show personal data.
 
 ## Style
 

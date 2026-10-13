@@ -1,0 +1,11 @@
+name: Feature request
+description: Something Naru could do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What you would like
+      description: What you want to do, and how Apple's Screen Sharing handles it if it does.
+    validations:
+      required: true

@@ -1,0 +1,33 @@
+name: Bug report
+description: Something in Naru does not work as it should.
+labels: [bug]
+body:
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [iPad, Android, Windows]
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: The Naru version, the device's system version, and the Mac's macOS version.
+      placeholder: Naru 0.1 (12), iPadOS 26.7, macOS 27.0
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: >-
+        Right after the problem, export diagnostics (Help > Export Diagnostics on iPad, Settings > Help > Export
+        Diagnostics on Android and Windows) and attach the file. It has no passwords, typed text, or clipboard contents.
