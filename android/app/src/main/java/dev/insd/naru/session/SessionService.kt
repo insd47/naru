@@ -126,12 +126,6 @@ class SessionService : Service() {
         if (listener === previous) listener = null
     }
 
-    /** Reposts the notification. Called when notification permission is granted after connecting, since the first one was dropped. */
-    fun notifyAgain() {
-        val host = session?.host ?: return
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(host))
-    }
-
     /**
      * Resizes the virtual display to this size. Called after rotation or a window resize.
      *

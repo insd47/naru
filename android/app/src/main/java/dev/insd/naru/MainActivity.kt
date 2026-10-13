@@ -1,18 +1,14 @@
 package dev.insd.naru
 
-import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
-import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -111,11 +107,6 @@ class MainActivity : ComponentActivity() {
         override fun onServiceDisconnected(name: ComponentName) {
             service = null
         }
-    }
-
-    // Without notifications the session still runs, but the notification's disconnect button is missing. Connecting proceeds even if denied.
-    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) service?.notifyAgain()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -379,12 +370,6 @@ class MainActivity : ComponentActivity() {
 
     private fun open(host: Host, credentials: SessionService.Credentials) {
         val bound = service ?: return
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
 
         bound.dismiss()
         opening = host.id

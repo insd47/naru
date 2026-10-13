@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Not requested: without it the session notification stays hidden on Android 13 and later while the foreground service still runs. Users can turn it on in Settings. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Foreground service that keeps the session alive after leaving the app. The connectedDevice type requires a network permission such as the multicast one below, which Bonjour discovery uses. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
