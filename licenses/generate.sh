@@ -20,7 +20,8 @@ for pair in "text.hbs $text" "plist.hbs $plist"; do
     set -- $pair
     target=${out:+$out/}$2
     mkdir -p "$(dirname "$target")"
-    cargo about generate --frozen --fail -c licenses/about.toml "licenses/$1" -o "$target"
+    # Some crates' license files use CRLF; git stores LF, so the output does too.
+    cargo about generate --frozen --fail -c licenses/about.toml "licenses/$1" | tr -d '\r' > "$target"
 
     if [ -n "$out" ] && ! cmp -s "$target" "$2"; then
         echo "$2 is out of date; run licenses/generate.sh" >&2
