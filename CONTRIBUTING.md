@@ -13,7 +13,7 @@ own UI.
 | `android/` | The Android tablet app (Jetpack Compose, API 29+)                          |
 | `windows/` | The Windows app (WinUI 3, Windows 11)                                      |
 | `tools/`   | `layouts.swift`, which generates the Mac keyboard layout tables            |
-| `licenses/`| The core's third-party notices and how they are generated                  |
+| `licenses/`| Templates for the core's third-party notices, and the notices generated   |
 | `docs/`    | Design notes for maintainers                                               |
 
 [`docs/architecture.md`](docs/architecture.md) describes how the core is put together.
@@ -48,12 +48,12 @@ cargo test
 ```
 
 When `Cargo.lock` changes, regenerate the core's third-party notices and commit them with it. CI fails if they are out
-of date or a dependency brings a license `licenses/about.toml` does not accept.
+of date or a dependency brings a license `about.toml` does not accept.
 
 ```sh
 cargo install cargo-about --locked --version 0.9.2 --features cli
-cargo about generate --frozen --fail -c licenses/about.toml licenses/text.hbs -o licenses/notices/core.txt
-cargo about generate --frozen --fail -c licenses/about.toml licenses/plist.hbs -o ios/Naru/Settings.bundle/Acknowledgements.plist
+cargo about generate --frozen --fail licenses/text.hbs -o licenses/notices/core.txt
+cargo about generate --frozen --fail licenses/plist.hbs -o ios/Naru/Settings.bundle/Acknowledgements.plist
 ```
 
 For app changes, also build the app you touched. The Android JVM tests run with
