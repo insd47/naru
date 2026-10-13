@@ -104,7 +104,7 @@ do what those views do, so a fling feels the way it does elsewhere on the device
 |---|---|---|---|
 | iPad | `UIPanGestureRecognizer.velocity(in:)` | `UIScrollView.DecelerationRate.normal`, per display frame | any touch, scroll, wheel, or pinch |
 | Android | `VelocityTracker` on the swipe's touches | `OverScroller` with the system friction, per `Choreographer` frame | the touchpad's fling-stop signal, any touch, wheel, or click |
-| Windows | `InteractionTracker` inertia for the touchpad, `GestureRecognizer` inertia for touch | the system's | a new interaction |
+| Windows | `InteractionTracker` inertia for the touchpad, `GestureRecognizer` inertia for touch | the system's, per frame | any touch, touchpad contact, wheel, or click |
 
 ## Keyboard layout tables
 
