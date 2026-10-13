@@ -1,9 +1,12 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
 using Naru.Core;
 using Naru.Store;
 using Windows.ApplicationModel;
+using Windows.Storage;
+using Windows.System;
 
 namespace Naru;
 
@@ -24,7 +27,7 @@ public sealed partial class SettingsPage : Page
         Quality.SelectedIndex = preferences.Priority == Priority.Quality ? 1 : 0;
 
         var version = Package.Current.Id.Version;
-        Version.Text = $"Version {version.Major}.{version.Minor}.{version.Build}";
+        Version.Text = $"Cross over to your Mac. Version {version.Major}.{version.Minor}.{version.Build}";
         ShowCodec();
         loaded = true;
     }
@@ -86,6 +89,20 @@ public sealed partial class SettingsPage : Page
         finally
         {
             Export.IsEnabled = true;
+        }
+    }
+
+    // Opens in the default text editor, as other Windows apps show their notices.
+    private async void OnNotices(Hyperlink sender, HyperlinkClickEventArgs args)
+    {
+        try
+        {
+            var file = await StorageFile.GetFileFromApplicationUriAsync(new Uri("ms-appx:///ThirdPartyNotices.txt"));
+            await Launcher.LaunchFileAsync(file);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or COMException)
+        {
+            Log.Error("Cannot open the third-party notices", error);
         }
     }
 

@@ -40,7 +40,12 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <!-- The Windows App SDK's components the app uses, rather than the whole SDK, whose AI and ML parts would ship their
+         libraries in the package. Runtime is the framework package the app runs on. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.5.1" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.12" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
     <!-- Registers a debug package identity so `dotnet run` launches the packaged app. -->
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.7.1" />
     <!-- Direct3D 11, DXGI, and Media Foundation for hardware decoding and presenting video -->
@@ -49,13 +54,10 @@
     <PackageReference Include="Vortice.MediaFoundation" Version="3.8.3" />
     <!-- XAudio2 plays audio, and FDK AAC decodes the Mac's AAC-ELD, which Windows' AAC decoder rejects. -->
     <PackageReference Include="Vortice.XAudio2" Version="3.8.3" />
-    <PackageReference Include="fdk-aac" Version="2.0.3" GeneratePathProperty="true" />
+    <PackageReference Include="fdk-aac" Version="2.0.3" />
   </ItemGroup>
 
-  <!-- FDK's license must ship in full with its binaries. -->
-  <ItemGroup>
-    <Content Include="$(Pkgfdk-aac)\NOTICE.txt" Link="Licenses\fdk-aac.txt" />
-  </ItemGroup>
+  <Import Project="Notices.targets" />
 
   <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
     <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>

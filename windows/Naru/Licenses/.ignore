@@ -1,0 +1,2 @@
+# cargo-about scans the whole crate for license texts. These are for the Windows app's notices, not the core's.
+*

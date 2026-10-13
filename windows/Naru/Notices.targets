@@ -1,0 +1,157 @@
+<Project>
+  <!-- ThirdPartyNotices.txt: the core's notices from licenses/notices/core.txt, then the license texts of every package
+       whose files ship in the app (the .NET runtime, the Windows SDK projection, and NuGet packages), each text once. The
+       packages come from the build's own copy lists, so build-only packages are left out and new ones are picked up. -->
+  <UsingTask TaskName="WriteNotices" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Packages ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
+      <PackageRoot Required="true" />
+      <Core Required="true" />
+      <Licenses Required="true" />
+      <Output Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Class" Language="cs"><![CDATA[
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Xml.Linq;
+using Microsoft.Build.Framework;
+using Microsoft.Build.Utilities;
+
+public class WriteNotices : Task
+{
+    private const string Rule = "================================================================================";
+
+    [Required] public ITaskItem[] Packages { get; set; }
+    [Required] public string PackageRoot { get; set; }
+    [Required] public string Core { get; set; }
+    [Required] public string Licenses { get; set; }
+    [Required] public string Output { get; set; }
+
+    public override bool Execute()
+    {
+        // Each distinct text once, under its heading, with the packages that carry it
+        var sections = new Dictionary<string, (string Heading, List<string> Users)>();
+
+        var packages = Packages
+            .Select(item => (Id: item.GetMetadata("NuGetPackageId"), Version: item.GetMetadata("NuGetPackageVersion")))
+            .Where(package => package.Id.Length > 0)
+            .Distinct()
+            .OrderBy(package => package.Id, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (id, version) in packages)
+        {
+            var directory = Path.Combine(PackageRoot, id.ToLowerInvariant(), version.ToLowerInvariant());
+            var metadata = XDocument.Load(Path.Combine(directory, id.ToLowerInvariant() + ".nuspec")).Root.Elements().First(e => e.Name.LocalName == "metadata");
+            // The project link also points to the source, which licenses such as FDK AAC's require.
+            var project = Field(metadata, "projectUrl");
+            var copyright = Field(metadata, "copyright");
+            var user = $"- {id} {version}" + (project is null ? "" : $" ({project})") + (copyright is null ? "" : $", {copyright}");
+            var files = Directory.GetFiles(directory).Where(IsLicense).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
+            var license = metadata.Elements().FirstOrDefault(e => e.Name.LocalName == "license");
+            var url = Field(metadata, "licenseUrl");
+
+            // Files in the package carry the full terms. Otherwise an SPDX expression names a text kept in Licenses/.
+            if (files.Count > 0)
+            {
+                // The license is the file the package names, or a LICENSE file. Other files are notices.
+                var named = license?.Attribute("type")?.Value == "file" ? license.Value.Trim() : null;
+
+                foreach (var file in files)
+                {
+                    var name = Path.GetFileName(file);
+                    var terms = string.Equals(name, named, StringComparison.OrdinalIgnoreCase) || name.StartsWith("LICENSE", StringComparison.OrdinalIgnoreCase);
+                    Add(sections, File.ReadAllText(file).Trim(), terms ? "License" : "Notices", user);
+                }
+            }
+            else if (license?.Attribute("type")?.Value == "expression")
+            {
+                var text = Path.Combine(Licenses, license.Value.Trim() + ".txt");
+
+                if (!File.Exists(text))
+                {
+                    Log.LogError($"{id} {version} is licensed under {license.Value}, which has no text in {Licenses}");
+                    continue;
+                }
+
+                Add(sections, File.ReadAllText(text).Trim(), license.Value.Trim() + " License", user);
+            }
+            else if (url is not null)
+            {
+                Add(sections, $"The license terms are at {url}", "License", user);
+            }
+            else
+            {
+                Log.LogError($"{id} {version} names no license");
+            }
+        }
+
+        if (Log.HasLoggedErrors)
+        {
+            return false;
+        }
+
+        var lines = new List<string>
+        {
+            "Third-party notices for Naru for Windows",
+            "",
+            "The app includes the Naru core, whose notices come first, and the .NET runtime and the packages listed after them",
+            "under their licenses.",
+            "",
+            File.ReadAllText(Core).Trim(),
+        };
+
+        foreach (var section in sections)
+        {
+            lines.AddRange(new[] { "", Rule, section.Value.Heading, "", "Used by:" });
+            lines.AddRange(section.Value.Users);
+            lines.AddRange(new[] { "", section.Key });
+        }
+
+        // Writing only on a change keeps the package from being rebuilt each time.
+        var output = string.Join(Environment.NewLine, lines) + Environment.NewLine;
+
+        if (!File.Exists(Output) || File.ReadAllText(Output) != output)
+        {
+            File.WriteAllText(Output, output);
+        }
+
+        return true;
+    }
+
+    private static string Field(XElement metadata, string name) =>
+        metadata.Elements().FirstOrDefault(e => e.Name.LocalName == name)?.Value.Trim();
+
+    private static bool IsLicense(string path)
+    {
+        var name = Path.GetFileName(path);
+        return new[] { "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES" }.Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void Add(Dictionary<string, (string Heading, List<string> Users)> sections, string text, string heading, string user)
+    {
+        if (!sections.TryGetValue(text, out var section))
+        {
+            section = (heading, new List<string>());
+            sections[text] = section;
+        }
+
+        section.Users.Add(user);
+    }
+}
+]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="WriteNotices" DependsOnTargets="ResolveReferences" BeforeTargets="AssignTargetPaths">
+    <PropertyGroup>
+      <Notices>$(MSBuildProjectDirectory)\$(IntermediateOutputPath)ThirdPartyNotices.txt</Notices>
+    </PropertyGroup>
+    <WriteNotices Packages="@(RuntimeCopyLocalItems);@(NativeCopyLocalItems);@(ReferenceCopyLocalPaths)" PackageRoot="$(NuGetPackageRoot)" Core="$(CoreRoot)licenses\notices\core.txt" Licenses="$(MSBuildProjectDirectory)\Licenses" Output="$(Notices)" />
+    <ItemGroup>
+      <Content Include="$(Notices)" Link="ThirdPartyNotices.txt" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+</Project>
