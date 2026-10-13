@@ -46,6 +46,9 @@ internal sealed partial class SessionWindow : Window
 
     // Where finger touches last moved the Mac's cursor, in layout pixels, while it is drawn
     private Point? touchPoint;
+
+    // The screen area size in DIPs the window opened for, until the first layout checks it
+    private (double Width, double Height)? opening;
     private bool active;
     private bool closed;
 
@@ -217,6 +220,7 @@ internal sealed partial class SessionWindow : Window
     // The picture follows the window at once. The Mac's virtual display follows once resizing pauses, since each change makes the Mac redraw.
     private void OnSurfaceChanged()
     {
+        Correct();
         session.Connection.Video.Resize(PixelWidth, PixelHeight, Scale);
         PlaceCursors();
         resizing.Stop();
@@ -237,8 +241,34 @@ internal sealed partial class SessionWindow : Window
         var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest).WorkArea;
         var scale = Displays.Scale(AppWindow);
         var (width, height) = display is { } mode ? ((int)mode.Width, (int)mode.Height) : Displays.Default(area, scale);
-        var client = new SizeInt32((int)(width * scale), (int)((height + Bar.Height) * scale));
-        AppWindow.ResizeClient(client);
+        opening = (width, height);
+        AppWindow.ResizeClient(new SizeInt32((int)(width * scale), (int)((height + Bar.Height) * scale)));
+        Center();
+    }
+
+    // ResizeClient leaves out the system caption, which the extended content covers too, so the first layout comes out
+    // taller than asked. The window is corrected by the measured difference once, so the Mac's display need not follow.
+    private void Correct()
+    {
+        if (opening is not { } target || Surface.ActualWidth == 0)
+        {
+            return;
+        }
+
+        opening = null;
+        var width = (int)Math.Round((target.Width - Surface.ActualWidth) * Scale);
+        var height = (int)Math.Round((target.Height - Surface.ActualHeight) * Scale);
+
+        if (width != 0 || height != 0)
+        {
+            AppWindow.Resize(new SizeInt32(AppWindow.Size.Width + width, AppWindow.Size.Height + height));
+            Center();
+        }
+    }
+
+    private void Center()
+    {
+        var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest).WorkArea;
         AppWindow.Move(new PointInt32(
             area.X + Math.Max(0, (area.Width - AppWindow.Size.Width) / 2),
             area.Y + Math.Max(0, (area.Height - AppWindow.Size.Height) / 2)));
