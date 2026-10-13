@@ -28,7 +28,8 @@ The Rust toolchain is pinned in `rust-toolchain.toml`; `rustup` installs it on t
 - **Windows app**: Visual Studio 2026 with the .NET desktop and WinUI application development workloads and the MSVC
   C++ build tools, and the C# binding generator:
   `cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.11.1+v0.31.0`.
-  For ARM64 builds, also `rustup target add aarch64-pc-windows-msvc` and the ARM64 MSVC build tools. Open
+  For ARM64 builds, also `rustup target add aarch64-pc-windows-msvc` and the ARM64 MSVC build tools, then build with
+  `-p:Platform=ARM64`. Open
   `windows/Naru/Naru.csproj` or run `dotnet build` there. Targets in the project build the core, generate the C#
   bindings into `obj/`, and package the core as `naru_ffi.dll`, because `Naru.dll` is the app's own assembly.
 
