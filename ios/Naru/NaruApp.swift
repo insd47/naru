@@ -24,7 +24,7 @@ struct NaruApp: App {
                 .environment(hosts)
                 .environment(discovery)
                 .environment(session)
-                .sheet(isPresented: $diagnosing) { Diagnostics(session: session) }
+                .sheet(isPresented: $diagnosing) { Diagnostics(session: session).presentationSizing(.page) }
         }
         .onChange(of: phase) { _, phase in
             switch phase {

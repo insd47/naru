@@ -16,7 +16,7 @@ struct Diagnostics: View {
             Text("Type on the hardware keyboard").font(.headline).padding(.top)
             ProbeView { line in lines.insert(line, at: 0) }
                 .frame(height: 1)
-            List(lines, id: \.self) { Text($0).font(.system(.body, design: .monospaced)) }
+            List(lines, id: \.self) { Text($0).font(.system(.footnote, design: .monospaced)) }
         }
         .padding()
     }
