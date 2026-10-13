@@ -17,6 +17,16 @@ protocol bytes.
                                             └──────────────────────────────────────────┘
 ```
 
+## The principle
+
+The core stands for what the Mac receives. Its input and output are the same on every platform, and it exposes nothing
+specific to one platform unless that is the natural shape of the data. Making a platform's input match what the Mac
+expects is that platform's job, done the way that platform normally does it.
+
+For keys, the Mac receives the character to type: the agent looks it up in the Mac's current layout and presses that
+key. The Mac stays on the user's native-language input method, so a Korean Mac must receive `ㄱ`, not `r`, for its
+input method to compose. Each app therefore sends what the user means to type, and the core sends it as is.
+
 ## The boundary
 
 An app opens a session with `Session::connect(config, listener)` and gets events on `SessionListener::on_event`.
@@ -27,8 +37,11 @@ An app opens a session with `Session::connect(config, listener)` and gets events
   letting frames pile up in memory, so listeners hand heavy work to another thread.
 - Video arrives as a `Decoder` config followed by `Frame` access units. The app recreates its decoder on every new
   config, and calls `request_keyframe` whenever it drops frames or rebuilds the decoder.
-- Pointer coordinates are in the pixels of the latest `Layout`. Keys are X11 keysyms; the core translates characters
-  to the Mac's keyboard layout itself.
+- Pointer coordinates are in the pixels of the latest `Layout`. Keys are X11 keysyms of what the Mac should type, and
+  a release repeats the keysym of its press. The Mac does not repeat held keys, so key repeat is the app's to send.
+- `character(latin, language, source)` is a pure function over the Mac's keyboard layouts: what a Latin key types in a
+  language, given the Mac's input source from the latest `Source` event. It follows the Mac's secure input (Latin) and
+  its own layout of that language (Sebeolsik, Kana typing), and returns nothing for languages typed in Latin.
 - The core runs its own small tokio runtime, so apps need no async runtime of their own.
 
 ## Inside a session
@@ -46,20 +59,34 @@ runs one loop over three inputs: control messages from the Mac, UDP datagrams, a
   to the `Priority` the user chose.
 - The engine watches for stalled video and asks for a keyframe, or tells the app to rebuild its decoder, only while the
   Mac is actually sending.
-- `input` turns app input into protocol events. Keyboard text goes through `keyboard`, which maps characters to the
-  Mac's layout and handles Korean/English switching; finger touches go through a touchpad state machine that emulates
-  a trackpad.
+- `input` turns pointer, scroll, and touch input into protocol events; finger touches go through a touchpad state
+  machine that emulates a trackpad. Keys go out unchanged.
 
 Modules other than `session` and `ffi` do no I/O. They take bytes and time as arguments and return values, which keeps
 them testable without a network. Every length read from the server is bounded before use, and malformed input returns
 an error instead of panicking.
 
+## Keys on each platform
+
+Every app sends, per key, what the user means to type. Shortcuts (Command, Control, or Option held) send the Latin key
+itself. What differs is what each system hands the app:
+
+| | Gets | Sends |
+|---|---|---|
+| Android | the physical key's Latin character, and the IME's language | `character(latin, language)`, or the Latin character |
+| Windows | the Windows layout's character, and a Korean/English mode tracked by the app | `character(char, language)`, or the character |
+| iPad | the character iPadOS typed in its input language | `character(physical Latin, language)` for languages with a Mac layout, otherwise iPadOS's character |
+
+iPadOS applies a hardware keyboard language switch only when its text system sees the next key, and that key's
+`UIKey.characters` is still in the old language. The iPad app therefore passes typing keys to the text system first and
+reads the input language afterwards, which is already the new one.
+
 ## Keyboard layout tables
 
-`src/session/keyboard/tables.rs` is generated on a Mac from the system keyboard layouts:
+`src/keyboard/tables.rs` is generated on a Mac from the system keyboard layouts:
 
 ```sh
-swift layouts.swift > src/session/keyboard/tables.rs
+swift layouts.swift > src/keyboard/tables.rs
 ```
 
 Regenerate it when adding a language. The table only covers layouts that cannot type Latin letters; Latin layouts send
