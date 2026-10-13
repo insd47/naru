@@ -77,8 +77,8 @@ pub struct Media {
     audio_ssrc: u32,
     receive: SrtpContext,
     audio: SrtpContext,
-    // Whether the decoder config was announced before the first audio
-    audio_started: bool,
+    // SSRC of the audio stream whose decoder config was announced. The server restarts audio with a new SSRC on resize.
+    audio_stream: Option<u32>,
     rtcp: SrtpContext,
     keepalive: SrtpContext,
     streams: Streams,
@@ -118,7 +118,7 @@ impl Media {
             audio_ssrc: offer.audio_ssrc,
             receive: SrtpContext::new(&offer.keys.video_receive),
             audio: SrtpContext::new(&offer.keys.audio_receive),
-            audio_started: false,
+            audio_stream: None,
             rtcp: SrtpContext::new(&offer.keys.video_send),
             keepalive: SrtpContext::new(&offer.keys.audio_send),
             streams: Streams::default(),
@@ -198,16 +198,17 @@ impl Media {
             return;
         }
 
-        let packet = self.audio.unprotect_rtp(datagram);
-        let Some(frame) = packet
-            .as_deref()
-            .and_then(RtpPacket::parse)
-            .and_then(AudioFrame::depacketize)
-        else {
+        let Some(packet) = self.audio.unprotect_rtp(datagram).as_deref().and_then(RtpPacket::parse) else {
             return;
         };
 
-        if !std::mem::replace(&mut self.audio_started, true) {
+        let ssrc = packet.ssrc;
+        let Some(frame) = AudioFrame::depacketize(packet) else {
+            return;
+        };
+
+        // A decoder kept across streams stops playing on some platforms, so each new stream gets a fresh decoder.
+        if self.audio_stream.replace(ssrc) != Some(ssrc) {
             events.push(Event::AudioConfig(AudioFrame::CONFIG.to_vec()));
         }
 

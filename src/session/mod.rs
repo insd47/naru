@@ -116,7 +116,7 @@ pub enum Event {
     Layout(Layout),
     /// New decoder config. Recreate the decoder with it.
     DecoderConfig(DecoderConfig),
-    /// Audio decoder config (AudioSpecificConfig). Arrives once before the first audio.
+    /// Audio decoder config (AudioSpecificConfig). Arrives before the first audio of each audio stream; recreate the audio decoder with it.
     AudioConfig(Vec<u8>),
     /// Audio access unit
     Audio(AudioFrame),
