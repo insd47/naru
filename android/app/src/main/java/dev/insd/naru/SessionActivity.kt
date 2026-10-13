@@ -43,6 +43,7 @@ import dev.insd.naru.session.Connection
 import dev.insd.naru.session.ImeLanguage
 import dev.insd.naru.session.Keys
 import dev.insd.naru.session.MetaKey
+import dev.insd.naru.session.Momentum
 import dev.insd.naru.session.ScreenView
 import dev.insd.naru.session.SessionService
 import dev.insd.naru.session.Touchpad
@@ -62,6 +63,7 @@ class SessionActivity : ComponentActivity() {
     private lateinit var keys: Keys
     private var language: ImeLanguage? = null
     private var touchpad: Touchpad? = null
+    private var momentum: Momentum? = null
 
     private val listener = object : Connection.Listener {
         override fun onEvent(event: Event) = handle(event)
@@ -130,6 +132,7 @@ class SessionActivity : ComponentActivity() {
     // On return the Surface and decoder are recreated and stay blank until the first frame, so the loading indicator shows again.
     override fun onStop() {
         loading = true
+        momentum?.stop()
         connection?.let { current -> keys.releaseAll().forEach { (keysym, down) -> current.key(keysym, down) } }
         super.onStop()
     }
@@ -206,6 +209,7 @@ class SessionActivity : ComponentActivity() {
 
     private fun bind(view: ScreenView) {
         view.connection = connection
+        view.momentum = momentum
         cursor?.let(view::setCursor)
         view.onKey = { handleKey(it) }
         view.requestFocus()
@@ -215,7 +219,7 @@ class SessionActivity : ComponentActivity() {
     private fun adopt(next: Connection) {
         connection = next
         language = ImeLanguage(this).also { it.sync(delayMs = 0) }
-        touchpad = Touchpad(next, resources.displayMetrics.density)
+        momentum = Momentum(this) { phase, dx, dy -> next.momentum(phase, dx, dy) }.also { touchpad = Touchpad(this, next, it) }
         immersive(true)
     }
 
@@ -226,7 +230,6 @@ class SessionActivity : ComponentActivity() {
                 cursor = event
                 screen?.setCursor(event)
             }
-            is Event.Pointer -> screen?.setTouchCursor(event.x.toInt(), event.y.toInt())
             is Event.Closed -> closed()
             else -> Unit
         }

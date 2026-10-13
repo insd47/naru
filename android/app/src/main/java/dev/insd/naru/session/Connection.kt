@@ -8,10 +8,10 @@ import dev.insd.naru.core.Config
 import dev.insd.naru.core.DisplayMode
 import dev.insd.naru.core.Event
 import dev.insd.naru.core.InputSource
+import dev.insd.naru.core.MomentumPhase
 import dev.insd.naru.core.Phase
 import dev.insd.naru.core.Session
 import dev.insd.naru.core.SessionListener
-import dev.insd.naru.core.TouchPhase
 import dev.insd.naru.video.Video
 
 /**
@@ -49,11 +49,11 @@ class Connection(config: Config, private val listener: Listener) {
 
     fun scroll(phase: Phase, dx: Float, dy: Float) = session.scroll(phase, dx, dy)
 
+    fun momentum(phase: MomentumPhase, dx: Float, dy: Float) = session.momentum(phase, dx, dy)
+
     fun wheel(dx: Float, dy: Float, linesX: Float, linesY: Float) = session.wheel(dx, dy, linesX, linesY)
 
     fun magnify(phase: Phase, scale: Float) = session.magnify(phase, scale)
-
-    fun touch(id: Int, phase: TouchPhase, x: Float, y: Float) = session.touch(id.toUInt(), phase, x, y)
 
     /** `true` if sent; `false` without sending if it exceeds the size limit */
     fun clipboard(text: String): Boolean = session.clipboard(text)
@@ -95,8 +95,7 @@ class Connection(config: Config, private val listener: Listener) {
             else -> Unit
         }
 
-        // The touch cursor position arrives on every finger movement, so it is not logged.
-        if (event !is Event.Pointer) Log.i(TAG, describe(event))
+        Log.i(TAG, describe(event))
         listener.onEvent(event)
 
         if (event is Event.Closed) {
