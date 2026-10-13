@@ -122,7 +122,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
-        DiagnosticsLog.shared.record("FOCUS", "become \(became)")
+        DiagnosticsLog.shared.record("FOCUS", "become \(became) key window \(window?.isKeyWindow == true), key is \(DiagnosticsLog.describe(DiagnosticsLog.keyWindow))")
         return became
     }
 
@@ -139,7 +139,8 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     var hasText: Bool { false }
 
     func insertText(_ text: String) {
-        DiagnosticsLog.shared.record("TXT", DiagnosticsLog.shared.secure ? "insert (secure input)" : "insert [\(text)]")
+        let keyWindow = "key window \(window?.isKeyWindow == true)"
+        DiagnosticsLog.shared.record("TXT", DiagnosticsLog.shared.secure ? "insert (secure input) \(keyWindow)" : "insert [\(text)] \(keyWindow)")
         repeatHeld()
     }
 

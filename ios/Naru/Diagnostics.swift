@@ -3,7 +3,7 @@ import UIKit
 
 /// A temporary log for diagnosing input on real devices, exported from Help > Export Diagnostics.
 ///
-/// - It records keys, text input, language changes, focus, GameController keys, and session events, in time order.
+/// - It records keys, text input, language changes, focus, key windows, GameController keys, and session events, in time order.
 /// - It stays in memory and becomes a file only when exported. While the Mac reports secure input, keys are recorded without their characters or codes.
 final class DiagnosticsLog: @unchecked Sendable {
     static let shared = DiagnosticsLog()
@@ -25,6 +25,29 @@ final class DiagnosticsLog: @unchecked Sendable {
             MainActor.assumeIsolated { self?.watchGameController() }
         }
         Task { @MainActor in watchGameController() }
+
+        // Keys reach only the key window, so key window changes are recorded to explain keys that never arrive.
+        for (name, label) in [(UIWindow.didBecomeKeyNotification, "key"), (UIWindow.didResignKeyNotification, "not key")] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                // Delivered on the main queue, where the window belongs.
+                nonisolated(unsafe) let window = note.object as? UIWindow
+                MainActor.assumeIsolated { self?.record("WIN", "\(label): \(Self.describe(window))") }
+            }
+        }
+    }
+
+    /// The window's type and its root view controller's type, to tell the app's windows apart
+    @MainActor
+    static func describe(_ window: UIWindow?) -> String {
+        guard let window else { return "none" }
+        let root = window.rootViewController.map { String(describing: type(of: $0)) } ?? "no root"
+        return "\(type(of: window)) \(root) level \(window.windowLevel.rawValue)"
+    }
+
+    /// The key window of the app's foreground scene
+    @MainActor
+    static var keyWindow: UIWindow? {
+        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
     }
 
     /// Adds an entry. An entry identical to the previous one is skipped.
