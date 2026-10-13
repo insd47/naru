@@ -56,6 +56,7 @@ struct NaruCommands: Commands {
 
         CommandGroup(replacing: .help) {
             Button("Export Diagnostics…") { session.exportDiagnostics() }
+            Button("Privacy Policy") { UIApplication.shared.open(URL(string: "https://github.com/insd47/naru/blob/main/PRIVACY.md")!) }
         }
     }
 

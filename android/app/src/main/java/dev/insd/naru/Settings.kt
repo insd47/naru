@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
@@ -33,6 +34,7 @@ fun Settings(preferences: Preferences) {
     )
 
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
 
     Group {
@@ -41,7 +43,7 @@ fun Settings(preferences: Preferences) {
         item {
             SegmentedListItem(
                 onClick = { preferences.swapCommandOption = !preferences.swapCommandOption },
-                shapes = ListItemDefaults.segmentedShapes(0, 2),
+                shapes = ListItemDefaults.segmentedShapes(0, 3),
                 colors = ListItemDefaults.segmentedColors(),
                 modifier = Modifier.semantics {
                     role = Role.Switch
@@ -55,7 +57,7 @@ fun Settings(preferences: Preferences) {
         item {
             SegmentedListItem(
                 onClick = { preferences.syncKeyboardLanguage = !preferences.syncKeyboardLanguage },
-                shapes = ListItemDefaults.segmentedShapes(1, 2),
+                shapes = ListItemDefaults.segmentedShapes(1, 3),
                 colors = ListItemDefaults.segmentedColors(),
                 modifier = Modifier.semantics {
                     role = Role.Switch
@@ -92,7 +94,7 @@ fun Settings(preferences: Preferences) {
         item {
             SegmentedListItem(
                 onClick = { scope.launch { Diagnostics.share(context) } },
-                shapes = ListItemDefaults.segmentedShapes(0, 2),
+                shapes = ListItemDefaults.segmentedShapes(0, 3),
                 colors = ListItemDefaults.segmentedColors(),
                 supportingContent = { Text("Saves this launch's app log as a text file to share with a bug report. It has no passwords, typed text, or clipboard contents.") },
             ) { Text("Export Diagnostics") }
@@ -101,9 +103,17 @@ fun Settings(preferences: Preferences) {
         item {
             SegmentedListItem(
                 onClick = { context.startActivity(Intent(context, LicensesActivity::class.java)) },
-                shapes = ListItemDefaults.segmentedShapes(1, 2),
+                shapes = ListItemDefaults.segmentedShapes(1, 3),
                 colors = ListItemDefaults.segmentedColors(),
             ) { Text("Open source licenses") }
+        }
+
+        item {
+            SegmentedListItem(
+                onClick = { uriHandler.openUri("https://github.com/insd47/naru/blob/main/PRIVACY.md") },
+                shapes = ListItemDefaults.segmentedShapes(2, 3),
+                colors = ListItemDefaults.segmentedColors(),
+            ) { Text("Privacy policy") }
         }
     }
 }
