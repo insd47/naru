@@ -41,8 +41,9 @@ pub enum Event {
 /// - Finger touches move the cursor relatively, so this owns the cursor position. The native layer reads it with [`Self::cursor`] and draws it.
 pub struct Input {
     keys: RecordKeys,
-    // When the previous pointer event was sent
+    // When the previous pointer event was sent, and its buttons and position
     pointed: Instant,
+    sent: Option<(u8, (u16, u16))>,
     bounds: (u16, u16),
     // Layout pixels per Mac point, used to convert touch scroll distances to points
     pixels_per_point: f32,
@@ -71,6 +72,7 @@ impl Input {
         Self {
             keys,
             pointed: Instant::now(),
+            sent: None,
             bounds: (u16::MAX, u16::MAX),
             pixels_per_point: 1.0,
             at: (0, 0),
@@ -102,6 +104,12 @@ impl Input {
             Event::Pointer { buttons, x, y } => {
                 self.at = self.clamp((x, y));
                 self.cursor = (f32::from(self.at.0), f32::from(self.at.1));
+
+                // iPadOS reports the unmoved pointer with every trackpad scroll event, and Firefox ends a scroll on a mouse move.
+                if self.sent == Some((buttons, self.at)) {
+                    return Vec::new();
+                }
+
                 vec![self.pointer(buttons, now)]
             }
             Event::Scroll { phase, delta } => self.scroll(phase, delta, now),
@@ -152,6 +160,7 @@ impl Input {
     fn pointer(&mut self, buttons: u8, now: Instant) -> Vec<u8> {
         let elapsed_us = u32::try_from(now.saturating_duration_since(self.pointed).as_micros()).unwrap_or(u32::MAX);
         self.pointed = now;
+        self.sent = Some((buttons, self.at));
         client::pointer(&self.keys, buttons, self.at.0, self.at.1, elapsed_us).to_vec()
     }
 
@@ -511,6 +520,17 @@ mod tests {
             input.handle(click(0), start + Duration::from_millis(80)),
             vec![client::pointer(&keys, 0, 10, 20, 80_000).to_vec()]
         );
+    }
+
+    #[test]
+    fn unchanged_pointer_is_not_resent() {
+        let mut input = input();
+        input.resize((800, 600), (800, 600));
+        let point = |buttons| Event::Pointer { buttons, x: 10, y: 20 };
+
+        assert_eq!(input.handle(point(0), Instant::now()).len(), 1);
+        assert!(input.handle(point(0), Instant::now()).is_empty());
+        assert_eq!(input.handle(point(1), Instant::now()).len(), 1);
     }
 
     // Touch moves the cursor relatively from the last pointer position and stops at the screen edge.
