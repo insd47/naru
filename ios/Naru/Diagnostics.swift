@@ -6,6 +6,7 @@ import UIKit
 struct Diagnostics: View {
     let session: SessionController
     @State private var lines: [String] = []
+    @State private var trace: [String] = []
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -16,9 +17,39 @@ struct Diagnostics: View {
             Text("Type on the hardware keyboard").font(.headline).padding(.top)
             ProbeView { line in lines.insert(line, at: 0) }
                 .frame(height: 1)
-            List(lines, id: \.self) { Text($0).font(.system(.footnote, design: .monospaced)) }
+            HStack(alignment: .top) {
+                List(lines, id: \.self) { Text($0).font(.system(.footnote, design: .monospaced)) }
+                VStack(alignment: .leading) {
+                    HStack {
+                        Text("Pointer and scroll sent in the session").font(.headline)
+                        Spacer()
+                        Button("Refresh") { trace = InputTrace.shared.lines() }
+                    }
+                    List(Array(trace.enumerated()), id: \.offset) { Text($0.element).font(.system(.footnote, design: .monospaced)) }
+                }
+            }
         }
         .padding()
+        .onAppear { trace = InputTrace.shared.lines() }
+    }
+}
+
+/// The last pointer, scroll, wheel, and magnify calls the session screen made, newest first, for diagnosing scrolling on real devices.
+final class InputTrace: @unchecked Sendable {
+    static let shared = InputTrace()
+    private let lock = NSLock()
+    private var entries: [String] = []
+
+    func record(_ entry: String) {
+        let now = Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 60)
+        lock.withLock {
+            entries.append(String(format: "%06.3f ", now) + entry)
+            if entries.count > 400 { entries.removeFirst(entries.count - 400) }
+        }
+    }
+
+    func lines() -> [String] {
+        lock.withLock { entries.reversed() }
     }
 }
 
