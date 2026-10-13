@@ -188,11 +188,9 @@ class SessionActivity : ComponentActivity() {
         return true
     }
 
-    // The Mac switches its input source at the next key, and the app's input method takes a moment to follow, so a key
-    // sent right behind the switch still goes to the old one. The source therefore goes out as soon as the tablet's
-    // language changes, with a lone Control press as that next key, so the switch is done before the user types.
-    // Selecting before a key covers a change that was missed. Switching also commits a composition the Mac still holds.
-    private fun syncSource(current: Connection, tabletLanguage: String, now: Boolean = false) {
+    // The source goes out as soon as the tablet's language changes, so the Mac has switched before the user types.
+    // Selecting before a key covers a change that was missed; the core holds that key until the Mac has switched.
+    private fun syncSource(current: Connection, tabletLanguage: String) {
         if (!naru.preferences.syncKeyboardLanguage || tabletLanguage.isEmpty()) {
             selectedSource = null
             return
@@ -203,11 +201,6 @@ class SessionActivity : ComponentActivity() {
         if (source != selectedSource) {
             current.selectInputSource(source)
             selectedSource = source
-
-            if (now) {
-                current.key(CONTROL, true)
-                current.key(CONTROL, false)
-            }
         }
     }
 
@@ -249,7 +242,7 @@ class SessionActivity : ComponentActivity() {
     private fun adopt(next: Connection) {
         connection = next
         selectedSource = null
-        language = ImeLanguage(this) { changed -> syncSource(next, changed, now = true) }.also { it.sync(delayMs = 0) }
+        language = ImeLanguage(this) { changed -> syncSource(next, changed) }.also { it.sync(delayMs = 0) }
         momentum = Momentum(this) { phase, dx, dy -> next.momentum(phase, dx, dy) }.also { touchpad = Touchpad(this, next, it) }
         immersive(true)
     }
@@ -295,6 +288,5 @@ class SessionActivity : ComponentActivity() {
 
     companion object {
         private const val RESIZE_SETTLE_MS = 500L
-        private const val CONTROL = 0xffe3
     }
 }
