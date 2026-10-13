@@ -13,7 +13,7 @@ namespace Naru.Video;
 /// <remarks>
 /// <list type="bullet">
 /// <item>The swap chain matches the panel's physical pixels, and its transform undoes the panel's scale, so nothing is resampled twice.</item>
-/// <item>The video processor converts NV12 to BGRA and scales in one pass on the GPU.</item>
+/// <item>The video processor converts NV12 (H.264) or AYUV (HEVC 4:4:4) to BGRA and scales in one pass on the GPU.</item>
 /// <item>Call only on the video thread, except <see cref="Attach"/>, which runs on the UI thread.</item>
 /// </list>
 /// </remarks>

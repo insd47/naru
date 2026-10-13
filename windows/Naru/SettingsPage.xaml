@@ -91,6 +91,7 @@
                 <StackPanel Spacing="4">
                     <TextBlock Text="Naru" />
                     <TextBlock x:Name="Version" Style="{StaticResource Detail}" />
+                    <TextBlock x:Name="Hevc" Style="{StaticResource Detail}" />
                     <TextBlock Text="Connects to macOS Screen Sharing in High Performance mode." Style="{StaticResource Detail}" />
                 </StackPanel>
             </Border>

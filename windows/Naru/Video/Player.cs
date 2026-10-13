@@ -13,7 +13,7 @@ namespace Naru.Video;
 /// <remarks>
 /// <list type="bullet">
 /// <item>The decoder and renderer live on one dedicated thread. Calls from any thread are posted there and handled in order.</item>
-/// <item>A decoder exists only while a config (SPS, PPS) exists. When it changes, a new one is created and fed from a keyframe.</item>
+/// <item>A decoder exists only while a config (VPS, SPS, PPS) exists. When it changes, a new one is created and fed from a keyframe.</item>
 /// <item>A keyframe is requested when the decoder failed or input backed up. The session requests one itself for a new config and for stall recovery.</item>
 /// <item>Each new decoder raises <see cref="FirstFrame"/> once it presents its first picture. The screen is black until then.</item>
 /// <item>Work arriving after <see cref="Dispose"/> is ignored.</item>
@@ -35,8 +35,7 @@ internal sealed class Player : IDisposable
     private Graphics? graphics;
     private Renderer? renderer;
     private Decoder? decoder;
-    private byte[]? sps;
-    private byte[]? pps;
+    private DecoderConfig? config;
     private uint visibleWidth;
     private uint visibleHeight;
     private bool shown;
@@ -93,17 +92,11 @@ internal sealed class Player : IDisposable
 
     // The server resends the same config with every keyframe. The decoder is kept for an identical config and recreated only when it changes.
     // When recreating, the following keyframe arrives shortly, so none is requested.
-    public void Configure(DecoderConfig config) => Post(() =>
+    public void Configure(DecoderConfig next) => Post(() =>
     {
-        if (config.Codec != VideoCodec.H264 || config.Sps.FirstOrDefault() is not { } nextSps || config.Pps.FirstOrDefault() is not { } nextPps)
+        if (decoder == null || config is not { } current || !Same(current, next))
         {
-            return;
-        }
-
-        if (decoder == null || !nextSps.AsSpan().SequenceEqual(sps) || !nextPps.AsSpan().SequenceEqual(pps))
-        {
-            sps = nextSps;
-            pps = nextPps;
+            config = next;
             Rebuild(keyframe: false);
         }
     });
@@ -269,12 +262,12 @@ internal sealed class Player : IDisposable
         awaitingKeyframe = true;
         shown = false;
 
-        if (disposed || graphics is not { } device || sps is not { } currentSps || pps is not { } currentPps)
+        if (disposed || graphics is not { } device || config is not { } current)
         {
             return;
         }
 
-        decoder = Guard("create the decoder", () => new Decoder(device, currentSps, currentPps));
+        decoder = Guard("create the decoder", () => new Decoder(device, current));
 
         if (decoder != null)
         {
@@ -285,6 +278,13 @@ internal sealed class Player : IDisposable
         {
             Ask();
         }
+    }
+
+    private static bool Same(DecoderConfig a, DecoderConfig b)
+    {
+        static bool Equal(byte[][] x, byte[][] y) => x.Length == y.Length && x.Zip(y).All(pair => pair.First.AsSpan().SequenceEqual(pair.Second));
+
+        return a.Codec == b.Codec && Equal(a.Vps, b.Vps) && Equal(a.Sps, b.Sps) && Equal(a.Pps, b.Pps);
     }
 
     private void Ask()

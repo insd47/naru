@@ -1,13 +1,20 @@
 namespace Naru.Video;
 
+/// <summary>The fields of an HEVC SPS the decoder needs.</summary>
+internal readonly record struct HevcSps(uint Width, uint Height, uint ChromaFormat, uint MaxNumReorderPics);
+
 /// <summary>
-/// Rewrites an H.264 SPS so the decoder outputs each picture as soon as it is decoded.
+/// Reads and rewrites sequence parameter sets.
 /// </summary>
 /// <remarks>
-/// The server's stream has no B-frames but does not say so: its SPS lacks the VUI bitstream restriction and declares
-/// 11 reference frames. Without the restriction, Windows' decoder holds each picture until the next one arrives in
-/// case it must reorder them, which adds a frame of latency. Declaring <c>max_num_reorder_frames = 0</c> removes the
-/// wait. Every other field is kept as it was.
+/// <para>For HEVC, only the fields the decoder needs are read.</para>
+/// <para>
+/// An H.264 SPS is rewritten so the decoder outputs each picture as soon as it is decoded. The server's stream has no
+/// B-frames but does not say so: its SPS lacks the VUI bitstream restriction and declares 11 reference frames. Without
+/// the restriction, Windows' decoder holds each picture until the next one arrives in case it must reorder them, which
+/// adds a frame of latency. Declaring <c>max_num_reorder_frames = 0</c> removes the wait. Every other field is kept as
+/// it was.
+/// </para>
 /// </remarks>
 internal static class Sps
 {
@@ -23,6 +30,82 @@ internal static class Sps
         catch (FormatException)
         {
             return nal;
+        }
+    }
+
+    /// <summary>The coded size, chroma format, and reorder depth of an HEVC SPS NAL (without a start code), or null if it cannot be parsed.</summary>
+    /// <remarks>Media Foundation's HEVC decoder needs the frame size before it offers a 4:4:4 output.</remarks>
+    public static HevcSps? Hevc(byte[] nal)
+    {
+        try
+        {
+            var reader = new BitReader(Unescape(nal));
+            reader.Bits(16);
+            reader.Bits(4);
+            var subLayers = (int)reader.Bits(3);
+            reader.Bits(1);
+
+            // profile_tier_level: the general profile and level, then per sub-layer presence flags and fields.
+            reader.Bits(88);
+            reader.Bits(8);
+            var profilePresent = new bool[subLayers];
+            var levelPresent = new bool[subLayers];
+
+            for (var layer = 0; layer < subLayers; layer++)
+            {
+                profilePresent[layer] = reader.Flag();
+                levelPresent[layer] = reader.Flag();
+            }
+
+            if (subLayers > 0)
+            {
+                reader.Bits(2 * (8 - subLayers));
+            }
+
+            for (var layer = 0; layer < subLayers; layer++)
+            {
+                reader.Bits(profilePresent[layer] ? 88 : 0);
+                reader.Bits(levelPresent[layer] ? 8 : 0);
+            }
+
+            reader.Ue();
+            var chromaFormat = reader.Ue();
+
+            if (chromaFormat == 3)
+            {
+                reader.Bits(1);
+            }
+
+            var width = reader.Ue();
+            var height = reader.Ue();
+
+            if (reader.Flag())
+            {
+                reader.Ue();
+                reader.Ue();
+                reader.Ue();
+                reader.Ue();
+            }
+
+            reader.Ue();
+            reader.Ue();
+            reader.Ue();
+
+            // sps_max_num_reorder_pics of the highest sub-layer, which is the one decoded.
+            uint reorder = 0;
+
+            for (var layer = reader.Flag() ? 0 : subLayers; layer <= subLayers; layer++)
+            {
+                reader.Ue();
+                reorder = reader.Ue();
+                reader.Ue();
+            }
+
+            return new HevcSps(width, height, chromaFormat, reorder);
+        }
+        catch (FormatException)
+        {
+            return null;
         }
     }
 

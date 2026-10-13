@@ -23,7 +23,15 @@ public sealed partial class SettingsPage : Page
 
         var version = Package.Current.Id.Version;
         Version.Text = $"Version {version.Major}.{version.Minor}.{version.Build}";
+        ShowHevc();
         loaded = true;
+    }
+
+    // Shows whether sessions get HEVC 4:4:4 or H.264. The check may still be running from launch.
+    private async void ShowHevc()
+    {
+        var supported = await Task.Run(Video.Decoder.SupportsHevc444);
+        Hevc.Text = $"HEVC 4:4:4 hardware decoding: {(supported ? "supported" : "unsupported")}";
     }
 
     // Controls raise change events while the page sets their initial values, which must not write back.
