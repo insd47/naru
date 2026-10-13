@@ -211,7 +211,7 @@ internal sealed class Player : IDisposable
         {
             pictures = current.Decode(unit);
         }
-        catch (SharpGenException error)
+        catch (Exception error) when (error is SharpGenException or InvalidOperationException or COMException)
         {
             Log.Error("Decoder error", error);
             Rebuild(keyframe: true);
