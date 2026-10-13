@@ -56,6 +56,10 @@ cargo about generate --frozen --fail licenses/text.hbs -o licenses/notices/core.
 cargo about generate --frozen --fail licenses/plist.hbs -o ios/Naru/Settings.bundle/Acknowledgements.plist
 ```
 
+The Windows app builds its `ThirdPartyNotices.txt` from these notices and the licenses of the packages it ships. A
+package licensed only by an SPDX expression takes its text from `licenses/`, and the build fails when that text is
+missing.
+
 For app changes, also build the app you touched. The Android JVM tests run with
 `./gradlew :app:testDebugUnitTest` from `android/`.
 
