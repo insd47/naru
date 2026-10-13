@@ -317,7 +317,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         if recognizer.state == .changed {
             connection?.wheel(
                 dx: Float(delta.x * scale), dy: Float(delta.y * scale),
-                linesX: Float(delta.x / 10), linesY: Float(delta.y / 10)
+                linesX: Float(delta.x * scale / 10), linesY: Float(delta.y * scale / 10)
             )
         }
     }
