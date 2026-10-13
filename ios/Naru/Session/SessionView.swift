@@ -8,7 +8,7 @@ struct SessionView: View {
 
     var body: some View {
         ZStack {
-            Screen(connection: session.connection, layout: session.layout, cursor: session.cursor, touchCursor: session.touchCursor) { mode in
+            Screen(connection: session.connection, layout: session.layout, cursor: session.cursor) { mode in
                 session.resize(mode)
             }
             .ignoresSafeArea()
@@ -30,7 +30,6 @@ private struct Screen: UIViewRepresentable {
     let connection: Connection?
     let layout: SessionController.Layout?
     let cursor: SessionController.Cursor?
-    let touchCursor: CGPoint?
     let onResize: (DisplayMode) -> Void
 
     func makeUIView(context: Context) -> ScreenView {
@@ -41,7 +40,6 @@ private struct Screen: UIViewRepresentable {
         view.connection = connection
         view.layout = layout
         view.cursor = cursor
-        view.touchCursor = touchCursor
         view.onResize = onResize
     }
 }

@@ -4,8 +4,9 @@ import UIKit
 /// Draws the Mac's screen and sends keyboard and pointer input to the Mac.
 ///
 /// - Video is drawn by attaching [Video]'s layer. The system pointer is hidden and the cursor bitmap the Mac sent is drawn at its position.
-/// - Pointers (trackpad, mouse, Apple Pencil) send their position to the Mac. For finger touches the core uses the whole screen as a trackpad and moves the cursor relatively,
-///   and the cursor is drawn where [touchCursor] reports.
+/// - Pointers (trackpad, mouse, Apple Pencil) send their position to the Mac. Finger touches use the whole screen as a trackpad through the core's
+///   [Touchpad], moving the cursor relatively.
+/// - Scrolls continue with [Momentum] after the fingers lift, since iPadOS reports none.
 /// - The view accepts text input so iPadOS input language switching (Caps Lock, Globe key) works, but character keys are sent directly instead of through the input method.
 /// - After a size change it waits briefly, then reports the virtual display size through [onResize].
 final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
@@ -28,19 +29,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         didSet { placeCursor() }
     }
 
-    /// The cursor position moved by finger touches, in layout pixels
-    var touchCursor: CGPoint? {
-        didSet {
-            guard let touchCursor, touchCursor != oldValue, let layout else { return }
-            let rect = videoRect(layout)
-            pointer = CGPoint(
-                x: rect.minX + touchCursor.x / layout.pixels.width * rect.width,
-                y: rect.minY + touchCursor.y / layout.pixels.height * rect.height
-            )
-            placeCursor()
-        }
-    }
-
     private let cursorLayer = CALayer()
     private var keys = Keys()
     // Presses also given to the text system, so their release goes there too
@@ -51,7 +39,16 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     private var navigation: (code: UIKeyboardHIDUsage, timer: Timer)?
     private var repeatTiming = (delay: 0.4, interval: 0.1)
     private var buttons: UInt8 = 0
+    // Where the cursor is drawn in this view, and where the Mac's cursor is in layout pixels
     private var pointer: CGPoint?
+    private var at = CGPoint.zero
+    private let touchpad = Touchpad()
+    private var touchButtons: UInt8 = 0
+    // Watches two-finger touches only for their velocity when a touch scroll ends.
+    private let fingers = UIPanGestureRecognizer()
+    private lazy var momentum = Momentum { [weak self] phase, delta in
+        self?.connection?.momentum(phase, dx: Float(delta.x), dy: Float(delta.y))
+    }
     private var resizing: DispatchWorkItem?
     private var measured = CGSize.zero
 
@@ -79,6 +76,12 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinch))
         pinch.allowedTouchTypes = [UITouch.TouchType.indirectPointer.rawValue as NSNumber]
         addGestureRecognizer(pinch)
+
+        fingers.minimumNumberOfTouches = 2
+        fingers.allowedTouchTypes = [UITouch.TouchType.direct.rawValue as NSNumber]
+        fingers.cancelsTouchesInView = false
+        fingers.delaysTouchesEnded = false
+        addGestureRecognizer(fingers)
     }
 
     required init?(coder: NSCoder) {
@@ -109,6 +112,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
             keys.releaseAll().forEach { connection?.key($0, down: false) }
             navigation?.timer.invalidate()
             navigation = nil
+            momentum.stop()
         }
     }
 
@@ -299,6 +303,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        momentum.stop()
         point(touches, event: event)
         finger(touches, .began)
     }
@@ -318,16 +323,46 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         finger(touches, .cancelled)
     }
 
-    // Converts each finger's position to layout pixels for the core. Positions are not clamped to the screen because movement is relative.
+    // Gives each finger's position to the touchpad in layout pixels. Positions are not clamped to the screen because movement is relative.
     private func finger(_ touches: Set<UITouch>, _ phase: TouchPhase) {
-        guard let connection, let layout else { return }
+        guard let layout else { return }
         let rect = videoRect(layout)
 
         for touch in touches where touch.type == .direct {
             let location = touch.location(in: self)
             let x = (location.x - rect.minX) / rect.width * layout.pixels.width
             let y = (location.y - rect.minY) / rect.height * layout.pixels.height
-            connection.touch(UInt32(truncatingIfNeeded: ObjectIdentifier(touch).hashValue), phase, x: Float(x), y: Float(y))
+            let id = UInt32(truncatingIfNeeded: ObjectIdentifier(touch).hashValue)
+            touchpad.touch(id: id, phase: phase, x: Float(x), y: Float(y)).forEach { gesture($0, layout) }
+        }
+    }
+
+    private func gesture(_ gesture: Gesture, _ layout: SessionController.Layout) {
+        let pointsPerPixel = Float(layout.logical.width / layout.pixels.width)
+
+        switch gesture {
+        case let .move(dx, dy):
+            at = CGPoint(
+                x: (at.x + CGFloat(dx)).clamped(to: 0...(layout.pixels.width - 1)),
+                y: (at.y + CGFloat(dy)).clamped(to: 0...(layout.pixels.height - 1))
+            )
+            let rect = videoRect(layout)
+            pointer = CGPoint(x: rect.minX + at.x / layout.pixels.width * rect.width, y: rect.minY + at.y / layout.pixels.height * rect.height)
+            placeCursor()
+            connection?.pointer(touchButtons, x: UInt16(at.x.rounded()), y: UInt16(at.y.rounded()))
+        case let .buttons(buttons):
+            touchButtons = buttons
+            connection?.pointer(buttons, x: UInt16(at.x.rounded()), y: UInt16(at.y.rounded()))
+        case let .scroll(phase, dx, dy):
+            connection?.scroll(phase, dx: dx * pointsPerPixel, dy: dy * pointsPerPixel)
+
+            if phase == .ended {
+                let velocity = fingers.velocity(in: self)
+                let scale = pointsPerViewPoint()
+                momentum.start(velocity: CGPoint(x: velocity.x * scale, y: velocity.y * scale))
+            }
+        case let .magnify(phase, scale):
+            connection?.magnify(phase, scale: scale)
         }
     }
 
@@ -359,10 +394,12 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         let rect = videoRect(layout)
         let x = ((location.x - rect.minX) / rect.width * layout.pixels.width).clamped(to: 0...(layout.pixels.width - 1))
         let y = ((location.y - rect.minY) / rect.height * layout.pixels.height).clamped(to: 0...(layout.pixels.height - 1))
+        at = CGPoint(x: x, y: y)
         connection.pointer(buttons, x: UInt16(x), y: UInt16(y))
     }
 
-    // Trackpad scrolling is converted to Mac points. The session handles momentum and pointer position.
+    // Trackpad scrolling is converted to Mac points. The scroll begins with the movement the recognizer needed to begin,
+    // as the Mac's own scrolls do, and momentum follows from the release velocity.
     @objc private func scroll(_ recognizer: UIPanGestureRecognizer) {
         guard let connection else { return }
 
@@ -372,11 +409,14 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
         switch recognizer.state {
         case .began:
-            connection.scroll(.began, dx: 0, dy: 0)
+            momentum.stop()
+            connection.scroll(.began, dx: Float(delta.x * scale), dy: Float(delta.y * scale))
         case .changed:
             connection.scroll(.changed, dx: Float(delta.x * scale), dy: Float(delta.y * scale))
         case .ended:
             connection.scroll(.ended, dx: 0, dy: 0)
+            let velocity = recognizer.velocity(in: self)
+            momentum.start(velocity: CGPoint(x: velocity.x * scale, y: velocity.y * scale))
         case .cancelled, .failed:
             connection.scroll(.cancelled, dx: 0, dy: 0)
         default:
@@ -391,6 +431,10 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         recognizer.setTranslation(.zero, in: self)
         let scale = pointsPerViewPoint()
 
+        if recognizer.state == .began {
+            momentum.stop()
+        }
+
         if recognizer.state == .changed {
             connection?.wheel(
                 dx: Float(delta.x * scale), dy: Float(delta.y * scale),
@@ -403,7 +447,9 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         let scale = Float(recognizer.scale)
 
         switch recognizer.state {
-        case .began: connection?.magnify(.began, scale: 1)
+        case .began:
+            momentum.stop()
+            connection?.magnify(.began, scale: 1)
         case .changed: connection?.magnify(.changed, scale: scale)
         case .ended: connection?.magnify(.ended, scale: scale)
         case .cancelled, .failed: connection?.magnify(.cancelled, scale: scale)

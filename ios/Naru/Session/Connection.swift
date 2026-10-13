@@ -33,11 +33,11 @@ final class Connection: SessionListener, @unchecked Sendable {
 
     func scroll(_ phase: Phase, dx: Float, dy: Float) { session.scroll(phase: phase, dx: dx, dy: dy) }
 
+    func momentum(_ phase: MomentumPhase, dx: Float, dy: Float) { session.momentum(phase: phase, dx: dx, dy: dy) }
+
     func wheel(dx: Float, dy: Float, linesX: Float, linesY: Float) { session.wheel(dx: dx, dy: dy, linesX: linesX, linesY: linesY) }
 
     func magnify(_ phase: Phase, scale: Float) { session.magnify(phase: phase, scale: scale) }
-
-    func touch(_ id: UInt32, _ phase: TouchPhase, x: Float, y: Float) { session.touch(id: id, phase: phase, x: x, y: y) }
 
     /// `true` if sent, or `false` without sending when it exceeds the size limit.
     func clipboard(_ text: String) -> Bool { session.clipboard(text: text) }
@@ -51,7 +51,7 @@ final class Connection: SessionListener, @unchecked Sendable {
     // Video and audio arrive dozens of times a second, so they are neither passed to the UI nor logged.
     func onEvent(event: Event) {
         switch event {
-        case .frame, .audio, .stats, .pointer:
+        case .frame, .audio, .stats:
             break
         default:
             log.info("\(Self.describe(event), privacy: .public)")

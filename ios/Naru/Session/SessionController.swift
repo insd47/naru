@@ -47,8 +47,6 @@ final class SessionController {
     private(set) var connection: Connection?
     private(set) var layout: Layout?
     private(set) var cursor: Cursor?
-    /// The cursor position moved by finger touches, in layout pixels, or `nil` before any touch.
-    private(set) var touchCursor: CGPoint?
     /// Whether the first frame has been drawn
     private(set) var shown = false
     /// The codec of the server's video, or `nil` before the first decoder config arrives.
@@ -76,7 +74,6 @@ final class SessionController {
         state = .connecting(host, .warmup)
         layout = nil
         cursor = nil
-        touchCursor = nil
         shown = false
         codec = nil
 
@@ -242,8 +239,6 @@ final class SessionController {
                 .map { Cursor(image: $0, size: CGSize(width: Int(width), height: Int(height)), hotspot: CGPoint(x: Int(hotspotX), y: Int(hotspotY))) }
         case let .decoder(config):
             codec = config.codec
-        case let .pointer(x, y):
-            touchCursor = CGPoint(x: Int(x), y: Int(y))
         case let .progress(stage):
             if case .connecting = state { state = .connecting(running.host, stage) }
         case let .closed(failure, detail):
@@ -298,7 +293,6 @@ final class SessionController {
         presented = false
         layout = nil
         cursor = nil
-        touchCursor = nil
         shown = false
         codec = nil
         state = failure.map { .failed(running.host, $0) }
