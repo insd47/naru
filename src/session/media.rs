@@ -87,6 +87,9 @@ pub struct Media {
     keepalive_timestamp: u32,
     last_sender_report: Option<Instant>,
     last_keyframe_request: Option<Instant>,
+    // A unit was lost and no keyframe has arrived since. Frames after a loss reference what was lost, so keyframe
+    // requests repeat until one arrives rather than going out once and possibly being swallowed by the rate limit.
+    awaiting_keyframe: bool,
     fir_sequence: u8,
     // Counts for diagnosing why media did not start.
     datagrams: u64,
@@ -127,6 +130,7 @@ impl Media {
             keepalive_timestamp: 0,
             last_sender_report: None,
             last_keyframe_request: None,
+            awaiting_keyframe: false,
             fir_sequence: 0,
             datagrams: 0,
             authenticated: 0,
@@ -217,8 +221,6 @@ impl Media {
 
     /// Takes every available output from the assembler. Also called when the retransmission deadline passes.
     pub async fn drain(&mut self, now: Instant, events: &mut Vec<Event>) {
-        let mut lost = false;
-
         while let Some(output) = self.assembler.as_mut().and_then(|assembler| assembler.next(now)) {
             match output {
                 Assembled::Config(config) => {
@@ -229,16 +231,18 @@ impl Media {
                     self.last_frame = Some(now);
                     self.stall = Stall::default();
                     self.streams.mark_frame(now);
+                    self.awaiting_keyframe &= !unit.keyframe;
                     events.push(Event::Frame(unit));
                 }
                 Assembled::Lost => {
                     self.losses += 1;
-                    lost = true;
+                    self.awaiting_keyframe = true;
                 }
             }
         }
 
-        if lost {
+        // Asked on every drain until a keyframe arrives. The rate limit spaces the requests out.
+        if self.awaiting_keyframe {
             self.request_keyframe(now).await;
         }
     }
