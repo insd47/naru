@@ -71,7 +71,7 @@ internal sealed class Sessions(Hosts hosts, Preferences preferences)
             Password: credentials.Password,
             KnownKey: ServerKeys.Find(host),
             Display: display,
-            Audio: false,
+            Audio: true,
             Priority: preferences.Priority,
             Hevc: Video.Decoder.SupportsHevc444());
 

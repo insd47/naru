@@ -1,14 +1,15 @@
+using Naru.Audio;
 using Naru.Core;
 using Naru.Video;
 
 namespace Naru.Session;
 
 /// <summary>
-/// Opens one session and routes the events the core pushes to video and the UI.
+/// Opens one session and routes the events the core pushes to video, audio, and the UI.
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-/// <item>Events arrive on the session's event thread. <see cref="Player"/> hands video to its own thread.</item>
+/// <item>Events arrive on the session's event thread. <see cref="Player"/> hands video to its own thread, and audio plays directly on this one.</item>
 /// <item>Events other than video and audio go to the listener on this thread, so the UI side posts them to its own thread.</item>
 /// <item>The core discards input sent after the session ends.</item>
 /// </list>
@@ -17,6 +18,7 @@ internal sealed class Connection : SessionListener
 {
     private readonly Action<Event> listener;
     private readonly Core.Session session;
+    private Speaker? audio;
 
     public Player Video { get; }
 
@@ -50,7 +52,6 @@ internal sealed class Connection : SessionListener
     public void Disconnect() => session.Disconnect();
 
     // Video and audio arrive dozens of times per second, so they are neither logged nor passed to the UI.
-    // Audio is not played yet: Media Foundation has no AAC-ELD decoder.
     public void OnEvent(Event @event)
     {
         switch (@event)
@@ -58,7 +59,8 @@ internal sealed class Connection : SessionListener
             case Event.Frame frame:
                 Video.Queue(frame.Unit);
                 break;
-            case Event.Audio or Event.AudioConfig:
+            case Event.Audio audioEvent:
+                Play(audioEvent.AudioFrame);
                 break;
             case Event.Stats stats:
                 Video.Report(stats.StatsValue);
@@ -82,6 +84,9 @@ internal sealed class Connection : SessionListener
             case Event.Layout layout:
                 Video.Show(layout.PixelWidth, layout.PixelHeight);
                 break;
+            case Event.AudioConfig audioConfig:
+                StartAudio(audioConfig.Config);
+                break;
         }
 
         // The touch cursor position arrives on every finger movement, so it is not logged.
@@ -96,6 +101,39 @@ internal sealed class Connection : SessionListener
         if (@event is Event.Closed)
         {
             Video.Dispose();
+            audio?.Dispose();
+            audio = null;
+        }
+    }
+
+    // If the decoder or the audio device fails, the next frame fails the same way, so audio is turned off. Video and other events keep flowing.
+    private void Play(AudioFrame frame)
+    {
+        try
+        {
+            audio?.Play(frame);
+        }
+        catch (Exception error) when (error is InvalidOperationException or SharpGen.Runtime.SharpGenException or DllNotFoundException)
+        {
+            Log.Error("Audio playback failed; turning audio off", error);
+            audio?.Dispose();
+            audio = null;
+        }
+    }
+
+    // Without audio, the session continues with video only.
+    private void StartAudio(byte[] config)
+    {
+        audio?.Dispose();
+        audio = null;
+
+        try
+        {
+            audio = new Speaker(config);
+        }
+        catch (Exception error) when (error is InvalidOperationException or SharpGen.Runtime.SharpGenException or DllNotFoundException)
+        {
+            Log.Error("Cannot start audio", error);
         }
     }
 
@@ -112,6 +150,7 @@ internal sealed class Connection : SessionListener
         Event.Source source => $"Input source: {source.SourceValue.Id} (secure input {source.SourceValue.Secure})",
         Event.Clipboard clipboard => $"Clipboard, {clipboard.Text.Length} chars",
         Event.ResetDecoder => "Decoder reset requested",
+        Event.AudioConfig audioConfig => $"Audio config, {audioConfig.Config.Length} bytes",
         Event.Closed closed => $"Session closed: {closed.Detail ?? "normally"}",
         _ => @event.GetType().Name,
     };

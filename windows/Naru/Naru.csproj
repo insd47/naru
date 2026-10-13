@@ -42,6 +42,14 @@
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
     <PackageReference Include="Vortice.MediaFoundation" Version="3.8.3" />
+    <!-- XAudio2 plays audio, and FDK AAC decodes the Mac's AAC-ELD, which Windows' AAC decoder rejects. -->
+    <PackageReference Include="Vortice.XAudio2" Version="3.8.3" />
+    <PackageReference Include="fdk-aac" Version="2.0.3" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <!-- FDK's license must ship in full with its binaries. -->
+  <ItemGroup>
+    <Content Include="$(Pkgfdk-aac)\NOTICE.txt" Link="Licenses\fdk-aac.txt" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">

@@ -93,6 +93,10 @@
                     <TextBlock x:Name="Version" Style="{StaticResource Detail}" />
                     <TextBlock x:Name="Hevc" Style="{StaticResource Detail}" />
                     <TextBlock Text="Connects to macOS Screen Sharing in High Performance mode." Style="{StaticResource Detail}" />
+                    <TextBlock Style="{StaticResource Detail}" TextWrapping="Wrap">
+                        Audio is decoded with the Fraunhofer FDK AAC Codec Library for Android, whose license is included in the app's Licenses folder.
+                        <Hyperlink NavigateUri="https://github.com/mstorsjo/fdk-aac">Source code</Hyperlink>
+                    </TextBlock>
                 </StackPanel>
             </Border>
         </StackPanel>
