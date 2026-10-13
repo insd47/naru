@@ -14,7 +14,7 @@ namespace Naru;
 /// running app opens the connection and the saved lists are never edited by two processes. This follows the Windows
 /// App SDK's single-instance pattern, which waits for the redirect while still pumping COM.
 /// </remarks>
-public static partial class Program
+internal static partial class Program
 {
     [STAThread]
     private static int Main()

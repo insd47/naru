@@ -5,7 +5,7 @@ what the platform does better. The core never decodes, renders, or touches platf
 protocol bytes.
 
 ```text
- app (Swift / Kotlin)                         core (Rust)
+ app (Swift / Kotlin / C#)                    core (Rust)
 ┌───────────────────────┐   Config, input   ┌──────────────────────────────────────────┐
 │ UI, hosts, keychain   │ ────────────────▶ │ ffi        UniFFI surface, event thread  │
 │ hardware decoder      │                   │ session    connect, retry, engine loop   │

@@ -10,7 +10,7 @@ namespace Naru.Store;
 /// Credentials are saved with <c>CRED_PERSIST_LOCAL_MACHINE</c>, so they stay on this PC. <c>PasswordVault</c> is avoided
 /// because it roams with the Microsoft account, and enterprise persistence roams with domain profiles.
 /// </remarks>
-public static partial class Keychain
+internal static partial class Keychain
 {
     private const uint CredTypeGeneric = 1;
     private const uint CredPersistLocalMachine = 2;

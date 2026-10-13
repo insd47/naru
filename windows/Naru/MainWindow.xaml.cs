@@ -15,9 +15,7 @@ namespace Naru;
 /// <remarks>Sessions continue in their own windows when this one closes.</remarks>
 public sealed partial class MainWindow : Window
 {
-    private readonly Connector connector;
-
-    internal Connector Connector => connector;
+    internal Connector Connector { get; }
 
     public MainWindow()
     {
@@ -29,8 +27,8 @@ public sealed partial class MainWindow : Window
         AppWindow.SetIcon("Assets/Naru.ico");
         Place();
 
-        connector = new Connector(() => Content.XamlRoot, AppWindow);
-        Closed += (_, _) => connector.Detach();
+        Connector = new Connector(() => Content.XamlRoot, AppWindow);
+        Closed += (_, _) => Connector.Detach();
 
         var settings = new KeyboardAccelerator { Modifiers = VirtualKeyModifiers.Control, Key = (VirtualKey)0xBC };
         settings.Invoked += (_, args) =>
@@ -66,6 +64,6 @@ public sealed partial class MainWindow : Window
                 "Network" => typeof(NetworkPage),
                 _ => typeof(SavedPage),
             };
-        ContentFrame.Navigate(page, connector);
+        ContentFrame.Navigate(page, Connector);
     }
 }

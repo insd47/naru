@@ -10,7 +10,7 @@ namespace Naru.Store;
 /// A Mac's public key has no certificate chain, so the first key seen is trusted and the user is asked if it later
 /// changes. Keys are stored per address.
 /// </remarks>
-public static partial class ServerKeys
+internal static partial class ServerKeys
 {
     private static readonly string Directory = Path.Combine(ApplicationData.Current.LocalFolder.Path, "server-keys");
 

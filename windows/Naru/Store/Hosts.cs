@@ -33,7 +33,7 @@ public sealed record Host
 /// The list of saved Macs, stored as JSON in the app's local folder.
 /// </summary>
 /// <remarks>Modified only on the UI thread.</remarks>
-public sealed class Hosts
+internal sealed class Hosts
 {
     private readonly string path = Path.Combine(ApplicationData.Current.LocalFolder.Path, "hosts.json");
 

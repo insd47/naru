@@ -53,7 +53,8 @@ public sealed partial class NetworkPage : Page
 
         foreach (var found in discovery.List)
         {
-            var presence = PresenceOf(found);
+            // A found Mac has no saved ID, so its session is matched by address.
+            var presence = HostItem.PresenceOf(App.Current.Sessions.FindAddress(found.Address, found.Port));
 
             if (items.FirstOrDefault(item => item.Id == found.Id) is { } existing)
             {
@@ -69,14 +70,6 @@ public sealed partial class NetworkPage : Page
 
         Empty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
-
-    // A found Mac has no saved ID, so its session is matched by address.
-    private static Presence PresenceOf(Found found) => App.Current.Sessions.FindAddress(found.Address, found.Port) switch
-    {
-        null => Presence.Idle,
-        { Authenticated: true } => Presence.InSession,
-        _ => Presence.Connecting,
-    };
 
     // Rows are recycled, so each one is wired once when it is first created.
     private void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)

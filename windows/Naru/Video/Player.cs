@@ -254,7 +254,6 @@ internal sealed class Player : IDisposable
         }
     }
 
-    // Recreates the decoder with the current config. Without one, waits without a decoder.
     private void Rebuild(bool keyframe)
     {
         decoder?.Dispose();

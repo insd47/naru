@@ -45,6 +45,13 @@ public sealed class HostItem : INotifyPropertyChanged
     // The list container names each row by this for screen readers.
     public override string ToString() => Title;
 
+    internal static Presence PresenceOf(Session.Running? session) => session switch
+    {
+        null => Presence.Idle,
+        { Authenticated: true } => Presence.InSession,
+        _ => Presence.Connecting,
+    };
+
     public static HostItem From(Host host, Presence presence) =>
         new() { Id = host.Id, Host = host, Title = host.Title, Subtitle = host.Address, Detail = FormatDate(host.LastConnected), Presence = presence };
 

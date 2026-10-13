@@ -43,7 +43,7 @@ public sealed partial class SavedPage : Page
     {
         // A Mac connected from Network has its own ID until it is saved, so presence is matched by ID only.
         var item = items.FirstOrDefault(item => item.Id == host.Id);
-        item?.Update(item.Host!, PresenceOf(host.Id));
+        item?.Update(item.Host!, HostItem.PresenceOf(App.Current.Sessions.Find(host.Id)));
     }
 
     // Items are kept and updated in place, so focus and hover state survive changes.
@@ -60,27 +60,20 @@ public sealed partial class SavedPage : Page
         for (var index = 0; index < hosts.List.Count; index++)
         {
             var host = hosts.List[index];
-            var existing = items.FirstOrDefault(item => item.Id == host.Id);
+            var presence = HostItem.PresenceOf(App.Current.Sessions.Find(host.Id));
 
-            if (existing == null)
+            if (items.FirstOrDefault(item => item.Id == host.Id) is { } existing)
             {
-                items.Insert(Math.Min(index, items.Count), HostItem.From(host, PresenceOf(host.Id)));
+                existing.Update(host, presence);
             }
             else
             {
-                existing.Update(host, PresenceOf(host.Id));
+                items.Insert(Math.Min(index, items.Count), HostItem.From(host, presence));
             }
         }
 
         Empty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
-
-    private static Presence PresenceOf(string hostId) => App.Current.Sessions.Find(hostId) switch
-    {
-        null => Presence.Idle,
-        { Authenticated: true } => Presence.InSession,
-        _ => Presence.Connecting,
-    };
 
     private void OnAdd(object sender, RoutedEventArgs e) => connector.Add();
 

@@ -16,7 +16,7 @@ public sealed record Found(string Id, string Name, string? Address, int Port);
 /// Windows exposes DNS-SD results as association endpoint services, which already carry the resolved address and port.
 /// Discovery runs only between <see cref="Start"/> and <see cref="Stop"/>, and <see cref="List"/> changes on the UI thread.
 /// </remarks>
-public sealed class Discovery
+internal sealed class Discovery
 {
     // The DNS-SD protocol of the association endpoint enumeration
     private const string Selector =
