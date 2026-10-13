@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 import UIKit
 
@@ -26,7 +27,7 @@ private struct ProbeView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> ProbeInput {
         let view = ProbeInput()
-        view.log = log
+        view.show = log
         DispatchQueue.main.async { view.becomeFirstResponder() }
         return view
     }
@@ -35,7 +36,13 @@ private struct ProbeView: UIViewRepresentable {
 }
 
 final class ProbeInput: UIView {
-    var log: (String) -> Void = { _ in }
+    var show: (String) -> Void = { _ in }
+    private let logger = Logger(subsystem: "dev.insd.naru", category: "Diagnostics")
+
+    private func log(_ line: String) {
+        logger.info("\(line, privacy: .public)")
+        show(line)
+    }
     private var count = 0
 
     override init(frame: CGRect) {
@@ -53,12 +60,26 @@ final class ProbeInput: UIView {
         for press in presses {
             guard let key = press.key else { continue }
             count += 1
-            log("\(count) press code \(key.keyCode.rawValue) chars [\(key.characters)] ignoring [\(key.charactersIgnoringModifiers)] mods \(key.modifierFlags.rawValue) lang \(textInputMode?.primaryLanguage ?? "nil")")
+            log("\(Self.time()) \(count) press code \(key.keyCode.rawValue) chars [\(key.characters)] ignoring [\(key.charactersIgnoringModifiers)] mods \(key.modifierFlags.rawValue) lang \(textInputMode?.primaryLanguage ?? "nil")")
         }
         super.pressesBegan(presses, with: event)
     }
 
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        for press in presses {
+            guard let key = press.key else { continue }
+            log("\(Self.time()) release code \(key.keyCode.rawValue) lang \(textInputMode?.primaryLanguage ?? "nil")")
+        }
+        super.pressesEnded(presses, with: event)
+    }
+
+    // Seconds and milliseconds within the minute, enough to see the gap between a language switch and the next key
+    private static func time() -> String {
+        let now = Date().timeIntervalSince1970
+        return String(format: "%06.3f", now.truncatingRemainder(dividingBy: 60))
+    }
+
     private func report(_ tag: String) {
-        log("\(tag): textInputMode \(textInputMode?.primaryLanguage ?? "nil"), current \(UITextInputMode.activeInputModes.first?.primaryLanguage ?? "nil")")
+        log("\(Self.time()) \(tag): textInputMode \(textInputMode?.primaryLanguage ?? "nil"), current \(UITextInputMode.activeInputModes.first?.primaryLanguage ?? "nil")")
     }
 }
