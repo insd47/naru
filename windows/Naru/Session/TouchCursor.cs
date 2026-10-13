@@ -12,8 +12,8 @@ namespace Naru.Session;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-/// <item>Fingers drive the session's trackpad emulation, which moves the cursor relatively and reports where it is. Touch
-/// has no system pointer, so the image is drawn there, as the iPad and Android apps do.</item>
+/// <item>Fingers move the cursor relatively through the touchpad emulation. Touch has no system pointer, so the image is
+/// drawn where they moved it, as the iPad and Android apps do.</item>
 /// <item>A mouse or pen has the system pointer, so using one hides the drawn cursor.</item>
 /// <item>The image is the Mac's logical size, stretched to the screen with filtering.</item>
 /// <item>Call only on the UI thread.</item>

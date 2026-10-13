@@ -27,10 +27,18 @@ internal readonly record struct Placement(Event.Layout Layout, Fit Fit, double S
     /// <summary>The Mac's points one DIP of the screen area covers</summary>
     public double PointsPerDip => Scale / PixelsPerPoint;
 
+    /// <summary>The Mac's points one pixel of its layout covers</summary>
+    public double PointsPerPixel => (double)Layout.LogicalWidth / Layout.PixelWidth;
+
     /// <summary>The pixel of the Mac's layout under a point of the screen area, in DIPs</summary>
-    public Point Mac(Point screen) => new(
-        Math.Clamp((screen.X * Scale - Fit.Left) / Fit.Scale, 0, Layout.PixelWidth - 1),
-        Math.Clamp((screen.Y * Scale - Fit.Top) / Fit.Scale, 0, Layout.PixelHeight - 1));
+    public Point Mac(Point screen)
+    {
+        var at = Unclamped(screen);
+        return new Point(Math.Clamp(at.X, 0, Layout.PixelWidth - 1), Math.Clamp(at.Y, 0, Layout.PixelHeight - 1));
+    }
+
+    /// <summary>The same position, past the screen's edges too, for fingers that move the cursor relatively</summary>
+    public Point Unclamped(Point screen) => new((screen.X * Scale - Fit.Left) / Fit.Scale, (screen.Y * Scale - Fit.Top) / Fit.Scale);
 
     /// <summary>The point of the screen area, in DIPs, over a pixel of the Mac's layout</summary>
     public Point Screen(Point mac) => new((Fit.Left + mac.X * Fit.Scale) / Scale, (Fit.Top + mac.Y * Fit.Scale) / Scale);

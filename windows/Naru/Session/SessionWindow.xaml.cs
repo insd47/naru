@@ -19,7 +19,8 @@ namespace Naru.Session;
 /// <list type="bullet">
 /// <item>Closing the window disconnects, as in Screen Sharing.</item>
 /// <item>The virtual display follows the screen area's size. The picture is centered with black bars when the sizes differ.</item>
-/// <item>Pointer positions are converted to the pixels of the Mac's latest layout. Touch goes to the session's trackpad emulation.</item>
+/// <item>Pointer positions are converted to the pixels of the Mac's latest layout. Touch goes to the trackpad emulation.</item>
+/// <item>Any press, wheel, or touchpad contact first ends the momentum of the last scroll.</item>
 /// </list>
 /// </remarks>
 internal sealed partial class SessionWindow : Window
@@ -40,12 +41,11 @@ internal sealed partial class SessionWindow : Window
     private readonly Clipboard clipboard;
     private readonly MacCursor cursor;
     private readonly TouchCursor touchCursor;
+    private readonly Momentum momentum;
+    private readonly TouchScreen touchScreen;
     // Held so the tracker lives as long as the window
     private readonly Touchpad? touchpad;
     private readonly DispatcherQueueTimer resizing;
-
-    // Where finger touches last moved the Mac's cursor, in layout pixels, while it is drawn
-    private Point? touchPoint;
 
     // The screen area size in DIPs the window opened for, until the first layout checks it
     private (double Width, double Height)? opening;
@@ -69,11 +69,13 @@ internal sealed partial class SessionWindow : Window
         clipboard = new Clipboard(session.Connection, App.Current.Preferences);
         cursor = new MacCursor(Screen);
         touchCursor = new TouchCursor(TouchImage);
+        momentum = new Momentum(session.Connection);
+        touchScreen = new TouchScreen(session.Connection, momentum, touchCursor);
 
         // Without the tracker, the touchpad still scrolls through the wheel handler, only in steps.
         try
         {
-            touchpad = new Touchpad(Screen, session.Connection.Scroll, () => (float)(Place()?.PointsPerDip ?? 1));
+            touchpad = new Touchpad(Screen, session.Connection.Scroll, momentum, () => (float)(Place()?.PointsPerDip ?? 1));
         }
         catch (Exception error) when (error is COMException or InvalidOperationException)
         {
@@ -93,6 +95,7 @@ internal sealed partial class SessionWindow : Window
 
         AppWindow.Closing += (_, _) =>
         {
+            momentum.Stop();
             chrome.Close();
             sessions.Close(session.Host.Id);
         };
@@ -147,10 +150,6 @@ internal sealed partial class SessionWindow : Window
             case Event.Layout:
                 PlaceCursors();
                 break;
-            case Event.Pointer pointer:
-                touchPoint = new Point(pointer.X, pointer.Y);
-                PlaceCursors();
-                break;
         }
     }
 
@@ -181,11 +180,7 @@ internal sealed partial class SessionWindow : Window
         }
 
         cursor.Scale(place.PixelsPerPoint);
-
-        if (touchPoint is { } at)
-        {
-            touchCursor.Place(place.Screen(at), place.PixelsPerPoint / place.Scale);
-        }
+        touchScreen.Place(place);
     }
 
     // Keys go to the Mac while this window is in front and no menu or dialog is open over it.
@@ -307,17 +302,19 @@ internal sealed partial class SessionWindow : Window
             return;
         }
 
-        var mac = place.Mac(point.Position);
+        if (phase == TouchPhase.Began)
+        {
+            momentum.Stop();
+        }
 
         if (e.Pointer.PointerDeviceType == PointerDeviceType.Touch)
         {
-            session.Connection.Touch(e.Pointer.PointerId, phase, (float)mac.X, (float)mac.Y);
+            touchScreen.Touch(point, e.GetIntermediatePoints(Surface), phase, place);
         }
         else
         {
-            // A mouse or pen shows the system pointer, so the drawn touch cursor goes away.
-            touchPoint = null;
-            touchCursor.Hide();
+            var mac = place.Mac(point.Position);
+            touchScreen.Follow(mac);
 
             var properties = point.Properties;
             var buttons = (byte)((properties.IsLeftButtonPressed ? 1 : 0) | (properties.IsRightButtonPressed ? 2 : 0) | (properties.IsMiddleButtonPressed ? 4 : 0));
@@ -337,8 +334,7 @@ internal sealed partial class SessionWindow : Window
     {
         if (e.Pointer.PointerDeviceType == PointerDeviceType.Touch && Place() is { } place)
         {
-            var mac = place.Mac(e.GetCurrentPoint(Surface).Position);
-            session.Connection.Touch(e.Pointer.PointerId, TouchPhase.Cancelled, (float)mac.X, (float)mac.Y);
+            touchScreen.Touch(e.GetCurrentPoint(Surface), [], TouchPhase.Cancelled, place);
         }
     }
 
@@ -346,6 +342,7 @@ internal sealed partial class SessionWindow : Window
     // is no acceleration, as with a wheel on a Mac. Windows counts up and right as positive, the session up and left.
     private void OnWheel(object sender, PointerRoutedEventArgs e)
     {
+        momentum.Stop();
         var properties = e.GetCurrentPoint(Surface).Properties;
         var notches = properties.MouseWheelDelta / 120f;
         var points = LineHeight * (float)(Place()?.PointsPerDip ?? 1);
