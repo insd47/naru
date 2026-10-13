@@ -121,10 +121,11 @@ internal sealed class Sessions(Hosts hosts, Preferences preferences)
             case Event.ServerKey key:
                 ServerKeys.Remember(session.Host, key.Der);
                 break;
+            // A session that gets no video reconnects and signs in again, and keeps the window it has.
             case Event.Authenticated:
                 Remember(session);
                 session.Authenticated = true;
-                session.Window = new SessionWindow(this, session);
+                session.Window ??= new SessionWindow(this, session);
                 session.Window.Activate();
                 Changed?.Invoke(session.Host);
                 break;
