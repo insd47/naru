@@ -1,0 +1,17 @@
+Third-party notices for the Naru core
+
+The core is written in Rust and links the Rust standard library (https://github.com/rust-lang/rust), licensed under
+the MIT License or the Apache License 2.0, and the crates listed below under their licenses. Crates under the Mozilla
+Public License 2.0 are used unmodified; their source is available at the repositories listed.
+{{#each licenses}}
+
+================================================================================
+{{{name}}}
+
+Used by:
+{{#each used_by}}
+- {{{crate.name}}} {{{crate.version}}}{{#if crate.repository}} ({{{crate.repository}}}){{/if}}
+{{/each}}
+
+{{{text}}}
+{{/each}}

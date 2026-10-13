@@ -13,6 +13,7 @@ own UI.
 | `android/` | The Android tablet app (Jetpack Compose, API 29+)                          |
 | `windows/` | The Windows app (WinUI 3, Windows 11)                                      |
 | `tools/`   | `layouts.swift`, which generates the Mac keyboard layout tables            |
+| `licenses/`| The core's third-party notices and how they are generated                  |
 | `docs/`    | Design notes for maintainers                                               |
 
 [`docs/architecture.md`](docs/architecture.md) describes how the core is put together.
@@ -44,6 +45,14 @@ unoptimized. Generated bindings are never committed.
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
+```
+
+When `Cargo.lock` changes, regenerate the core's third-party notices and commit them with it. CI fails if they are out
+of date or a dependency brings a license `licenses/about.toml` does not accept.
+
+```sh
+cargo install cargo-about --locked --version 0.9.2 --features cli
+licenses/generate.sh
 ```
 
 For app changes, also build the app you touched. The Android JVM tests run with

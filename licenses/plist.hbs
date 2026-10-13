@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>StringsTable</key>
+	<string>Acknowledgements</string>
+	<key>PreferenceSpecifiers</key>
+	<array>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>FooterText</key>
+			<string>Naru is written in Rust and links the Rust standard library (https://github.com/rust-lang/rust), licensed under the MIT License or the Apache License 2.0, and the crates below under their licenses. Crates under the Mozilla Public License 2.0 are used unmodified; their source is available at the repositories listed.</string>
+		</dict>
+{{#each licenses}}
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
+			<string>{{name}}</string>
+			<key>FooterText</key>
+			<string>Used by {{#each used_by}}{{crate.name}} {{crate.version}}{{#if crate.repository}} ({{crate.repository}}){{/if}}{{#unless @last}}, {{/unless}}{{/each}}
+
+{{text}}</string>
+		</dict>
+{{/each}}
+	</array>
+</dict>
+</plist>

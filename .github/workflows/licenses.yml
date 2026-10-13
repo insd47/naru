@@ -1,0 +1,19 @@
+name: Licenses
+
+# The core's third-party notices are committed. This fails when Cargo.lock changed without regenerating them, or when
+# a dependency brings a license the project has not accepted.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  notices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.2
+      - run: cargo fetch --locked
+      - run: licenses/generate.sh --check
