@@ -1,5 +1,5 @@
 use super::control::Control;
-use super::input::{self, Input};
+use super::input::Input;
 use super::media::{Media, Sockets};
 use super::negotiation::Negotiation;
 use super::{Command, Config, Event, Events, Stage};
@@ -42,7 +42,6 @@ enum Wake {
     Tick,
     Retry,
     Deadline,
-    Momentum,
     Command(Option<Command>),
 }
 
@@ -81,7 +80,6 @@ impl Engine {
 
         loop {
             let deadline = self.media.deadline();
-            let momentum = self.input.deadline();
             let retry = self.negotiation.deadline();
 
             let wake = tokio::select! {
@@ -91,7 +89,6 @@ impl Engine {
                 _ = ticker.tick() => Wake::Tick,
                 _ = sleep_until(retry) => Wake::Retry,
                 _ = sleep_until(deadline) => Wake::Deadline,
-                _ = sleep_until(momentum) => Wake::Momentum,
                 command = commands.recv() => Wake::Command(command),
             };
 
@@ -110,13 +107,8 @@ impl Engine {
                 Wake::Tick => self.tick(now, &mut outgoing).await?,
                 Wake::Retry => self.retry(now).await?,
                 Wake::Deadline => self.media.drain(now, &mut outgoing).await,
-                Wake::Momentum => {
-                    if let Some(message) = self.input.tick(now) {
-                        self.control.send(&message).await?;
-                    }
-                }
                 Wake::Command(None) => return Ok(()),
-                Wake::Command(Some(command)) => self.command(command, now, &mut outgoing).await?,
+                Wake::Command(Some(command)) => self.command(command, now).await?,
             }
 
             events.publish(&mut outgoing).await?;
@@ -192,7 +184,7 @@ impl Engine {
                         .pixels
                         .replace(layout.pixels)
                         .is_some_and(|previous| previous != layout.pixels);
-                    self.input.resize(layout.logical, layout.pixels);
+                    self.input.resize(layout.pixels);
                     outgoing.push(Event::Layout(layout));
 
                     // Request even for a same-size layout (login, lock, session switch), or the cursor shape freezes.
@@ -254,17 +246,13 @@ impl Engine {
         Ok(())
     }
 
-    async fn command(&mut self, command: Command, now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
+    async fn command(&mut self, command: Command, now: Instant) -> Result<()> {
         match command {
             Command::Key { keysym, down } => self.control.send(&client::key(keysym, down)).await,
-            // Touch moves the cursor relatively, so report the new position for the native layer to draw the cursor there.
-            Command::Input(event @ input::Event::Touch(_), at) => {
-                self.control.send_all(self.input.handle(event, at)).await?;
-                let (x, y) = self.input.cursor();
-                outgoing.push(Event::Pointer { x, y });
-                Ok(())
-            }
-            Command::Input(event, at) => self.control.send_all(self.input.handle(event, at)).await,
+            Command::Input(event, at) => match self.input.handle(event, at) {
+                Some(message) => self.control.send(&message).await,
+                None => Ok(()),
+            },
             Command::Clipboard(message) => self.control.send(&message).await,
             // A server gone quiet on a still screen ignores keyframe requests.
             // Resend the offer instead; the server opens a new stream and sends a config and keyframe even for a still screen.

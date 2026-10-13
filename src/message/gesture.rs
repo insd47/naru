@@ -21,15 +21,19 @@ const MAGNIFY_BYTES: usize = 36;
 /// A gesture phase. Scroll and magnify share the same values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum Phase {
+    /// Fingers touched the trackpad but have not moved yet. Followed by `Began` once they move, or `Cancelled` when they
+    /// lift without moving.
+    MayBegin = 128,
     Began = 1,
     Changed = 2,
     Ended = 4,
     Cancelled = 8,
 }
 
-/// Phase of the momentum scroll the client keeps sending after the fingers lift.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Momentum {
+/// Phase of the momentum scroll the client keeps sending after the fingers lift. Momentum always ends with `Ended`,
+/// including when fingers touch down again during it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MomentumPhase {
     Began = 1,
     Changed = 2,
     Ended = 3,
@@ -43,7 +47,7 @@ pub struct Scroll {
     /// The same distance in lines, used by apps that scroll line by line
     pub lines: (f32, f32),
     pub phase: Option<Phase>,
-    pub momentum: Option<Momentum>,
+    pub momentum: Option<MomentumPhase>,
     /// True for continuous trackpad-like scrolling, false for a mouse wheel
     pub continuous: bool,
     /// Pointer position in pixels
@@ -132,7 +136,7 @@ fn fixed(value: f32) -> [u8; 4] {
 
 #[cfg(test)]
 mod tests {
-    use super::{Magnify, Momentum, Phase, Scroll};
+    use super::{Magnify, MomentumPhase, Phase, Scroll};
 
     fn scroll(points: (i32, i32), lines: (f32, f32)) -> Scroll {
         Scroll {
@@ -197,7 +201,7 @@ mod tests {
     fn momentum_phase_sits_after_the_scroll_phase() {
         let momentum = Scroll {
             phase: None,
-            momentum: Some(Momentum::Ended),
+            momentum: Some(MomentumPhase::Ended),
             ..scroll((0, 0), (0.0, 0.0))
         };
         assert_eq!(&momentum.encode()[38..46], [0, 0, 0, 0, 0, 0, 0, 3]);

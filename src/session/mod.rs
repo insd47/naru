@@ -5,7 +5,7 @@
 //! - When media does not start, the session disconnects and connects again from scratch, up to three attempts in total.
 use crate::error::{Error, Result};
 use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority, VideoCodec};
-use crate::message::gesture::Phase;
+use crate::message::gesture::{MomentumPhase, Phase};
 use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, clipboard};
 use control::Control;
 use engine::Engine;
@@ -20,7 +20,6 @@ use tokio::task::JoinSet;
 mod control;
 mod engine;
 mod input;
-pub use input::TouchPhase;
 mod media;
 mod negotiation;
 
@@ -121,10 +120,8 @@ pub enum Event {
     Audio(AudioFrame),
     /// Access unit for the decoder. Only arrives after a decoder config, and resumes from a keyframe after a loss.
     Frame(AccessUnit),
-    /// Cursor shape, used as the pointer icon. The position arrives as `Pointer` only when finger touches moved it.
+    /// Cursor shape, used as the pointer icon
     Cursor(Arc<CursorImage>),
-    /// Cursor position moved by touch, in layout pixels. Draw the cursor here.
-    Pointer { x: u16, y: u16 },
     /// The Mac's computer name. Arrives once after authentication.
     ServerName(String),
     /// The Mac's current input source, which decides what keys type there
@@ -209,7 +206,7 @@ enum Command {
         keysym: u32,
         down: bool,
     },
-    /// An input and when it happened. Momentum velocity is computed from this time, not from when the engine handled it.
+    /// An input and when it happened. Double clicks are judged from this time, not from when the engine handled it.
     Input(input::Event, Instant),
     Clipboard(Vec<u8>),
     Keyframe,
@@ -248,12 +245,21 @@ impl Session {
         self.input(input::Event::Pointer { buttons, x, y })
     }
 
-    /// Trackpad scroll. The delta is in points, and the direction follows CGEvent (positive is up and left).
+    /// Trackpad scroll while fingers touch. The delta is in points, and the direction follows CGEvent (positive is up and left).
     ///
     /// - The scroll happens at the last pointer position.
-    /// - After `Ended`, momentum continues at the velocity just before the fingers lifted. The delta with `Ended` is usually zero.
+    /// - As from a Mac trackpad: `MayBegin` when fingers rest, `Began` with the first movement, then `Changed`, and `Ended`
+    ///   with no delta when they lift. Fingers that lift without moving end with `Cancelled`.
     pub fn scroll(&self, phase: Phase, delta: (f32, f32)) -> Result<()> {
         self.input(input::Event::Scroll { phase, delta })
+    }
+
+    /// Momentum after a trackpad scroll, as the client's system decelerates it. The delta is the same as [`Self::scroll`].
+    ///
+    /// - `Began` follows the scroll's `Ended` and carries the first movement. `Ended` has no delta and also ends momentum
+    ///   that fingers touching down interrupt, before the next scroll.
+    pub fn momentum(&self, phase: MomentumPhase, delta: (f32, f32)) -> Result<()> {
+        self.input(input::Event::Momentum { phase, delta })
     }
 
     /// Mouse wheel, with the same direction as [`Self::scroll`]. The scroll happens at the last pointer position.
@@ -268,14 +274,6 @@ impl Session {
     /// Magnify gesture. The scale starts at 1.0 and is cumulative. The center is the last pointer position.
     pub fn magnify(&self, phase: Phase, scale: f32) -> Result<()> {
         self.input(input::Event::Magnify { phase, scale })
-    }
-
-    /// One finger on the screen. The position is in layout pixels like the pointer and is not clamped to the screen.
-    ///
-    /// - The whole screen acts as a trackpad. One finger moves the cursor, taps to click, and drags after a tap; two fingers right-click, scroll, and magnify.
-    /// - The cursor moves by relative motion rather than to the finger, and its new position arrives as [`Event::Pointer`].
-    pub fn touch(&self, id: u32, phase: TouchPhase, at: (f32, f32)) -> Result<()> {
-        self.input(input::Event::Touch(input::Touch { id, phase, at }))
     }
 
     /// Puts text on the Mac's clipboard. Past the same size limit used when receiving, nothing is sent and `TooLong` is returned.

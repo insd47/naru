@@ -39,6 +39,13 @@ An app opens a session with `Session::connect(config, listener)` and gets events
   config, and calls `request_keyframe` whenever it drops frames or rebuilds the decoder.
 - Pointer coordinates are in the pixels of the latest `Layout`. Keys are X11 keysyms of what the Mac should type, and
   a release repeats the keysym of its press. The Mac does not repeat held keys, so key repeat is the app's to send.
+- Scrolls follow a Mac trackpad's phases: `MayBegin` when fingers rest, `Began` with the first movement, `Changed`,
+  and `Ended` when they lift, or `Cancelled` if they never moved. Momentum is the app's: after `Ended`, it sends
+  `momentum` frames as its own system decelerates the scroll, and ends them before any new input. Mouse wheels have
+  neither phases nor momentum.
+- `Touchpad` turns fingers on a screen into trackpad gestures (cursor moves, clicks, scroll, magnify). It knows nothing
+  of the session: the app moves its own cursor, clamped to the screen, and sends the gestures like any other pointer
+  and scroll.
 - `character(latin, language, source)` is a pure function over the Mac's keyboard layouts: what a Latin key types in a
   language, given the Mac's input source from the latest `Source` event. It follows the Mac's secure input (Latin) and
   its own layout of that language (Sebeolsik, Kana typing), and returns nothing for languages typed in Latin.
@@ -59,8 +66,7 @@ runs one loop over three inputs: control messages from the Mac, UDP datagrams, a
   to the `Priority` the user chose.
 - The engine watches for stalled video and asks for a keyframe, or tells the app to rebuild its decoder, only while the
   Mac is actually sending.
-- `input` turns pointer, scroll, and touch input into protocol events; finger touches go through a touchpad state
-  machine that emulates a trackpad. Keys go out unchanged.
+- `input` turns pointer, scroll, momentum, and magnify input into protocol events. Keys go out unchanged.
 
 Modules other than `session` and `ffi` do no I/O. They take bytes and time as arguments and return values, which keeps
 them testable without a network. Every length read from the server is bounded before use, and malformed input returns
@@ -80,6 +86,17 @@ itself. What differs is what each system hands the app:
 iPadOS applies a hardware keyboard language switch only when its text system sees the next key, and that key's
 `UIKey.characters` is still in the old language. The iPad app therefore passes typing keys to the text system first and
 reads the input language afterwards, which is already the new one.
+
+## Momentum on each platform
+
+No platform reports momentum after a scroll ends; each system's own scrolling views decelerate it themselves. The apps
+do what those views do, so a fling feels the way it does elsewhere on the device:
+
+| | Velocity | Deceleration | Stops on |
+|---|---|---|---|
+| iPad | `UIPanGestureRecognizer.velocity(in:)` | `UIScrollView.DecelerationRate.normal`, per display frame | any touch, scroll, wheel, or pinch |
+| Android | `VelocityTracker` on the swipe's touches | `OverScroller` with the system friction, per `Choreographer` frame | the touchpad's fling-stop signal, any touch, wheel, or click |
+| Windows | `InteractionTracker` inertia for the touchpad, `GestureRecognizer` inertia for touch | the system's | a new interaction |
 
 ## Keyboard layout tables
 

@@ -9,9 +9,9 @@
 
 pub use error::{Error, Result};
 pub use media::{AccessUnit, AudioFrame, DecoderConfig, Priority, RtpPacket, SrtpContext, VideoCodec};
-pub use message::gesture::Phase;
+pub use message::gesture::{MomentumPhase, Phase};
 pub use message::{CursorImage, DisplayConfig, InputSource, Layout, Mode};
-pub use session::{Config, Event, MediaStats, Session, Stage, TouchPhase};
+pub use session::{Config, Event, MediaStats, Session, Stage};
 
 pub mod auth;
 mod error;
@@ -24,5 +24,6 @@ mod offer;
 mod reader;
 pub mod record;
 mod session;
+mod touchpad;
 
 uniffi::setup_scaffolding!();

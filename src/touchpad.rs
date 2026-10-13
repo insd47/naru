@@ -1,4 +1,9 @@
-//! Turns fingers on the screen into Mac trackpad gestures.
+//! Turns fingers on the screen into Mac trackpad gestures, for clients whose screen has no pointer of its own.
+//!
+//! - It knows nothing of the session or the layout. The client keeps the cursor it moves, clamps it to the screen,
+//!   converts scroll distances to points, and sends the results through the session like any other pointer and scroll.
+//! - Momentum after a two-finger scroll comes from the client's system, as it does for a hardware trackpad.
+//! - Positions are in layout pixels, which the tap and slop distances below are tuned for.
 use crate::message::gesture::Phase;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -31,14 +36,14 @@ pub struct Touch {
     pub at: (f32, f32),
 }
 
-/// A trackpad gesture derived from touches.
+/// A trackpad gesture derived from touches. Distances are in layout pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Gesture {
     /// Moves the cursor by this much, in layout pixels.
     Move((f32, f32)),
     /// Changes the button state. Bits match pointer events (left 1, right 2).
     Buttons(u8),
-    /// Trackpad scroll. The delta is the fingers' movement in layout pixels.
+    /// Trackpad scroll. The delta is the fingers' movement, positive down and right.
     Scroll { phase: Phase, delta: (f32, f32) },
     /// Magnify. The scale starts at 1.0 and is cumulative.
     Magnify { phase: Phase, scale: f32 },
@@ -191,14 +196,10 @@ impl Touchpad {
             }];
         }
 
+        // The first scroll carries the movement so far, as the Mac's own scrolls begin.
         if moved > SCROLL_SLOP {
             self.mode = Some(Mode::Scroll);
-            let mut gestures = vec![Gesture::Scroll {
-                phase: Phase::Began,
-                delta: (0.0, 0.0),
-            }];
-            gestures.extend(self.scroll(Phase::Changed));
-            return gestures;
+            return self.scroll(Phase::Began);
         }
 
         Vec::new()
@@ -338,16 +339,10 @@ mod tests {
 
         assert_eq!(
             fingers.touch(1, Moved, (100.0, 140.0)),
-            [
-                Gesture::Scroll {
-                    phase: Phase::Began,
-                    delta: (0.0, 0.0)
-                },
-                Gesture::Scroll {
-                    phase: Phase::Changed,
-                    delta: (0.0, 20.0)
-                },
-            ]
+            [Gesture::Scroll {
+                phase: Phase::Began,
+                delta: (0.0, 20.0)
+            }]
         );
         assert_eq!(
             fingers.touch(2, Moved, (160.0, 140.0)),

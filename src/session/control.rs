@@ -102,15 +102,6 @@ impl Control {
         self.stream.write_all(&records).await?;
         Ok(())
     }
-
-    /// Sends messages in order.
-    pub async fn send_all(&mut self, messages: Vec<Vec<u8>>) -> Result<()> {
-        for message in messages {
-            self.send(&message).await?;
-        }
-
-        Ok(())
-    }
 }
 
 async fn warmup(address: SocketAddr) -> Result<()> {

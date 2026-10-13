@@ -2,12 +2,14 @@
 //!
 //! - The native side opens a session by passing a [`SessionListener`] to [`Session::connect`] and receives events in order on a dedicated session thread.
 //! - Core types without tuples or private fields pass through as is; the rest are reshaped here for the native side.
+use crate::touchpad::TouchPhase;
 use crate::{
-    AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, MediaStats, Mode, Phase, Priority, Stage, TouchPhase,
+    AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, MediaStats, Mode, MomentumPhase, Phase, Priority, Stage,
     VideoCodec,
 };
 use std::panic::AssertUnwindSafe;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Instant;
 use tokio::runtime::Runtime;
 
 // Sessions run on this crate's tokio runtime, so the native side needs no runtime of its own.
@@ -116,18 +118,13 @@ pub enum Event {
     Frame {
         unit: AccessUnit,
     },
-    /// Cursor shape as row-major RGBA with non-premultiplied alpha. The position arrives as `Pointer` only when finger touches moved it.
+    /// Cursor shape as row-major RGBA with non-premultiplied alpha
     Cursor {
         width: u16,
         height: u16,
         hotspot_x: u16,
         hotspot_y: u16,
         rgba: Vec<u8>,
-    },
-    /// Cursor position moved by touch, in layout pixels. Draw the cursor here.
-    Pointer {
-        x: u16,
-        y: u16,
     },
     /// The Mac's current input source. Pass the latest one to [`character`].
     Source {
@@ -167,7 +164,6 @@ impl From<crate::Event> for Event {
             crate::Event::AudioConfig(config) => Self::AudioConfig { config },
             crate::Event::Audio(frame) => Self::Audio { frame },
             crate::Event::Frame(unit) => Self::Frame { unit },
-            crate::Event::Pointer { x, y } => Self::Pointer { x, y },
             crate::Event::Cursor(image) => Self::Cursor {
                 width: image.width,
                 height: image.height,
@@ -278,11 +274,22 @@ impl Session {
         let _ = self.session.pointer(buttons, x, y);
     }
 
-    /// Trackpad scroll. The delta is in points, positive up and left. The scroll happens at the last pointer position.
+    /// Trackpad scroll while fingers touch. The delta is in points, positive up and left. The scroll happens at the last
+    /// pointer position.
     ///
-    /// - Send `Ended` when the fingers lift. The session continues with momentum.
+    /// - As from a Mac trackpad: `MayBegin` when fingers rest, `Began` with the first movement, then `Changed`, and
+    ///   `Ended` with no delta when they lift. Fingers that lift without moving end with `Cancelled`.
     pub fn scroll(&self, phase: Phase, dx: f32, dy: f32) {
         let _ = self.session.scroll(phase, (dx, dy));
+    }
+
+    /// Momentum after a trackpad scroll, with the same delta as scroll. The Mac leaves momentum to the client, so send what
+    /// this system's own deceleration would scroll.
+    ///
+    /// - `Began` follows the scroll's `Ended` and carries the first movement.
+    /// - `Ended` has no delta. Send it also when fingers touch down during momentum, before anything else.
+    pub fn momentum(&self, phase: MomentumPhase, dx: f32, dy: f32) {
+        let _ = self.session.momentum(phase, (dx, dy));
     }
 
     /// Mouse wheel, with the same direction as scroll. The scroll happens at the last pointer position.
@@ -298,13 +305,6 @@ impl Session {
     /// Magnify gesture. The scale starts at 1.0 and is cumulative.
     pub fn magnify(&self, phase: Phase, scale: f32) {
         let _ = self.session.magnify(phase, scale);
-    }
-
-    /// One finger on the screen. `id` is distinct per finger, and the position is in layout pixels like the pointer.
-    ///
-    /// - The whole screen acts as a trackpad. The cursor position arrives as a `Pointer` event.
-    pub fn touch(&self, id: u32, phase: TouchPhase, x: f32, y: f32) {
-        let _ = self.session.touch(id, phase, (x, y));
     }
 
     /// Puts text on the Mac's clipboard. Past the same size limit used when receiving, nothing is sent and `false` is returned.
@@ -325,6 +325,63 @@ impl Session {
     /// Closes the session. Named apart from the Kotlin object's `close` (native resource release) to avoid a clash.
     pub fn disconnect(&self) {
         self.session.close();
+    }
+}
+
+/// Turns fingers on a screen into Mac trackpad gestures. The whole screen is one trackpad.
+///
+/// - One finger moves the cursor and taps to left-click. Touching down right after a tap and moving drags.
+/// - Two fingers tap to right-click and move to scroll or magnify. Three or more fingers are system gestures and are ignored.
+/// - It knows nothing of the session. The client moves its own cursor, clamped to the screen, and sends the gestures as
+///   pointer, scroll, and magnify. Momentum after a scroll comes from the client's system, as for a trackpad.
+#[derive(uniffi::Object)]
+pub struct Touchpad {
+    touchpad: Mutex<crate::touchpad::Touchpad>,
+}
+
+#[uniffi::export]
+impl Touchpad {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            touchpad: Mutex::new(crate::touchpad::Touchpad::new()),
+        })
+    }
+
+    /// One finger. `id` is distinct per finger, and the position is in layout pixels, not clamped to the screen.
+    pub fn touch(&self, id: u32, phase: TouchPhase, x: f32, y: f32) -> Vec<Gesture> {
+        let touch = crate::touchpad::Touch { id, phase, at: (x, y) };
+        let mut touchpad = self.touchpad.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        touchpad
+            .handle(touch, Instant::now())
+            .into_iter()
+            .map(Into::into)
+            .collect()
+    }
+}
+
+/// A trackpad gesture from [`Touchpad`]. Distances are in layout pixels.
+#[derive(uniffi::Enum)]
+pub enum Gesture {
+    /// Moves the cursor by this much.
+    Move { dx: f32, dy: f32 },
+    /// The pointer's new buttons, with the same bits as `pointer`.
+    Buttons { buttons: u8 },
+    /// Scroll by the fingers' movement, positive down and right. Divide by layout pixels per point and pass to `scroll`
+    /// as is, so the content follows the fingers.
+    Scroll { phase: Phase, dx: f32, dy: f32 },
+    /// Magnify. The scale starts at 1.0 and is cumulative.
+    Magnify { phase: Phase, scale: f32 },
+}
+
+impl From<crate::touchpad::Gesture> for Gesture {
+    fn from(gesture: crate::touchpad::Gesture) -> Self {
+        match gesture {
+            crate::touchpad::Gesture::Move((dx, dy)) => Self::Move { dx, dy },
+            crate::touchpad::Gesture::Buttons(buttons) => Self::Buttons { buttons },
+            crate::touchpad::Gesture::Scroll { phase, delta: (dx, dy) } => Self::Scroll { phase, dx, dy },
+            crate::touchpad::Gesture::Magnify { phase, scale } => Self::Magnify { phase, scale },
+        }
     }
 }
 
