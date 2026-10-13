@@ -288,7 +288,11 @@ impl Engine {
                 self.display = Some(display);
                 Ok(())
             }
-            Command::Resize(display) => self.resize(&display).await,
+            Command::Resize(display) => {
+                // A newer size replaces one still held for the first frame.
+                self.display = None;
+                self.resize(&display).await
+            }
         }
     }
 
