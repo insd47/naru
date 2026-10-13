@@ -9,6 +9,9 @@ import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -27,6 +30,9 @@ fun Settings(preferences: Preferences) {
         Priority.LATENCY to ("Adapt to network conditions" to "Keeps the screen moving when packets are lost. Parts of it may look broken briefly."),
         Priority.QUALITY to ("Show the screen at full quality" to "Pauses on the last clean picture until the Mac sends a fresh one."),
     )
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Group {
         item { Section("Keyboard") }
@@ -78,6 +84,17 @@ fun Settings(preferences: Preferences) {
                 leadingContent = { RadioButton(selected = selected, onClick = null) },
                 supportingContent = { Text(detail) },
             ) { Text(title) }
+        }
+
+        item { Section("Help") }
+
+        item {
+            SegmentedListItem(
+                onClick = { scope.launch { Diagnostics.share(context) } },
+                shapes = ListItemDefaults.segmentedShapes(0, 1),
+                colors = ListItemDefaults.segmentedColors(),
+                supportingContent = { Text("Saves this launch's app log as a text file to share with a bug report. It has no passwords, typed text, or clipboard contents.") },
+            ) { Text("Export Diagnostics") }
         }
     }
 }

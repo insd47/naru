@@ -42,6 +42,7 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
     private var keyframes = 0
     private var dropped = 0
     private var rendered = 0
+    private var reports = 0
 
     private val listener = object : Decoder.Listener {
         override fun onFrame() {
@@ -107,11 +108,15 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
         handler.post { rebuild(keyframe = false) }
     }
 
+    // Stats arrive every half second; one line per 10 s keeps the system's log buffer for the rest of the session.
     fun report(stats: MediaStats) {
         handler.post {
+            if (++reports < REPORTS_PER_LINE) return@post
+            reports = 0
+
             Log.i(
                 TAG,
-                "Received (0.5 s): frames $frames (key $keyframes, dropped $dropped), rendered $rendered | datagrams ${stats.datagrams}, " +
+                "Received (10 s): frames $frames (key $keyframes, dropped $dropped), rendered $rendered | datagrams ${stats.datagrams}, " +
                     "authenticated ${stats.authenticated}, SSRC ${stats.ssrc?.toString(16)}, sequence ${stats.highest}, candidates ${stats.candidates}, " +
                     "offers ${stats.offers}, NACK ${stats.nacked}, filled ${stats.filled}, lost ${stats.losses}",
             )
@@ -191,6 +196,7 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
     }
 
     companion object {
+        private const val REPORTS_PER_LINE = 20
 
         // How long to wait for the decoder release when the Surface goes away. A release usually finishes within tens of ms.
         private const val DETACH_TIMEOUT_MS = 500L

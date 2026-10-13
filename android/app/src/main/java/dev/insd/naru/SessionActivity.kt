@@ -201,6 +201,7 @@ class SessionActivity : ComponentActivity() {
         if (source != selectedSource) {
             current.selectInputSource(source)
             selectedSource = source
+            Log.i(TAG, "Mac input source selected: $source")
         }
     }
 
