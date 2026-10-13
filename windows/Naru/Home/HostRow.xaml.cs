@@ -13,18 +13,21 @@ namespace Naru.Home;
 /// <remarks>
 /// Connect appears on hover in place of the connection time. A Mac in session always shows Disconnect, and one
 /// connecting shows progress. The info button, shown only for saved Macs, opens Edit. Double-clicking or Enter connects,
-/// or focuses the session window of a Mac in session, and Delete removes a saved Mac.
+/// or focuses the session window of a Mac in session, and Delete removes a saved Mac. A saved Mac's context menu offers
+/// the same actions.
 /// </remarks>
 public sealed partial class HostRow : UserControl
 {
     public static readonly DependencyProperty ItemProperty =
         DependencyProperty.Register(nameof(Item), typeof(HostItem), typeof(HostRow), new PropertyMetadata(null, OnItemChanged));
 
+    private readonly MenuFlyout menu = new();
     private bool hovered;
 
     public HostRow()
     {
         InitializeComponent();
+        menu.Opening += (_, _) => FillMenu();
     }
 
     public HostItem Item
@@ -81,6 +84,7 @@ public sealed partial class HostRow : UserControl
         Show(ConnectButton, item.Idle && hovered);
         Show(DetailText, item.Idle && !hovered);
         Show(InfoButton, item.Host != null);
+        ContextFlyout = item.Host != null ? menu : null;
 
         // Hovering lightens the card as Settings cards do. Clearing the value returns to the style's theme brush.
         if (hovered)
@@ -94,6 +98,25 @@ public sealed partial class HostRow : UserControl
     }
 
     private static void Show(UIElement element, bool visible) => element.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+
+    // Built on each opening, since Connect and Disconnect follow the session's state.
+    private void FillMenu()
+    {
+        menu.Items.Clear();
+        menu.Items.Add(Item.InSession || Item.Connecting
+            ? MenuItem("Disconnect", "", () => DisconnectRequested?.Invoke(Item))
+            : MenuItem("Connect", "", () => ConnectRequested?.Invoke(Item)));
+        menu.Items.Add(MenuItem("Edit", "", () => InfoRequested?.Invoke(Item)));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(MenuItem("Delete", "", () => DeleteRequested?.Invoke(Item)));
+    }
+
+    private static MenuFlyoutItem MenuItem(string text, string glyph, Action action)
+    {
+        var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph } };
+        item.Click += (_, _) => action();
+        return item;
+    }
 
     private void OnConnect(object sender, RoutedEventArgs e) => ConnectRequested?.Invoke(Item);
 

@@ -2,14 +2,13 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
 using Naru.Store;
 
 namespace Naru.Home;
 
 /// <summary>
-/// Saved Macs as Settings-style cards. Each card handles its own clicks and keys; this page adds the context menu.
+/// Saved Macs as Settings-style cards. Each card handles its own clicks, keys, and context menu.
 /// </summary>
 public sealed partial class SavedPage : Page
 {
@@ -88,39 +87,5 @@ public sealed partial class SavedPage : Page
             row.InfoRequested += item => connector.Edit(item.Host!);
             row.DeleteRequested += item => connector.Delete(item.Host!);
         }
-    }
-
-    private void OnContextRequested(UIElement sender, ContextRequestedEventArgs e)
-    {
-        if ((e.OriginalSource as FrameworkElement)?.DataContext is not HostItem { Host: { } host } item)
-        {
-            return;
-        }
-
-        var menu = new MenuFlyout();
-        menu.Items.Add(item.InSession || item.Connecting
-            ? Item("Disconnect", "", () => connector.Disconnect(host))
-            : Item("Connect", "", () => connector.Connect(host)));
-        menu.Items.Add(Item("Edit", "", () => connector.Edit(host)));
-        menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(Item("Delete", "", () => connector.Delete(host)));
-
-        if (e.TryGetPosition((UIElement)e.OriginalSource, out var point))
-        {
-            menu.ShowAt((UIElement)e.OriginalSource, point);
-        }
-        else
-        {
-            menu.ShowAt((FrameworkElement)e.OriginalSource);
-        }
-
-        e.Handled = true;
-    }
-
-    private static MenuFlyoutItem Item(string text, string glyph, Action action)
-    {
-        var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph } };
-        item.Click += (_, _) => action();
-        return item;
     }
 }
