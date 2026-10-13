@@ -32,6 +32,8 @@ pub struct Engine {
     cursors: Cursors,
     // Pixel size of the last layout. A change resends the offer.
     pixels: Option<(u16, u16)>,
+    // The latest resize asked before the first frame, sent once it arrives, since its framebuffer request derails the start
+    display: Option<Vec<u8>>,
 }
 
 // Whichever awaited source finished first
@@ -61,6 +63,7 @@ impl Engine {
             messages: Messages::default(),
             cursors: Cursors::default(),
             pixels: None,
+            display: None,
         }
     }
 
@@ -245,6 +248,10 @@ impl Engine {
         // No framebuffer requests until the first keyframe, since an update without parameter sets derails the start.
         if self.media.last_frame().is_some() {
             self.control.send(&client::framebuffer_request(true, 1, 1)).await?;
+
+            if let Some(display) = self.display.take() {
+                self.resize(&display).await?;
+            }
         }
 
         self.media.watch(now, answered, outgoing).await;
@@ -277,13 +284,19 @@ impl Engine {
                 self.media.request_keyframe(now).await;
                 Ok(())
             }
-            Command::Resize(display) => {
-                self.control.send(&display).await?;
-                self.control
-                    .send(&client::framebuffer_request(false, u16::MAX, u16::MAX))
-                    .await
+            Command::Resize(display) if self.media.last_frame().is_none() => {
+                self.display = Some(display);
+                Ok(())
             }
+            Command::Resize(display) => self.resize(&display).await,
         }
+    }
+
+    async fn resize(&mut self, display: &[u8]) -> Result<()> {
+        self.control.send(display).await?;
+        self.control
+            .send(&client::framebuffer_request(false, u16::MAX, u16::MAX))
+            .await
     }
 
     // Resend the same offer until an answer with a size arrives, giving up past the limit. After negotiation, send the deferred resend.
