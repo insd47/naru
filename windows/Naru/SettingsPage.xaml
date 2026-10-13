@@ -99,6 +99,21 @@
             </Border>
             <TextBlock Text="Changes apply from the next connection." Style="{StaticResource Detail}" Margin="0,8,0,0" />
 
+            <TextBlock Text="Help" Style="{StaticResource Section}" />
+            <Border Style="{StaticResource Card}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Export diagnostics" />
+                        <TextBlock Text="Saves this launch's app log as a text file to share with a bug report. It has no passwords, typed text, or clipboard contents." Style="{StaticResource Detail}" />
+                    </StackPanel>
+                    <Button x:Name="Export" Grid.Column="1" Content="Export" VerticalAlignment="Center" Click="OnExport" />
+                </Grid>
+            </Border>
+
             <TextBlock Text="About" Style="{StaticResource Section}" />
             <Border Style="{StaticResource Card}">
                 <StackPanel Spacing="4">

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Naru.Core;
@@ -65,6 +66,24 @@ public sealed partial class SettingsPage : Page
         if (loaded)
         {
             preferences.SharedClipboard = Clipboard.IsOn;
+        }
+    }
+
+    private async void OnExport(object sender, RoutedEventArgs e)
+    {
+        Export.IsEnabled = false;
+
+        try
+        {
+            await Diagnostics.Export(XamlRoot.ContentIslandEnvironment.AppWindowId);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or COMException)
+        {
+            Log.Error("Cannot export diagnostics", error);
+        }
+        finally
+        {
+            Export.IsEnabled = true;
         }
     }
 
