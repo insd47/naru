@@ -307,13 +307,18 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         }
     }
 
-    // Mouse wheel scrolling treats one notch as 10 points and is sent in lines.
+    // Mouse wheel scrolling sends the distance iPadOS reports, in the Mac's points. iPadOS has no line count and, like
+    // macOS, moves 10 points a line, so the lines are that distance over 10.
     @objc private func wheel(_ recognizer: UIPanGestureRecognizer) {
         let delta = recognizer.translation(in: self)
         recognizer.setTranslation(.zero, in: self)
+        let scale = pointsPerViewPoint()
 
         if recognizer.state == .changed {
-            connection?.wheel(dx: Float(delta.x / 10), dy: Float(delta.y / 10))
+            connection?.wheel(
+                dx: Float(delta.x * scale), dy: Float(delta.y * scale),
+                linesX: Float(delta.x / 10), linesY: Float(delta.y / 10)
+            )
         }
     }
 

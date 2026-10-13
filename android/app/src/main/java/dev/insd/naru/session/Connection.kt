@@ -43,7 +43,7 @@ class Connection(config: Config, private val listener: Listener) {
 
     fun scroll(phase: Phase, dx: Float, dy: Float) = session.scroll(phase, dx, dy)
 
-    fun wheel(dx: Float, dy: Float) = session.wheel(dx, dy)
+    fun wheel(dx: Float, dy: Float, linesX: Float, linesY: Float) = session.wheel(dx, dy, linesX, linesY)
 
     fun magnify(phase: Phase, scale: Float) = session.magnify(phase, scale)
 

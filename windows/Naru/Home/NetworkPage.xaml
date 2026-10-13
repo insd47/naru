@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Naru.Home.NetworkPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Naru.Home">
+
+    <Page.Resources>
+        <DataTemplate x:Key="RowTemplate" x:DataType="local:HostItem">
+            <local:HostRow Item="{x:Bind}" />
+        </DataTemplate>
+    </Page.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Discovery runs as long as the page is shown. -->
+        <ProgressBar IsIndeterminate="True" />
+
+        <Grid Grid.Row="1" Padding="36,20,36,16">
+            <TextBlock Text="Network" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
+            <Button HorizontalAlignment="Right" Click="OnAdd" ToolTipService.ToolTip="New Connection (Ctrl+N)" KeyboardAcceleratorPlacementMode="Hidden">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE710;" FontSize="14" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                    <TextBlock Text="New Connection" />
+                </StackPanel>
+                <Button.KeyboardAccelerators>
+                    <KeyboardAccelerator Modifiers="Control" Key="N" />
+                </Button.KeyboardAccelerators>
+            </Button>
+        </Grid>
+
+        <ScrollViewer Grid.Row="2" Padding="36,0">
+            <ItemsRepeater
+                x:Name="List"
+                Margin="0,0,0,24"
+                ItemTemplate="{StaticResource RowTemplate}"
+                ElementPrepared="OnElementPrepared">
+                <ItemsRepeater.Layout>
+                    <StackLayout Spacing="4" />
+                </ItemsRepeater.Layout>
+            </ItemsRepeater>
+        </ScrollViewer>
+
+        <StackPanel x:Name="Empty" Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
+            <FontIcon Glyph="&#xE774;" FontSize="48" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+            <TextBlock Text="Searching for Macs" Style="{StaticResource SubtitleTextBlockStyle}" HorizontalAlignment="Center" />
+            <TextBlock Text="Macs with Screen Sharing turned on appear here." Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" />
+        </StackPanel>
+    </Grid>
+</Page>

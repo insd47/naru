@@ -257,9 +257,13 @@ impl Session {
         self.input(input::Event::Scroll { phase, delta })
     }
 
-    /// Mouse wheel, in notches, with the same direction as [`Self::scroll`].
-    pub fn wheel(&self, lines: (f32, f32)) -> Result<()> {
-        self.input(input::Event::Wheel { lines })
+    /// Mouse wheel, with the same direction as [`Self::scroll`]. The scroll happens at the last pointer position.
+    ///
+    /// - `points` is the distance and `lines` the same distance in lines, both as the client's system would scroll.
+    ///   Mac apps use one or the other, so neither is derived here.
+    /// - The Mac adds no acceleration.
+    pub fn wheel(&self, points: (f32, f32), lines: (f32, f32)) -> Result<()> {
+        self.input(input::Event::Wheel { points, lines })
     }
 
     /// Magnify gesture. The scale starts at 1.0 and is cumulative. The center is the last pointer position.
