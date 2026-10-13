@@ -2,10 +2,8 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
 using Naru.Store;
-using Windows.System;
 
 namespace Naru.Home;
 
@@ -80,9 +78,10 @@ public sealed partial class NetworkPage : Page
         _ => Presence.Connecting,
     };
 
-    private void OnContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    // Rows are recycled, so each one is wired once when it is first created.
+    private void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
     {
-        if (args.ItemContainer.ContentTemplateRoot is HostRow { Tag: null } row)
+        if (args.Element is HostRow { Tag: null } row)
         {
             row.Tag = true;
             row.ConnectRequested += item => connector.Connect(item.Found!);
@@ -99,21 +98,4 @@ public sealed partial class NetworkPage : Page
     }
 
     private void OnAdd(object sender, RoutedEventArgs e) => connector.Add();
-
-    private void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
-    {
-        if ((e.OriginalSource as FrameworkElement)?.DataContext is HostItem item)
-        {
-            connector.Connect(item.Found!);
-        }
-    }
-
-    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (e.Key == VirtualKey.Enter && List.SelectedItem is HostItem item)
-        {
-            connector.Connect(item.Found!);
-            e.Handled = true;
-        }
-    }
 }

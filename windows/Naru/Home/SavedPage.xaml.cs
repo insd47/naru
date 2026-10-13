@@ -5,12 +5,11 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
 using Naru.Store;
-using Windows.System;
 
 namespace Naru.Home;
 
 /// <summary>
-/// Saved Macs, as a list or as icons. Double-clicking or pressing Enter connects, or focuses the session window of a Mac in session.
+/// Saved Macs as Settings-style cards. Each card handles its own clicks and keys; this page adds the context menu.
 /// </summary>
 public sealed partial class SavedPage : Page
 {
@@ -47,7 +46,7 @@ public sealed partial class SavedPage : Page
         item?.Update(item.Host!, PresenceOf(host.Id));
     }
 
-    // Items are kept and updated in place, so the selection and hover state survive changes.
+    // Items are kept and updated in place, so focus and hover state survive changes.
     private void Rebuild()
     {
         for (var index = items.Count - 1; index >= 0; index--)
@@ -86,48 +85,15 @@ public sealed partial class SavedPage : Page
     private void OnAdd(object sender, RoutedEventArgs e) => connector.Add();
 
     // Rows are recycled, so each one is wired once when it is first created.
-    private void OnContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    private void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
     {
-        if (args.ItemContainer.ContentTemplateRoot is HostRow { Tag: null } row)
+        if (args.Element is HostRow { Tag: null } row)
         {
             row.Tag = true;
-            row.ConnectRequested += OnConnect;
-            row.DisconnectRequested += OnDisconnect;
-            row.InfoRequested += OnInfo;
-        }
-    }
-
-    private void OnConnect(HostItem item) => connector.Connect(item.Host!);
-
-    private void OnDisconnect(HostItem item) => connector.Disconnect(item.Host!);
-
-    private void OnInfo(HostItem item) => connector.Edit(item.Host!);
-
-    private void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
-    {
-        if ((e.OriginalSource as FrameworkElement)?.DataContext is HostItem item)
-        {
-            connector.Connect(item.Host!);
-        }
-    }
-
-    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (List.SelectedItem is not HostItem item)
-        {
-            return;
-        }
-
-        switch (e.Key)
-        {
-            case VirtualKey.Enter:
-                connector.Connect(item.Host!);
-                e.Handled = true;
-                break;
-            case VirtualKey.Delete:
-                connector.Delete(item.Host!);
-                e.Handled = true;
-                break;
+            row.ConnectRequested += item => connector.Connect(item.Host!);
+            row.DisconnectRequested += item => connector.Disconnect(item.Host!);
+            row.InfoRequested += item => connector.Edit(item.Host!);
+            row.DeleteRequested += item => connector.Delete(item.Host!);
         }
     }
 

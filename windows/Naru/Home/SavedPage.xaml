@@ -30,16 +30,18 @@
             </Button>
         </Grid>
 
-        <ListView
-            x:Name="List"
-            Grid.Row="1"
-            Margin="-16,0"
-            SelectionMode="Single"
-            ItemTemplate="{StaticResource RowTemplate}"
-            ContainerContentChanging="OnContainerContentChanging"
-            ContextRequested="OnContextRequested"
-            DoubleTapped="OnDoubleTapped"
-            KeyDown="OnKeyDown" />
+        <ScrollViewer Grid.Row="1">
+            <ItemsRepeater
+                x:Name="List"
+                Margin="0,0,0,24"
+                ItemTemplate="{StaticResource RowTemplate}"
+                ElementPrepared="OnElementPrepared"
+                ContextRequested="OnContextRequested">
+                <ItemsRepeater.Layout>
+                    <StackLayout Spacing="4" />
+                </ItemsRepeater.Layout>
+            </ItemsRepeater>
+        </ScrollViewer>
 
         <StackPanel x:Name="Empty" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12" Visibility="Collapsed">
             <FontIcon Glyph="&#xE977;" FontSize="48" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />

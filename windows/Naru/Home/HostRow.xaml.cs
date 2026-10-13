@@ -2,6 +2,8 @@ using System.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Windows.System;
 
 namespace Naru.Home;
 
@@ -10,7 +12,8 @@ namespace Naru.Home;
 /// </summary>
 /// <remarks>
 /// Connect appears on hover in place of the connection time. A Mac in session always shows Disconnect, and one
-/// connecting shows progress. The info button, shown only for saved Macs, opens Edit.
+/// connecting shows progress. The info button, shown only for saved Macs, opens Edit. Double-clicking or Enter connects,
+/// or focuses the session window of a Mac in session, and Delete removes a saved Mac.
 /// </remarks>
 public sealed partial class HostRow : UserControl
 {
@@ -33,6 +36,7 @@ public sealed partial class HostRow : UserControl
     public event Action<HostItem>? ConnectRequested;
     public event Action<HostItem>? DisconnectRequested;
     public event Action<HostItem>? InfoRequested;
+    public event Action<HostItem>? DeleteRequested;
 
     private static void OnItemChanged(DependencyObject target, DependencyPropertyChangedEventArgs args)
     {
@@ -77,6 +81,16 @@ public sealed partial class HostRow : UserControl
         Show(ConnectButton, item.Idle && hovered);
         Show(DetailText, item.Idle && !hovered);
         Show(InfoButton, item.Host != null);
+
+        // Hovering lightens the card as Settings cards do. Clearing the value returns to the style's theme brush.
+        if (hovered)
+        {
+            Card.Background = (Brush)Application.Current.Resources["CardBackgroundFillColorSecondaryBrush"];
+        }
+        else
+        {
+            Card.ClearValue(Border.BackgroundProperty);
+        }
     }
 
     private static void Show(UIElement element, bool visible) => element.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
@@ -86,4 +100,28 @@ public sealed partial class HostRow : UserControl
     private void OnDisconnect(object sender, RoutedEventArgs e) => DisconnectRequested?.Invoke(Item);
 
     private void OnInfo(object sender, RoutedEventArgs e) => InfoRequested?.Invoke(Item);
+
+    private void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        ConnectRequested?.Invoke(Item);
+        e.Handled = true;
+    }
+
+    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Enter)
+        {
+            ConnectRequested?.Invoke(Item);
+        }
+        else if (e.Key == VirtualKey.Delete && Item.Host != null)
+        {
+            DeleteRequested?.Invoke(Item);
+        }
+        else
+        {
+            return;
+        }
+
+        e.Handled = true;
+    }
 }
