@@ -296,22 +296,49 @@ internal sealed partial class SessionWindow : Window
         }
     }
 
-    // One notch is 120. Windows counts up and right as positive, the session up and left.
+    // Windows has no system line height. Edge and Chrome scroll 100 DIPs a notch at the default 3 lines, so a line is a third of that.
+    private const float LineHeight = 100f / 3;
+
+    // One notch is 120 and scrolls as many lines as the Windows setting says, read each time so changes apply at once.
+    // The distance is those lines at LineHeight, in the Mac's points. There is no acceleration, as with a wheel on a Mac.
+    // Windows counts up and right as positive, the session up and left.
     private void OnWheel(object sender, PointerRoutedEventArgs e)
     {
         var properties = e.GetCurrentPoint(Surface).Properties;
         var notches = properties.MouseWheelDelta / 120f;
+        var points = LineHeight * MacPointsPerDip();
 
         if (properties.IsHorizontalMouseWheel)
         {
-            session.Connection.Wheel(-notches, 0);
+            var lines = -notches * WheelLines(Native.SpiGetWheelScrollChars);
+            session.Connection.Wheel(lines * points, 0, lines, 0);
         }
         else
         {
-            session.Connection.Wheel(0, notches);
+            var lines = notches * WheelLines(Native.SpiGetWheelScrollLines);
+            session.Connection.Wheel(0, lines * points, 0, lines);
         }
 
         e.Handled = true;
+    }
+
+    // How many of the Mac's points one DIP of the window covers, undoing the monitor scale, the fit, and the Mac's own scale.
+    private float MacPointsPerDip()
+    {
+        if (session.Layout is not { } layout || layout.PixelWidth == 0 || PixelWidth == 0 || PixelHeight == 0)
+        {
+            return 1;
+        }
+
+        var fit = Video.Fit.Of(PixelWidth, PixelHeight, layout.PixelWidth, layout.PixelHeight);
+        return (float)(Surface.CompositionScaleX / fit.Scale * layout.LogicalWidth / layout.PixelWidth);
+    }
+
+    // Lines per notch, 3 by default. "One screen at a time" has no counterpart on the Mac, so it scrolls the default.
+    private static unsafe uint WheelLines(uint setting)
+    {
+        uint lines = 3;
+        return Native.SystemParametersInfo(setting, 0, &lines, 0) && lines != Native.WheelPageScroll ? lines : 3;
     }
 
     // Converts a position on the screen area to pixels of the Mac's layout, undoing the placement the renderer used.

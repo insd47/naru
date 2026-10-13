@@ -286,9 +286,14 @@ impl Session {
         let _ = self.session.scroll(phase, (dx, dy));
     }
 
-    /// Mouse wheel, in notches, with the same direction as scroll.
-    pub fn wheel(&self, dx: f32, dy: f32) {
-        let _ = self.session.wheel((dx, dy));
+    /// Mouse wheel, with the same direction as scroll. The scroll happens at the last pointer position.
+    ///
+    /// - `dx` and `dy` are the distance in points, converted from the client's own distance with the same scale as scroll.
+    /// - `lines_x` and `lines_y` are the same distance in lines.
+    /// - Send what this system's wheel would scroll, from its settings or defaults. Mac apps use either the distance or
+    ///   the lines, and the Mac adds no acceleration.
+    pub fn wheel(&self, dx: f32, dy: f32, lines_x: f32, lines_y: f32) {
+        let _ = self.session.wheel((dx, dy), (lines_x, lines_y));
     }
 
     /// Magnify gesture. The scale starts at 1.0 and is cumulative.

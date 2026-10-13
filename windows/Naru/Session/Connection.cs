@@ -37,7 +37,7 @@ internal sealed class Connection : SessionListener
 
     public void Scroll(Phase phase, float dx, float dy) => session.Scroll(phase, dx, dy);
 
-    public void Wheel(float dx, float dy) => session.Wheel(dx, dy);
+    public void Wheel(float dx, float dy, float linesX, float linesY) => session.Wheel(dx, dy, linesX, linesY);
 
     public void Touch(uint id, TouchPhase phase, float x, float y) => session.Touch(id, phase, x, y);
 

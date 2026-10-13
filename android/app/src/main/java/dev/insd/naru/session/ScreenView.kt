@@ -10,6 +10,7 @@ import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.ViewConfiguration
 import dev.insd.naru.core.Event
 import dev.insd.naru.core.TouchPhase
 import kotlin.math.roundToInt
@@ -178,11 +179,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
                 buttons = mouseButtons(event.buttonState)
                 send(event)
             }
-            // Android is positive to the right and the Mac to the left. Vertically, both are positive upward.
-            MotionEvent.ACTION_SCROLL -> connection?.wheel(
-                -event.getAxisValue(MotionEvent.AXIS_HSCROLL),
-                event.getAxisValue(MotionEvent.AXIS_VSCROLL),
-            )
+            MotionEvent.ACTION_SCROLL -> wheel(event)
             MotionEvent.ACTION_BUTTON_PRESS, MotionEvent.ACTION_BUTTON_RELEASE -> {
                 buttons = mouseButtons(event.buttonState)
                 send(event)
@@ -191,6 +188,23 @@ class ScreenView(context: Context) : SurfaceView(context) {
         }
 
         return true
+    }
+
+    // A notch scrolls ViewConfiguration's scroll factor, which goes to the Mac as a distance in its points. Android has no
+    // line count, and that factor is about three text lines, so three lines go with it. There is no acceleration.
+    // Android is positive to the right and the Mac to the left. Vertically, both are positive upward.
+    private fun wheel(event: MotionEvent) {
+        val notchesX = -event.getAxisValue(MotionEvent.AXIS_HSCROLL)
+        val notchesY = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+        val configuration = ViewConfiguration.get(context)
+        val points = logicalWidth?.takeIf { width > 0 }?.let { it.toFloat() / width } ?: 1f
+
+        connection?.wheel(
+            notchesX * configuration.scaledHorizontalScrollFactor * points,
+            notchesY * configuration.scaledVerticalScrollFactor * points,
+            notchesX * LINES_PER_NOTCH,
+            notchesY * LINES_PER_NOTCH,
+        )
     }
 
     private fun send(event: MotionEvent) {
@@ -219,5 +233,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
         private const val BUTTON_LEFT = 1 shl 0
         private const val BUTTON_RIGHT = 1 shl 1
         private const val BUTTON_MIDDLE = 1 shl 2
+
+        private const val LINES_PER_NOTCH = 3f
     }
 }

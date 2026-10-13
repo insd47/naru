@@ -28,7 +28,7 @@ final class Connection: SessionListener, @unchecked Sendable {
 
     func scroll(_ phase: Phase, dx: Float, dy: Float) { session.scroll(phase: phase, dx: dx, dy: dy) }
 
-    func wheel(dx: Float, dy: Float) { session.wheel(dx: dx, dy: dy) }
+    func wheel(dx: Float, dy: Float, linesX: Float, linesY: Float) { session.wheel(dx: dx, dy: dy, linesX: linesX, linesY: linesY) }
 
     func magnify(_ phase: Phase, scale: Float) { session.magnify(phase: phase, scale: scale) }
 

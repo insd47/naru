@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Naru.Session;
 
-/// <summary>Win32 functions for keyboard capture and the IME.</summary>
+/// <summary>Win32 functions for keyboard capture, the IME, and wheel settings.</summary>
 internal static unsafe partial class Native
 {
     public const int WhKeyboardLl = 13;
@@ -31,6 +31,14 @@ internal static unsafe partial class Native
 
     [LibraryImport("user32.dll")]
     public static partial nint CallNextHookEx(nint hook, int code, nint wParam, nint lParam);
+
+    public const uint SpiGetWheelScrollLines = 0x0068;
+    public const uint SpiGetWheelScrollChars = 0x006C;
+    public const uint WheelPageScroll = uint.MaxValue;
+
+    [LibraryImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SystemParametersInfo(uint action, uint param, uint* value, uint update);
 
     [LibraryImport("user32.dll")]
     public static partial nint GetForegroundWindow();

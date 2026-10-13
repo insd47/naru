@@ -8,7 +8,7 @@ pub use touch::{Touch, TouchPhase};
 
 mod touch;
 
-// Points per line. Apple's client uses about 10 for trackpad scrolls, and one wheel notch scrolls the same amount.
+// Points per line for trackpad scrolls, which carry no line count of their own. Apple's client uses about 10.
 const POINTS_PER_LINE: f32 = 10.0;
 
 // Momentum scrolling. The velocity comes from the movement just before the fingers lift and decays at UIScrollView's default deceleration (×0.998 per ms).
@@ -25,8 +25,9 @@ pub enum Event {
     Pointer { buttons: u8, x: u16, y: u16 },
     /// Trackpad scroll. The delta is in points, and the direction follows CGEvent (positive is up and left).
     Scroll { phase: Phase, delta: (f32, f32) },
-    /// Mouse wheel, in notches, with the same direction as scroll
-    Wheel { lines: (f32, f32) },
+    /// Mouse wheel, as the client's system would scroll it: the distance in points and the same distance in lines, with
+    /// the same direction as scroll. The Mac adds no acceleration.
+    Wheel { points: (f32, f32), lines: (f32, f32) },
     /// Magnify. The scale starts at 1.0 and is cumulative.
     Magnify { phase: Phase, scale: f32 },
     /// A finger on the screen. The whole screen acts as a trackpad.
@@ -104,10 +105,9 @@ impl Input {
                 vec![self.pointer(buttons, now)]
             }
             Event::Scroll { phase, delta } => self.scroll(phase, delta, now),
-            Event::Wheel { lines } => {
-                let delta = (lines.0 * POINTS_PER_LINE, lines.1 * POINTS_PER_LINE);
+            Event::Wheel { points, lines } => {
                 let mut messages = Vec::from_iter(self.stop());
-                messages.push(self.scroll_message(delta, None, None, false));
+                messages.push(self.scroll_message(points, lines, None, None, false));
                 messages
             }
             Event::Magnify { phase, scale } => vec![self.magnify(phase, scale)],
@@ -182,7 +182,7 @@ impl Input {
             Momentum::Began
         };
 
-        Some(self.scroll_message(delta, None, Some(momentum), true))
+        Some(self.scroll_message(delta, trackpad_lines(delta), None, Some(momentum), true))
     }
 
     fn scroll(&mut self, phase: Phase, delta: (f32, f32), now: Instant) -> Vec<Vec<u8>> {
@@ -205,7 +205,7 @@ impl Input {
             self.recent.pop_front();
         }
 
-        messages.push(self.scroll_message(delta, Some(phase), None, true));
+        messages.push(self.scroll_message(delta, trackpad_lines(delta), Some(phase), None, true));
 
         if phase == Phase::Ended {
             let velocity = self.velocity(now);
@@ -239,7 +239,7 @@ impl Input {
         let fling = self.fling.take()?;
         fling
             .began
-            .then(|| self.scroll_message((0.0, 0.0), None, Some(Momentum::Ended), true))
+            .then(|| self.scroll_message((0.0, 0.0), (0.0, 0.0), None, Some(Momentum::Ended), true))
     }
 
     // The scale starts at 1, and each event sends the increment over the previous scale.
@@ -269,6 +269,7 @@ impl Input {
     fn scroll_message(
         &mut self,
         delta: (f32, f32),
+        lines: (f32, f32),
         phase: Option<Phase>,
         momentum: Option<Momentum>,
         continuous: bool,
@@ -280,7 +281,7 @@ impl Input {
         Scroll {
             // Float-to-int `as` saturates out of range.
             points: (points.0 as i32, points.1 as i32),
-            lines: (delta.0 / POINTS_PER_LINE, delta.1 / POINTS_PER_LINE),
+            lines,
             phase,
             momentum,
             continuous,
@@ -300,6 +301,11 @@ impl Input {
 
 fn speed((x, y): (f32, f32)) -> f32 {
     x.hypot(y)
+}
+
+// A trackpad scroll in lines, for apps that scroll line by line
+fn trackpad_lines((x, y): (f32, f32)) -> (f32, f32) {
+    (x / POINTS_PER_LINE, y / POINTS_PER_LINE)
 }
 
 #[cfg(test)]
@@ -411,10 +417,18 @@ mod tests {
             Instant::now(),
         );
 
-        let messages = input.handle(Event::Wheel { lines: (0.0, 1.0) }, Instant::now());
+        let messages = input.handle(
+            Event::Wheel {
+                points: (0.0, 100.0),
+                lines: (0.0, 3.0),
+            },
+            Instant::now(),
+        );
         assert_eq!(messages.len(), 1);
         assert_eq!(phases(&messages[0]), (0, 0));
-        assert_eq!(&messages[0][30..34], 10i32.to_be_bytes());
+        // The client's distance and line count go out as given, not derived from each other.
+        assert_eq!(&messages[0][10..12], 3i16.to_be_bytes());
+        assert_eq!(&messages[0][30..34], 100i32.to_be_bytes());
         assert_eq!(&messages[0][54..], [0x03, 0x1f, 0, 10]);
     }
 
