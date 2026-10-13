@@ -53,7 +53,7 @@ public class WriteNotices : Task
             var license = metadata.Elements().FirstOrDefault(e => e.Name.LocalName == "license");
             var url = Field(metadata, "licenseUrl");
 
-            // Files in the package carry the full terms. Otherwise an SPDX expression names a text kept in licenses/.
+            // Files in the package carry the full terms. Otherwise an SPDX expression names a text kept in Licenses/.
             if (files.Count > 0)
             {
                 // The license is the file the package names, or a LICENSE file. Other files are notices.
@@ -149,7 +149,7 @@ public class WriteNotices : Task
     <PropertyGroup>
       <Notices>$(MSBuildProjectDirectory)\$(IntermediateOutputPath)ThirdPartyNotices.txt</Notices>
     </PropertyGroup>
-    <WriteNotices Packages="@(RuntimeCopyLocalItems);@(NativeCopyLocalItems);@(ReferenceCopyLocalPaths)" PackageRoot="$(NuGetPackageRoot)" Core="$(CoreRoot)licenses\notices\core.txt" Licenses="$(CoreRoot)licenses" Output="$(Notices)" />
+    <WriteNotices Packages="@(RuntimeCopyLocalItems);@(NativeCopyLocalItems);@(ReferenceCopyLocalPaths)" PackageRoot="$(NuGetPackageRoot)" Core="$(CoreRoot)licenses\notices\core.txt" Licenses="$(MSBuildProjectDirectory)\Licenses" Output="$(Notices)" />
     <ItemGroup>
       <Content Include="$(Notices)" Link="ThirdPartyNotices.txt" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
