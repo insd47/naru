@@ -47,11 +47,15 @@ internal sealed class Player : IDisposable
 
     private int pending;
 
-    // Receive counters logged on each stats event
+    // Stats arrive every half second; one line per 10 s keeps the log readable for the rest of the session.
+    private const int ReportsPerLine = 20;
+
+    // Receive counters logged with every twentieth stats event
     private int frames;
     private int keyframes;
     private int dropped;
     private int rendered;
+    private int reports;
 
     /// <summary>The first picture of a new decoder was presented. Raised on the video thread.</summary>
     public event Action? FirstFrame;
@@ -112,8 +116,14 @@ internal sealed class Player : IDisposable
 
     public void Report(MediaStats stats) => Post(() =>
     {
+        if (++reports < ReportsPerLine)
+        {
+            return;
+        }
+
+        reports = 0;
         Log.Info(
-            $"Received (0.5 s): frames {frames} (key {keyframes}, dropped {dropped}), rendered {rendered} | datagrams {stats.Datagrams}, " +
+            $"Received (10 s): frames {frames} (key {keyframes}, dropped {dropped}), rendered {rendered} | datagrams {stats.Datagrams}, " +
             $"authenticated {stats.Authenticated}, SSRC {stats.Ssrc:x}, sequence {stats.Highest}, candidates {stats.Candidates}, " +
             $"offers {stats.Offers}, NACK {stats.Nacked}, filled {stats.Filled}, lost {stats.Losses}");
         frames = keyframes = dropped = rendered = 0;

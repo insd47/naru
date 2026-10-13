@@ -33,6 +33,13 @@ internal sealed class Preferences
         set => Write("swapCommandOption", value);
     }
 
+    /// <summary>Whether the Mac's input source follows this computer's input language, as Sync Keyboard Language does in Screen Sharing.</summary>
+    public bool SyncKeyboardLanguage
+    {
+        get => Read("syncKeyboardLanguage", false);
+        set => Write("syncKeyboardLanguage", value);
+    }
+
     public WindowsKeys WindowsKeys
     {
         get => Enum.TryParse<WindowsKeys>(Read("windowsKeys", nameof(WindowsKeys.FullScreenOnly)), out var value) ? value : WindowsKeys.FullScreenOnly;

@@ -34,13 +34,17 @@ internal sealed class Connection : SessionListener
 
     public void Key(uint keysym, bool down) => session.Key(keysym, down);
 
+    public void SelectInputSource(string id) => session.SelectInputSource(id);
+
     public void Pointer(byte buttons, ushort x, ushort y) => session.Pointer(buttons, x, y);
 
     public void Scroll(Phase phase, float dx, float dy) => session.Scroll(phase, dx, dy);
 
+    public void Momentum(MomentumPhase phase, float dx, float dy) => session.Momentum(phase, dx, dy);
+
     public void Wheel(float dx, float dy, float linesX, float linesY) => session.Wheel(dx, dy, linesX, linesY);
 
-    public void Touch(uint id, TouchPhase phase, float x, float y) => session.Touch(id, phase, x, y);
+    public void Magnify(Phase phase, float scale) => session.Magnify(phase, scale);
 
     /// <summary><c>true</c> if sent; <c>false</c> without sending if it exceeds the size limit.</summary>
     public bool Clipboard(string text) => session.Clipboard(text);
@@ -93,11 +97,7 @@ internal sealed class Connection : SessionListener
                 break;
         }
 
-        // The touch cursor position arrives on every finger movement, so it is not logged.
-        if (@event is not Event.Pointer)
-        {
-            Log.Info(Describe(@event));
-        }
+        Log.Info(Describe(@event));
 
         listener(@event);
 
