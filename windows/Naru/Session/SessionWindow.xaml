@@ -19,33 +19,46 @@
             <ProgressRing x:Name="Loading" IsActive="True" Width="48" Height="48" />
         </Grid>
 
-        <!-- Every title bar button shares one compact size and spacing. The title bar gives buttons a minimum width, so it is cleared here. -->
-        <TitleBar x:Name="Bar" Height="48">
-            <TitleBar.Resources>
+        <!--
+            A custom title bar rather than TitleBar, which keeps room for the caption buttons even in full screen.
+            The two star columns are always equal, so the toolbar sits at the window's center. The right column ends
+            with room for the caption buttons, which is zero in full screen.
+        -->
+        <Grid x:Name="Bar" Height="48">
+            <Grid.Resources>
                 <Style x:Key="BarButton" TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}">
                     <Setter Property="Width" Value="40" />
                     <Setter Property="MinWidth" Value="0" />
                     <Setter Property="Height" Value="32" />
                     <Setter Property="Padding" Value="0" />
-                    <Setter Property="Margin" Value="0" />
                 </Style>
-            </TitleBar.Resources>
-            <!-- Centered on the window rather than on the space the title leaves; see CenterToolbar. -->
-            <TitleBar.Content>
-                <StackPanel x:Name="Toolbar" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="Mission Control" AutomationProperties.Name="Mission Control" Click="OnMissionControl">
-                        <FontIcon Glyph="&#xE7C4;" FontSize="16" />
-                    </Button>
-                    <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="App Windows" AutomationProperties.Name="App Windows" Click="OnAppWindows">
-                        <FontIcon Glyph="&#xE8A9;" FontSize="16" />
-                    </Button>
-                    <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="Desktop" AutomationProperties.Name="Desktop" Click="OnDesktop">
-                        <FontIcon Glyph="&#xE7F4;" FontSize="16" />
-                    </Button>
-                </StackPanel>
-            </TitleBar.Content>
-            <TitleBar.RightHeader>
-                <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,4,0" VerticalAlignment="Center">
+            </Grid.Resources>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Icon 16 px from the edge and the title 16 px after it, per the Windows title bar guidance -->
+            <StackPanel x:Name="Heading" Orientation="Horizontal" Spacing="16" Margin="16,0,8,0" VerticalAlignment="Center">
+                <Image x:Name="Icon" Width="16" Height="16" />
+                <TextBlock x:Name="Caption" Style="{StaticResource CaptionTextBlockStyle}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+
+            <StackPanel x:Name="Toolbar" Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="Mission Control" AutomationProperties.Name="Mission Control" Click="OnMissionControl">
+                    <FontIcon Glyph="&#xE7C4;" FontSize="16" />
+                </Button>
+                <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="App Windows" AutomationProperties.Name="App Windows" Click="OnAppWindows">
+                    <FontIcon Glyph="&#xE8A9;" FontSize="16" />
+                </Button>
+                <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="Desktop" AutomationProperties.Name="Desktop" Click="OnDesktop">
+                    <FontIcon Glyph="&#xE7F4;" FontSize="16" />
+                </Button>
+            </StackPanel>
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                <StackPanel x:Name="Actions" Orientation="Horizontal" Spacing="4" Margin="0,0,8,0" VerticalAlignment="Center">
                     <Button x:Name="FullScreenButton" Style="{StaticResource BarButton}" Click="OnFullScreen" ToolTipService.ToolTip="Full Screen (Ctrl+Alt+Break)" AutomationProperties.Name="Full Screen">
                         <FontIcon x:Name="FullScreenIcon" Glyph="&#xE740;" FontSize="16" />
                     </Button>
@@ -68,7 +81,8 @@
                         </Button.Flyout>
                     </Button>
                 </StackPanel>
-            </TitleBar.RightHeader>
-        </TitleBar>
+                <Border x:Name="CaptionInset" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

@@ -16,17 +16,22 @@ internal static class AppIcon
     private static readonly int[] Sizes = [16, 20, 24, 32, 40, 48];
 
     /// <summary>Keeps the title bar's icon matching the theme and the monitor scale.</summary>
-    public static void Apply(TitleBar bar)
-    {
-        void Update() => bar.IconSource = new ImageIconSource { ImageSource = Source(bar.ActualTheme, bar.XamlRoot?.RasterizationScale ?? 1) };
+    public static void Apply(TitleBar bar) =>
+        Follow(bar, () => bar.IconSource = new ImageIconSource { ImageSource = Source(bar.ActualTheme, bar.XamlRoot?.RasterizationScale ?? 1) });
 
-        bar.ActualThemeChanged += (_, _) => Update();
-        bar.Loaded += (_, _) =>
+    /// <summary>Keeps an image in a custom title bar matching the theme and the monitor scale.</summary>
+    public static void Apply(Image image) =>
+        Follow(image, () => image.Source = Source(image.ActualTheme, image.XamlRoot?.RasterizationScale ?? 1));
+
+    private static void Follow(FrameworkElement element, Action update)
+    {
+        element.ActualThemeChanged += (_, _) => update();
+        element.Loaded += (_, _) =>
         {
-            Update();
-            bar.XamlRoot.Changed += (_, _) => Update();
+            update();
+            element.XamlRoot.Changed += (_, _) => update();
         };
-        Update();
+        update();
     }
 
     private static BitmapImage Source(ElementTheme theme, double scale)

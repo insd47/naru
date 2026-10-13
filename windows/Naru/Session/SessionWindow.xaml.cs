@@ -44,7 +44,7 @@ internal sealed partial class SessionWindow : Window
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(Bar);
-        AppIcon.Apply(Bar);
+        AppIcon.Apply(Icon);
         AppWindow.SetIcon("Assets/Naru.ico");
         Rename(session.Host.Title);
         Size(session.Display);
@@ -84,45 +84,32 @@ internal sealed partial class SessionWindow : Window
         Screen.PointerCaptureLost += OnPointerEnded;
         Screen.PointerWheelChanged += OnWheel;
         Bar.PointerExited += (_, _) => Reveal(false);
-        Toolbar.LayoutUpdated += (_, _) => CenterToolbar();
-        Root.SizeChanged += (_, _) => centering = double.MaxValue;
+        Bar.SizeChanged += (_, _) => UpdateTitleBar();
+        Bar.Loaded += (_, _) => Content.XamlRoot.Changed += (_, _) => UpdateTitleBar();
     }
 
-    // Distance from the window's center at the last toolbar move, to stop when moving no longer helps
-    private double centering = double.MaxValue;
-
-    // The title bar centers its content in the space between the title and the right-hand buttons, which sits left of
-    // the window's center. A margin, rather than a transform, moves the toolbar so the title bar's clickable region follows it.
-    //
-    // Each pass measures how far the toolbar still is from the window's center and shifts it by that much. A margin of
-    // 2d on one side moves a centered element by d, so the shift settles within a layout pass or two.
-    private void CenterToolbar()
+    // The whole bar drags the window, except the buttons, whose rectangles pass clicks through. The right edge keeps
+    // room for the caption buttons, which full screen removes.
+    private void UpdateTitleBar()
     {
-        if (Toolbar.ActualWidth <= 0 || Content is not FrameworkElement root)
+        if (Content.XamlRoot is not { } root)
         {
             return;
         }
 
-        var center = Toolbar.TransformToVisual(root).TransformPoint(default).X + Toolbar.ActualWidth / 2;
-        var remaining = root.ActualWidth / 2 - center;
+        var scale = root.RasterizationScale;
+        CaptionInset.Width = FullScreen ? 0 : AppWindow.TitleBar.RightInset / scale;
 
-        // Layout runs again after a margin change, so only a real move updates it. When the title leaves no room to move,
-        // the distance stops shrinking and the toolbar stays where it is until the window resizes.
-        if (Math.Abs(remaining) <= 0.5)
-        {
-            return;
-        }
+        var buttons = new[] { Toolbar, Actions }
+            .Where(element => element.ActualWidth > 0)
+            .Select(element =>
+            {
+                var bounds = element.TransformToVisual(null).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight));
+                return new RectInt32((int)(bounds.X * scale), (int)(bounds.Y * scale), (int)Math.Ceiling(bounds.Width * scale), (int)Math.Ceiling(bounds.Height * scale));
+            })
+            .ToArray();
 
-        // Zero blocks further moves until a resize or a new title resets it.
-        if (Math.Abs(remaining) >= centering - 0.5)
-        {
-            centering = 0;
-            return;
-        }
-
-        centering = Math.Abs(remaining);
-        var shift = (Toolbar.Margin.Left - Toolbar.Margin.Right) / 2 + remaining;
-        Toolbar.Margin = shift > 0 ? new Thickness(shift * 2, 0, 0, 0) : new Thickness(0, 0, -shift * 2, 0);
+        InputNonClientPointerSource.GetForWindowId(AppWindow.Id).SetRegionRects(NonClientRegionKind.Passthrough, buttons);
     }
 
     private bool FullScreen => AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
@@ -135,8 +122,7 @@ internal sealed partial class SessionWindow : Window
     public void Rename(string title)
     {
         Title = title;
-        Bar.Title = title;
-        centering = double.MaxValue;
+        Caption.Text = title;
     }
 
     /// <summary>A session event, on the UI thread.</summary>
@@ -187,6 +173,9 @@ internal sealed partial class SessionWindow : Window
             keyboard.Deactivated();
             clipboard.Deactivated();
         }
+
+        // An inactive title bar shows its title semi-transparent, as the Windows guidance asks.
+        Heading.Opacity = active ? 1 : 0.6;
     }
 
     // The picture follows the window at once. The Mac's virtual display follows once resizing pauses, since each change makes the Mac redraw.
@@ -221,6 +210,12 @@ internal sealed partial class SessionWindow : Window
     // In full screen the screen spans both rows and the title bar becomes an overlay, hidden until revealed.
     private void OnChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
+        // Maximizing changes the caption buttons' size, so the reserved room follows.
+        if (args.DidSizeChange && !args.DidPresenterChange)
+        {
+            UpdateTitleBar();
+        }
+
         if (!args.DidPresenterChange)
         {
             return;
@@ -232,6 +227,7 @@ internal sealed partial class SessionWindow : Window
         FullScreenIcon.Glyph = full ? "" : "";
         Bar.Background = full ? (Brush)Application.Current.Resources["AcrylicInAppFillColorDefaultBrush"] : null;
         Reveal(!full);
+        UpdateTitleBar();
     }
 
     private void Reveal(bool visible)
