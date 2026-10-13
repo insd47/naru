@@ -12,7 +12,7 @@ namespace Naru.Session;
 /// <item>The hook sees keys before Windows and the IME, so shortcuts reach the Mac and the IME does not compose locally.</item>
 /// <item>Windows key combinations (the Windows key, Alt+Tab, Alt+Esc, Ctrl+Esc) stay with Windows unless the setting sends them to the Mac.</item>
 /// <item>Ctrl+Alt+Break toggles full screen, as in Remote Desktop.</item>
-/// <item>The Korean/English key never reaches the IME, so the Korean mode is tracked here and reported to the session as the input language.</item>
+/// <item>The Korean/English key never reaches the IME, so the Korean mode is tracked here as the input language that decides what keys type.</item>
 /// <item>The hook runs on the UI thread that installed it and must return quickly, or Windows removes it.</item>
 /// </list>
 /// </remarks>
@@ -33,7 +33,7 @@ internal sealed class Keyboard
     private readonly HashSet<uint> held = [];
     private Keys keys;
     private bool korean;
-    private string? reported;
+    private string language = "";
 
     public Keyboard(nint window, Connection connection, Preferences preferences, Func<bool> capturing, Func<bool> fullScreen, Action toggleFullScreen)
     {
@@ -50,12 +50,11 @@ internal sealed class Keyboard
         Install();
     }
 
-    /// <summary>The window came to the front: settings may have changed, and the language is reported again.</summary>
+    /// <summary>The window came to the front: settings may have changed, and the language is read again.</summary>
     public void Activated()
     {
         keys = new Keys(preferences.SwapCommandOption);
         held.Clear();
-        reported = null;
         Report(Layout());
     }
 
@@ -181,13 +180,13 @@ internal sealed class Keyboard
             // Alt also goes to Windows, which needs it for Alt+Tab. The Mac still gets it as Command.
             if (vk is VkLMenu or VkRMenu)
             {
-                Send(keys.Translate(vk, scan, extended, down, layout, held));
+                Send(keys.Translate(vk, scan, extended, down, layout, held, language, connection.Source));
                 return false;
             }
         }
 
         Report(layout);
-        Send(keys.Translate(vk, scan, extended, down, layout, held));
+        Send(keys.Translate(vk, scan, extended, down, layout, held, language, connection.Source));
         return true;
     }
 
@@ -202,13 +201,12 @@ internal sealed class Keyboard
     // A Korean layout types English or Korean depending on its mode. Other layouts report their own language.
     private void Report(nint layout)
     {
-        var language = (layout & 0xffff) == KoreanLanguage ? (korean ? "ko-KR" : "en-US") : Keys.LanguageOf(layout);
+        var next = (layout & 0xffff) == KoreanLanguage ? (korean ? "ko-KR" : "en-US") : Keys.LanguageOf(layout);
 
-        if (language != reported)
+        if (next != language)
         {
-            reported = language;
+            language = next;
             Log.Info($"Input language: {language}");
-            connection.Language(language);
         }
     }
 

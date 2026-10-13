@@ -1,11 +1,12 @@
 import UIKit
 
-/// Translates hardware keys to X11 keysyms.
+/// Translates hardware keys to X11 keysyms of what the Mac should type.
 ///
-/// - Characters are sent as iPadOS produces them with the current input language's layout (`characters`). For Korean that yields Dubeolsik jamo that the Mac's input method composes,
-///   so the core's layout translation (`language`) is not used.
+/// - The input language is iPadOS's, read after the text system has seen the press, since a pending language switch takes effect only then.
+/// - For a language with a Mac layout (Korean), the core's `character` gives what the physical Latin key types there, which also follows the Mac's
+///   secure input and its own layout of that language. For other languages, the character iPadOS produced is sent, which keeps layouts such as QWERTZ.
 /// - With Control, Option, or Command held, the key is a shortcut, so the Latin character at the physical position is sent.
-/// - The Globe key and Caps Lock are not sent because iPadOS uses them to switch input languages. Caps Lock never arrives as a key anyway.
+/// - The Globe key and Caps Lock are not sent because iPadOS uses them to switch input languages.
 /// - A release sends the keysym sent on press, so no key stays held on the Mac if modifiers or the language changed in between.
 @MainActor
 struct Keys {
@@ -16,14 +17,26 @@ struct Keys {
         key.keyCode == .keyboardCapsLock || (key.keyCode == .keyboardErrorUndefined && key.modifierFlags.rawValue & globe != 0)
     }
 
-    /// Whether the key types text rather than triggering a shortcut or being a modifier.
+    /// Whether the key types or edits text rather than triggering a shortcut, moving, or being a modifier. Such keys also go to the text system,
+    /// which reports their repeats.
     static func isTyping(_ key: UIKey) -> Bool {
-        key.modifierFlags.isDisjoint(with: [.command, .control, .alternate]) && !(224...231).contains(key.keyCode.rawValue)
+        let code = key.keyCode.rawValue
+        return key.modifierFlags.isDisjoint(with: [.command, .control, .alternate]) && (special[code] == nil || editing.contains(code))
+    }
+
+    // Return, keypad Enter, Backspace, Tab, and Space. Arrows get no repeats from the text system, so they stay out of it.
+    private static let editing: Set<Int> = [40, 88, 42, 43, 44]
+
+    /// Whether the key is an arrow, Home, End, Page Up, Page Down, or forward delete, without a shortcut modifier
+    static func isNavigation(_ key: UIKey) -> Bool {
+        (74...82).contains(key.keyCode.rawValue) && key.modifierFlags.isDisjoint(with: [.command, .control, .alternate])
     }
 
     /// The keysym for a pressed key, or `nil` for a key that is not sent.
-    mutating func press(_ key: UIKey) -> UInt32? {
-        guard let keysym = Self.keysym(key) else {
+    ///
+    /// - `language` is the input language after the text system saw the press, and `source` the Mac's latest input source.
+    mutating func press(_ key: UIKey, language: String?, source: InputSource?) -> UInt32? {
+        guard let keysym = Self.keysym(key, language: language, source: source) else {
             return nil
         }
 
@@ -42,19 +55,29 @@ struct Keys {
         return Array(pressed.values)
     }
 
-    private static func keysym(_ key: UIKey) -> UInt32? {
+    private static func keysym(_ key: UIKey, language: String?, source: InputSource?) -> UInt32? {
         if let special = special[key.keyCode.rawValue] {
             return special
         }
 
-        let shortcut = !key.modifierFlags.isDisjoint(with: [.command, .control, .alternate])
+        let usage = key.keyCode.rawValue
+
+        guard isTyping(key) else {
+            return latin(usage, shifted: false).map { keysym($0.value) }
+        }
+
+        if let latin = latin(usage, shifted: key.modifierFlags.contains(.shift)), let language,
+           let typed = character(latin: keysym(latin.value), language: language, source: source) {
+            return typed
+        }
+
         let scalars = key.characters.unicodeScalars
 
-        if !shortcut, scalars.count == 1, let scalar = scalars.first, scalar.value >= 0x20, scalar.value != 0x7f {
+        if scalars.count == 1, let scalar = scalars.first, scalar.value >= 0x20, scalar.value != 0x7f {
             return keysym(scalar.value)
         }
 
-        return latin(key.keyCode.rawValue).map { keysym($0.value) }
+        return latin(usage, shifted: false).map { keysym($0.value) }
     }
 
     // Latin-1 maps to its character code, everything else to a Unicode keysym.
@@ -62,25 +85,31 @@ struct Keys {
         (0x20...0x7e).contains(code) || (0xa0...0xff).contains(code) ? code : 0x0100_0000 + code
     }
 
-    // Characters at each physical position on the US layout (HID usage codes)
-    private static func latin(_ usage: Int) -> Unicode.Scalar? {
+    // Characters at each physical position on the US layout (HID usage codes), plain and with Shift
+    private static func latin(_ usage: Int, shifted: Bool) -> Unicode.Scalar? {
+        let (plain, shift): (Character, Character)
+
         switch usage {
-        case 4...29: Unicode.Scalar(UInt8(ascii: "a") + UInt8(usage - 4))
-        case 30...38: Unicode.Scalar(UInt8(ascii: "1") + UInt8(usage - 30))
-        case 39: "0"
-        case 45: "-"
-        case 46: "="
-        case 47: "["
-        case 48: "]"
-        case 49: "\\"
-        case 51: ";"
-        case 52: "'"
-        case 53: "`"
-        case 54: ","
-        case 55: "."
-        case 56: "/"
-        default: nil
+        case 4...29:
+            let letter = Character(Unicode.Scalar(UInt8(ascii: "a") + UInt8(usage - 4)))
+            (plain, shift) = (letter, Character(letter.uppercased()))
+        case 30...39:
+            (plain, shift) = (Array("1234567890")[usage - 30], Array("!@#$%^&*()")[usage - 30])
+        case 45: (plain, shift) = ("-", "_")
+        case 46: (plain, shift) = ("=", "+")
+        case 47: (plain, shift) = ("[", "{")
+        case 48: (plain, shift) = ("]", "}")
+        case 49: (plain, shift) = ("\\", "|")
+        case 51: (plain, shift) = (";", ":")
+        case 52: (plain, shift) = ("'", "\"")
+        case 53: (plain, shift) = ("`", "~")
+        case 54: (plain, shift) = (",", "<")
+        case 55: (plain, shift) = (".", ">")
+        case 56: (plain, shift) = ("/", "?")
+        default: return nil
         }
+
+        return (shifted ? shift : plain).unicodeScalars.first
     }
 
     // The Globe key arrives as this modifier bit with no HID code (the same bit as Fn on macOS).

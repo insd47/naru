@@ -45,6 +45,11 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     private var keys = Keys()
     // Presses also given to the text system, so their release goes there too
     private var typing = Set<UIKeyboardHIDUsage>()
+    // The latest typing key still held, which the text system's repeats resend
+    private var held: (keysym: UInt32, code: UIKeyboardHIDUsage, pressed: Date, repeated: Date?)?
+    // The navigation key repeating on a timer, and the repeat timing to use
+    private var navigation: (code: UIKeyboardHIDUsage, timer: Timer)?
+    private var repeatTiming = (delay: 0.4, interval: 0.1)
     private var buttons: UInt8 = 0
     private var pointer: CGPoint?
     private var resizing: DispatchWorkItem?
@@ -102,6 +107,8 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
             becomeFirstResponder()
         } else {
             keys.releaseAll().forEach { connection?.key($0, down: false) }
+            navigation?.timer.invalidate()
+            navigation = nil
         }
     }
 
@@ -126,43 +133,104 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     private let blank = UIView()
 
     var hasText: Bool { false }
-    func insertText(_ text: String) { DiagnosticsLog.shared.record("TXT", DiagnosticsLog.shared.secure ? "insert (secure input)" : "insert [\(text)]") }
-    func deleteBackward() { DiagnosticsLog.shared.record("TXT", "delete") }
 
-    // An experiment for diagnostics: typing keys also go to the text system, which may be where hardware keyboard
-    // language switches take effect. Toggled in the Help menu.
-    private var passesKeys: Bool { UserDefaults.standard.bool(forKey: "passKeysToTextSystem") }
+    func insertText(_ text: String) {
+        DiagnosticsLog.shared.record("TXT", DiagnosticsLog.shared.secure ? "insert (secure input)" : "insert [\(text)]")
+        repeatHeld()
+    }
 
+    func deleteBackward() {
+        DiagnosticsLog.shared.record("TXT", "delete")
+        repeatHeld()
+    }
+
+    // The Mac does not repeat held keys. iPadOS reports a held key's repeats only as text input, at the user's repeat
+    // settings, so each one resends the key. Input right after a press is the press itself, or Korean composition,
+    // which delivers a deletion and an insertion together; repeats start well after it.
+    private func repeatHeld() {
+        guard var held, Date.now.timeIntervalSince(held.pressed) >= 0.15 else { return }
+        defer { self.held = held }
+
+        let burst = held.repeated.map { Date.now.timeIntervalSince($0) < 0.02 } ?? false
+
+        if !burst {
+            if let previous = held.repeated {
+                repeatTiming.interval = Date.now.timeIntervalSince(previous)
+            } else {
+                repeatTiming.delay = Date.now.timeIntervalSince(held.pressed)
+            }
+
+            DiagnosticsLog.shared.record("KEY", "repeat")
+            connection?.key(held.keysym, down: true)
+        }
+
+        held.repeated = .now
+    }
+
+    // Navigation keys make no text, so the text system reports no repeats for them. They repeat on a timer at the
+    // timing last seen from the text system, starting from iPadOS's defaults, and only the latest one repeats.
+    private func repeatNavigation(_ keysym: UInt32, code: UIKeyboardHIDUsage) {
+        navigation?.timer.invalidate()
+
+        let timer = Timer.scheduledTimer(withTimeInterval: repeatTiming.delay, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.navigation?.code == code else { return }
+                self.connection?.key(keysym, down: true)
+
+                let timer = Timer.scheduledTimer(withTimeInterval: self.repeatTiming.interval, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.connection?.key(keysym, down: true) }
+                }
+                self.navigation = (code, timer)
+            }
+        }
+        navigation = (code, timer)
+    }
+
+    // Typing keys go to the text system before they are translated: a pending hardware keyboard language switch takes
+    // effect only when the text system sees the next key, so the language read afterwards is the one that key types in.
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        var system = Set<UIPress>()
         let log = DiagnosticsLog.shared
-        let passing = passesKeys
+        let before = textInputMode?.primaryLanguage
+        var system = Set<UIPress>()
+        var typed: [UIKey] = []
 
         for press in presses {
             guard let key = press.key else { continue }
-            let before = textInputMode?.primaryLanguage ?? "nil"
 
             if Keys.isSystem(key) {
                 system.insert(press)
-                log.key("down", key, "lang \(before) system")
-            } else if let keysym = keys.press(key) {
-                connection?.key(keysym, down: true)
-                log.key("down", key, "lang \(before) sent \(log.secure ? "-" : String(keysym, radix: 16))")
-
-                if passing, Keys.isTyping(key) {
-                    system.insert(press)
-                    typing.insert(key.keyCode)
-                }
+                log.key("down", key, "lang \(before ?? "nil") system")
+            } else if Keys.isTyping(key) {
+                system.insert(press)
+                typing.insert(key.keyCode)
+                typed.append(key)
             } else {
-                log.key("down", key, "lang \(before) not sent")
+                send(key, language: before)
             }
         }
 
         if !system.isEmpty { super.pressesBegan(system, with: event) }
 
-        log.record("KEY", "after lang \(textInputMode?.primaryLanguage ?? "nil") first responder \(isFirstResponder) passed \(system.count)")
-        DispatchQueue.main.async { [weak self] in
-            log.record("KEY", "next turn lang \(self?.textInputMode?.primaryLanguage ?? "nil") first responder \(self?.isFirstResponder ?? false)")
+        let language = textInputMode?.primaryLanguage
+        typed.forEach { send($0, language: language) }
+        log.record("KEY", "after lang \(language ?? "nil") first responder \(isFirstResponder) passed \(system.count)")
+    }
+
+    private func send(_ key: UIKey, language: String?) {
+        let log = DiagnosticsLog.shared
+
+        guard let keysym = keys.press(key, language: language, source: connection?.source) else {
+            log.key("down", key, "lang \(language ?? "nil") not sent")
+            return
+        }
+
+        connection?.key(keysym, down: true)
+        log.key("down", key, "lang \(language ?? "nil") sent \(log.secure ? "-" : String(keysym, radix: 16))")
+
+        if typing.contains(key.keyCode) {
+            held = (keysym, key.keyCode, .now, nil)
+        } else if Keys.isNavigation(key) {
+            repeatNavigation(keysym, code: key.keyCode)
         }
     }
 
@@ -185,6 +253,15 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
             if Keys.isSystem(key) {
                 system.insert(press)
                 continue
+            }
+
+            if held?.code == key.keyCode {
+                held = nil
+            }
+
+            if navigation?.code == key.keyCode {
+                navigation?.timer.invalidate()
+                navigation = nil
             }
 
             if typing.remove(key.keyCode) != nil {

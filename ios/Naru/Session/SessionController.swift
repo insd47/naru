@@ -170,7 +170,6 @@ final class SessionController {
             "HEVC 4:4:4 hardware decoding: \(Video.decodesHevc444 ? "supported" : "unsupported")",
             "Session codec: \(codec.map { $0 == .hevc ? "HEVC 4:4:4" : "H.264" } ?? "no session")",
             "Last session ended: \(closedDetail ?? "none")",
-            "Pass keys to the text system: \(UserDefaults.standard.bool(forKey: "passKeysToTextSystem"))",
             "Input modes: \(UITextInputMode.activeInputModes.compactMap(\.primaryLanguage).joined(separator: ", "))",
         ]
 

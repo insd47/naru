@@ -1,6 +1,6 @@
 // Extracts the conversion tables Naru uses from macOS keyboard layouts and writes them as Rust. Input source settings are only read.
 //
-//     swift layouts.swift > src/session/keyboard/tables.rs
+//     swift layouts.swift > src/keyboard/tables.rs
 //
 // - Only ABC and layouts that cannot type Latin letters (Dubeolsik, Russian, Zhuyin, and so on) are included. Latin layouts need no table because characters are sent as is.
 // - Columns are the main key block positions where ABC produces a single non-space character. Positions that cannot be sent as one keysym, or are dead keys, hold U+FFFD.

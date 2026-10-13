@@ -10,7 +10,6 @@ struct NaruCommands: Commands {
     let preferences: Preferences
     let session: SessionController
     @FocusedValue(\.home) private var home
-    @AppStorage("passKeysToTextSystem") private var passesKeys = false
 
     var body: some Commands {
         CommandMenu(Self.connection) {
@@ -54,7 +53,6 @@ struct NaruCommands: Commands {
         }
 
         CommandGroup(replacing: .help) {
-            Toggle("Pass Keys to the Text System", isOn: $passesKeys)
             Button("Export Diagnostics…") { session.exportDiagnostics() }
         }
     }

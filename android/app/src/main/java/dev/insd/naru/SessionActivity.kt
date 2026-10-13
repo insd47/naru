@@ -159,7 +159,7 @@ class SessionActivity : ComponentActivity() {
     // During a session, sends the key to the Mac and returns `true`. The screen view calls this before the IME, and the activity calls it when focus is elsewhere.
     private fun handleKey(event: KeyEvent, afterIme: Boolean = false): Boolean {
         val current = connection ?: return false
-        val translated = keys.translate(event)
+        val translated = keys.translate(event, language?.current.orEmpty(), current.source)
 
         for ((keysym, down) in translated) {
             current.key(keysym, down)
@@ -214,7 +214,7 @@ class SessionActivity : ComponentActivity() {
     // Attaches this screen's input to the session's connection.
     private fun adopt(next: Connection) {
         connection = next
-        language = ImeLanguage(this, next).also { it.sync(delayMs = 0) }
+        language = ImeLanguage(this).also { it.sync(delayMs = 0) }
         touchpad = Touchpad(next, resources.displayMetrics.density)
         immersive(true)
     }

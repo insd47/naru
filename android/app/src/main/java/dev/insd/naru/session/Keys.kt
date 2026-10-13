@@ -3,6 +3,8 @@ package dev.insd.naru.session
 import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
+import dev.insd.naru.core.InputSource
+import dev.insd.naru.core.character
 
 /**
  * Converts Android key events to X11 keysyms.
@@ -10,7 +12,8 @@ import android.view.KeyEvent
  * - Modifiers map by position. On a PC layout the Alt next to the space bar sits where Command is on a Mac, so Alt → Command and
  *   Meta → Option. When [swapCommandOption] is `false`, they map by name (Alt → Option, Meta → Command).
  * - The Mac treats Super_L as Command and Meta_L as Option. It also treats Alt_L as Command, so Alt_L is not used for Option.
- * - Character keys send the physical key's Latin character. If the Mac's input source is a layout that cannot type Latin, such as Dubeolsik, the session converts to that layout's characters.
+ * - Character keys type what the physical key's Latin character means in the IME's language, through the core's [character]: Dubeolsik jamo for
+ *   Korean, following the Mac's secure input and its own layout of that language. Other languages send the Latin character as is.
  * - Without Control, Option, or Command held, sends the shifted character (`A`, `!`); with any held, sends the lowercase one (`c`).
  * - A release sends the same keysym as the press, so no key stays held on the Mac if Shift changed in between.
  * - Dead keys (`´` then `e`) send the character composed by the tablet layout (`é`). The Mac inserts characters missing from its layout as is.
@@ -38,8 +41,8 @@ class Keys(swapCommandOption: Boolean) {
         )
     }
 
-    /** The (keysym, down) pairs to send, empty for an unknown key */
-    fun translate(event: KeyEvent): List<Pair<Int, Boolean>> {
+    /** The (keysym, down) pairs to send, empty for an unknown key. [language] is the IME's, and [source] the Mac's latest input source. */
+    fun translate(event: KeyEvent, language: String, source: InputSource?): List<Pair<Int, Boolean>> {
         val down = when (event.action) {
             KeyEvent.ACTION_DOWN -> true
             KeyEvent.ACTION_UP -> false
@@ -50,7 +53,7 @@ class Keys(swapCommandOption: Boolean) {
             return pressed.remove(event.keyCode)?.let { listOf(it to false) } ?: emptyList()
         }
 
-        val keysym = keysym(event) ?: return emptyList()
+        val keysym = keysym(event, language, source) ?: return emptyList()
         pressed[event.keyCode] = keysym
         return listOf(keysym to true)
     }
@@ -71,7 +74,7 @@ class Keys(swapCommandOption: Boolean) {
     /** Releases every held key so none stays held on the Mac when leaving the screen. */
     fun releaseAll(): List<Pair<Int, Boolean>> = pressed.values.map { it to false }.also { pressed.clear() }
 
-    private fun keysym(event: KeyEvent): Int? {
+    private fun keysym(event: KeyEvent, language: String, source: InputSource?): Int? {
         modifiers[event.keyCode]?.let { return it }
 
         // A space or arrow after a dead key discards the dead key. Shift is kept, since it combines as in `É`.
@@ -96,7 +99,13 @@ class Keys(swapCommandOption: Boolean) {
         accent = 0
 
         // Latin-1 uses the character code directly; anything else uses a Unicode keysym.
-        return if (combined in 0x20..0x7e || combined in 0xa0..0xff) combined else 0x0100_0000 + combined
+        val latin = if (combined in 0x20..0x7e || combined in 0xa0..0xff) combined else 0x0100_0000 + combined
+
+        // Shortcuts send the Latin key itself.
+        val commandLike = KeyEvent.META_CTRL_ON or KeyEvent.META_ALT_ON or KeyEvent.META_META_ON
+        if (event.metaState and commandLike != 0) return latin
+
+        return character(latin.toUInt(), language, source)?.toInt() ?: latin
     }
 
     private fun char(event: KeyEvent): Int {

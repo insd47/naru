@@ -17,6 +17,7 @@ pub mod auth;
 mod error;
 #[allow(unsafe_code)]
 mod ffi;
+mod keyboard;
 mod media;
 mod message;
 mod offer;

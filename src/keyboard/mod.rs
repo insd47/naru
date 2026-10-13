@@ -1,193 +1,79 @@
-use crate::message::{InputSource, client};
+//! What the Mac's keyboard layouts type, as a pure function for clients whose keys give Latin letters.
+//!
+//! - The Mac stays on the user's native-language input method, and the client decides per key what to type. The agent
+//!   looks up each received character in the Mac's current layout and presses that key, so a Korean Mac must receive
+//!   `ㄱ`, not `r`, for its input method to compose.
+//! - Nothing here holds session state. Clients pass the Mac's latest input source from `Event::Source`.
+use crate::message::InputSource;
 use layout::Layout;
-use std::collections::{HashMap, HashSet};
 
 mod languages;
 mod layout;
 mod tables;
 
-// Left and right Control, Option (Meta, Alt), and Command (Super). While one is held the key is a shortcut, so characters are not converted.
-const SHORTCUT_MODIFIERS: [u32; 8] = [0xffe3, 0xffe4, 0xffe7, 0xffe8, 0xffe9, 0xffea, 0xffeb, 0xffec];
-
-/// Sends key input according to the tablet's input language.
+/// What to send so the Mac types what this Latin key means in `language`, given the Mac's current input source.
 ///
-/// - The agent looks up each received character in the Mac's current layout and enters its key code, or enters the character as is when not found.
-///   So the Mac stays on the user's native-language input method and the language is switched on the tablet. With Dubeolsik, jamo become keys that the Mac input method composes,
-///   while English Latin letters are absent from the Dubeolsik layout and go in as is.
-/// - Characters are converted to the character at the same position in the Mac layout for the tablet language. If the Mac is on another layout of that language (Sebeolsik, Kana typing), that layout is used.
-///   Nothing is converted for shortcuts or during secure input.
-/// - The Mac's input source is never set. Switching it with `0x1a` changed only the input source, while the input method kept the previous layout.
-/// - A release sends the keysym sent on press, so no key stays held on the Mac when the language changes in between.
-pub struct Keyboard {
-    // Tablet language as a BCP 47 tag
-    language: Option<String>,
-    // Input source reported by the Mac. If it is a mode of the same language, its layout is used.
-    mac: Option<InputSource>,
-    // Layout to convert characters with, absent for languages that send Latin letters as is
-    layout: Option<Layout>,
-    // Pressed keys and the keysyms sent for them
-    pressed: HashMap<u32, u32>,
-    modifiers: HashSet<u32>,
-}
-
-impl Keyboard {
-    pub fn new() -> Self {
-        Self {
-            language: None,
-            mac: None,
-            layout: None,
-            pressed: HashMap::new(),
-            modifiers: HashSet::new(),
-        }
+/// - `latin` is the keysym of the Latin letter, digit, or symbol on the physical key, shifted as typed. `language` is
+///   the client's input language as a BCP 47 tag (`ko-KR`).
+/// - Returns `None` when the language has no Mac layout to follow (Latin-script languages, Japanese Romaji, Chinese
+///   Pinyin): send what the client's keyboard produced.
+/// - In secure input, such as a password field, the Mac forces ABC, so the Latin key itself is returned.
+/// - When the Mac is on another layout of the same language (Sebeolsik, Kana typing), that layout's character is
+///   returned.
+/// - Shortcuts are not characters: with Command, Control, or Option held, send the Latin key without calling this.
+pub fn character(latin: u32, language: &str, source: Option<&InputSource>) -> Option<u32> {
+    if source.is_some_and(|source| source.secure) {
+        return Some(latin);
     }
 
-    /// Changes the tablet language. `language` is a BCP 47 tag (`ko-KR`, `en-US`).
-    pub fn select(&mut self, language: &str) {
-        self.language = Some(language.to_owned());
-        self.refresh();
-    }
-
-    /// Applies the input source the Mac reported, which sets secure input and the layout to follow for the same language.
-    pub fn observe(&mut self, source: &InputSource) {
-        let changed = self.mac.as_ref().is_none_or(|mac| mac.id != source.id);
-        self.mac = Some(source.clone());
-
-        if changed {
-            self.refresh();
-        }
-    }
-
-    /// The message that presses or releases a key
-    pub fn key(&mut self, keysym: u32, down: bool) -> Vec<u8> {
-        if !down {
-            self.modifiers.remove(&keysym);
-            let sent = self.pressed.remove(&keysym).unwrap_or(keysym);
-            return client::key(sent, false).to_vec();
-        }
-
-        // Auto-repeat presses reuse the keysym sent first.
-        if let Some(&sent) = self.pressed.get(&keysym) {
-            return client::key(sent, true).to_vec();
-        }
-
-        if SHORTCUT_MODIFIERS.contains(&keysym) {
-            self.modifiers.insert(keysym);
-        }
-
-        // During secure input (a password field) the Mac forces ABC.
-        let secure = self.mac.as_ref().is_some_and(|mac| mac.secure);
-        let sent = match &self.layout {
-            Some(layout) if self.modifiers.is_empty() && !secure => layout.translate(keysym),
-            _ => keysym,
-        };
-        self.pressed.insert(keysym, sent);
-        client::key(sent, true).to_vec()
-    }
-
-    fn refresh(&mut self) {
-        let mac = self.mac.as_ref().map(|mac| mac.id.as_str());
-        self.layout = self
-            .language
-            .as_deref()
-            .and_then(|language| languages::layout(language, mac))
-            .and_then(Layout::find);
-    }
+    let mac = source.map(|source| source.id.as_str());
+    let layout = languages::layout(language, mac).and_then(Layout::find)?;
+    Some(layout.translate(latin))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Keyboard;
-    use crate::message::{InputSource, client};
+    use super::character;
+    use crate::message::InputSource;
 
     const R: u32 = b'r' as u32;
     const GIYEOK: u32 = 0x0100_3131;
-    const COMMAND: u32 = 0xffeb;
-
-    fn key(keysym: u32, down: bool) -> Vec<u8> {
-        client::key(keysym, down).to_vec()
-    }
-
-    fn korean() -> Keyboard {
-        let mut keyboard = Keyboard::new();
-        keyboard.select("ko-KR");
-        keyboard
-    }
 
     fn source(id: &str, secure: bool) -> InputSource {
         InputSource { id: id.into(), secure }
     }
 
-    fn secure(secure: bool) -> InputSource {
-        source("com.apple.inputmethod.Korean.2SetKorean", secure)
-    }
-
     #[test]
-    fn korean_sends_jamo_and_english_sends_latin() {
-        let mut keyboard = korean();
-        assert_eq!(keyboard.key(R, true), key(GIYEOK, true));
-        keyboard.key(R, false);
-
-        keyboard.select("en-US");
-        assert_eq!(keyboard.key(R, true), key(R, true));
-    }
-
-    #[test]
-    fn shortcuts_stay_latin_in_korean() {
-        let mut keyboard = korean();
-        keyboard.key(COMMAND, true);
-
-        assert_eq!(keyboard.key(R, true), key(R, true));
-        keyboard.key(R, false);
-        keyboard.key(COMMAND, false);
-        assert_eq!(keyboard.key(R, true), key(GIYEOK, true));
-    }
-
-    #[test]
-    fn repeat_and_release_keep_the_keysym_that_was_pressed() {
-        let mut keyboard = korean();
-        keyboard.key(R, true);
-        keyboard.select("en-US");
-
-        assert_eq!(keyboard.key(R, true), key(GIYEOK, true));
-        assert_eq!(keyboard.key(R, false), key(GIYEOK, false));
-    }
-
-    // In a password field the Mac forces ABC, so sending jamo would enter them as separate letters.
-    #[test]
-    fn secure_input_sends_latin() {
-        let mut keyboard = korean();
-        keyboard.observe(&secure(true));
-        assert_eq!(keyboard.key(R, true), key(R, true));
-        keyboard.key(R, false);
-
-        keyboard.observe(&secure(false));
-        assert_eq!(keyboard.key(R, true), key(GIYEOK, true));
+    fn korean_types_jamo_and_english_has_no_layout() {
+        assert_eq!(character(R, "ko-KR", None), Some(GIYEOK));
+        assert_eq!(character(R, "en-US", None), None);
     }
 
     #[test]
     fn shifted_double_consonant_maps_separately() {
-        let mut keyboard = korean();
-        assert_eq!(keyboard.key(b'R' as u32, true), key(0x0100_3132, true));
-        assert_eq!(keyboard.key(b'A' as u32, true), key(0x0100_3141, true));
+        assert_eq!(character(b'R' as u32, "ko-KR", None), Some(0x0100_3132));
+        assert_eq!(character(b'A' as u32, "ko-KR", None), Some(0x0100_3141));
     }
 
+    // In a password field the Mac forces ABC, so sending jamo would enter them as separate letters.
     #[test]
-    fn languages_without_a_table_send_latin() {
-        let mut keyboard = Keyboard::new();
-        keyboard.select("ja-JP");
-        assert_eq!(keyboard.key(R, true), key(R, true));
+    fn secure_input_types_latin() {
+        let korean = source("com.apple.inputmethod.Korean.2SetKorean", true);
+        assert_eq!(character(R, "ko-KR", Some(&korean)), Some(R));
     }
 
-    // With a Kana typing Mac, Japanese sends the Kana layout character at that position so it maps to a key, and English goes as is.
+    // With a Kana typing Mac, Japanese gets the Kana layout character at that position, and English stays Latin.
     #[test]
     fn kana_typing_mac_receives_kana() {
-        let mut keyboard = Keyboard::new();
-        keyboard.observe(&source("com.apple.inputmethod.Kotoeri.KanaTyping.Japanese", false));
-        keyboard.select("ja-JP");
-        assert_eq!(keyboard.key(b'q' as u32, true), key(0x0100_305F, true));
-        keyboard.key(b'q' as u32, false);
+        let kana = source("com.apple.inputmethod.Kotoeri.KanaTyping.Japanese", false);
+        assert_eq!(character(b'q' as u32, "ja-JP", Some(&kana)), Some(0x0100_305F));
+        assert_eq!(character(b'q' as u32, "en-US", Some(&kana)), None);
+    }
 
-        keyboard.select("en-US");
-        assert_eq!(keyboard.key(b'q' as u32, true), key(b'q' as u32, true));
+    #[test]
+    fn sebeolsik_mac_receives_its_own_layout() {
+        let three_set = source("com.apple.inputmethod.Korean.3SetKorean", false);
+        let two_set = character(R, "ko-KR", None);
+        assert!(character(R, "ko-KR", Some(&three_set)).is_some_and(|keysym| Some(keysym) != two_set));
     }
 }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using Naru.Core;
 using static Naru.Session.Native;
 
 namespace Naru.Session;
@@ -10,8 +11,9 @@ namespace Naru.Session;
 /// <list type="bullet">
 /// <item>Modifiers map by position. On a PC keyboard the Alt next to the space bar sits where Command is on a Mac, so Alt → Command and
 /// the Windows key → Option. When <c>swapCommandOption</c> is off, they map by name (Alt → Option, Windows → Command).</item>
-/// <item>Character keys send the character of the current Windows layout. If the Mac's input source cannot type Latin, such as
-/// Dubeolsik, the session converts to that layout's characters.</item>
+/// <item>Character keys type what the current Windows layout's character means in the input language, through the core's
+/// <c>Character</c>: Dubeolsik jamo for Korean, following the Mac's secure input and its own layout of that language. Other languages
+/// send the character as is.</item>
 /// <item>Without Control, Option, or Command held, sends the shifted character (<c>A</c>, <c>!</c>); with any held, the unshifted one (<c>c</c>).</item>
 /// <item>A release sends the same keysym as the press, so no key stays held on the Mac if Shift changed in between.</item>
 /// <item>Dead keys (<c>´</c> then <c>e</c>) send the composed character (<c>é</c>).</item>
@@ -58,7 +60,9 @@ internal sealed unsafe class Keys(bool swapCommandOption)
     /// The (keysym, down) pairs to send for a key, empty for a key the Mac does not get.
     /// </summary>
     /// <param name="held">Keys held, this one included</param>
-    public List<(uint Keysym, bool Down)> Translate(uint vk, uint scan, bool extended, bool down, nint layout, IReadOnlySet<uint> held)
+    /// <param name="language">The input language as a BCP 47 tag</param>
+    /// <param name="source">The Mac's latest input source</param>
+    public List<(uint Keysym, bool Down)> Translate(uint vk, uint scan, bool extended, bool down, nint layout, IReadOnlySet<uint> held, string language, InputSource? source)
     {
         // The extended flag keeps the keypad Enter and the main Enter apart.
         var key = vk | (extended ? 0x100u : 0);
@@ -74,7 +78,7 @@ internal sealed unsafe class Keys(bool swapCommandOption)
             return [(repeat, true)];
         }
 
-        var characters = Keysyms(vk, scan, layout, held);
+        var characters = Keysyms(vk, scan, layout, held, language, source);
 
         if (characters.Count == 0)
         {
@@ -116,7 +120,7 @@ internal sealed unsafe class Keys(bool swapCommandOption)
         }
     }
 
-    private List<uint> Keysyms(uint vk, uint scan, nint layout, IReadOnlySet<uint> held)
+    private List<uint> Keysyms(uint vk, uint scan, nint layout, IReadOnlySet<uint> held, string language, InputSource? source)
     {
         if (modifiers.TryGetValue(vk, out var modifier))
         {
@@ -139,7 +143,15 @@ internal sealed unsafe class Keys(bool swapCommandOption)
             return [];
         }
 
-        return Characters(vk, scan, layout, held).Select(ToKeysym).ToList();
+        var keysyms = Characters(vk, scan, layout, held).Select(ToKeysym);
+
+        // Shortcuts send the Latin key itself.
+        if (held.Overlaps([VkLControl, VkRControl, VkLMenu, VkRMenu, VkLWin, VkRWin]))
+        {
+            return keysyms.ToList();
+        }
+
+        return keysyms.Select(keysym => NaruMethods.Character(keysym, language, source) ?? keysym).ToList();
     }
 
     // Latin-1 uses the character code directly; anything else uses a Unicode keysym.

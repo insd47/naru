@@ -11,6 +11,11 @@ final class Connection: SessionListener, @unchecked Sendable {
     private var session: Session!
     private let announce: @Sendable (Event) -> Void
     private let log = Logger(subsystem: "dev.insd.naru", category: "Connection")
+    private let sourceLock = NSLock()
+    private var latestSource: InputSource?
+
+    /// The Mac's latest input source, which decides what keys type there
+    var source: InputSource? { sourceLock.withLock { latestSource } }
 
     // The session starts its event thread while connecting, so the video that receives events must exist first.
     @MainActor
@@ -55,6 +60,7 @@ final class Connection: SessionListener, @unchecked Sendable {
 
         if case let .source(source) = event {
             DiagnosticsLog.shared.secure = source.secure
+            sourceLock.withLock { latestSource = source }
         }
 
         switch event {

@@ -7,6 +7,7 @@ import dev.insd.naru.audio.Player
 import dev.insd.naru.core.Config
 import dev.insd.naru.core.DisplayMode
 import dev.insd.naru.core.Event
+import dev.insd.naru.core.InputSource
 import dev.insd.naru.core.Phase
 import dev.insd.naru.core.Session
 import dev.insd.naru.core.SessionListener
@@ -21,6 +22,11 @@ import dev.insd.naru.video.Video
  * - The core discards input sent after the session ends.
  */
 class Connection(config: Config, private val listener: Listener) {
+    /** The Mac's latest input source, which decides what keys type there. Written on the session's event thread. */
+    @Volatile
+    var source: InputSource? = null
+        private set
+
     // The session starts its event thread while connecting, so video and audio must exist first to receive events.
     // Video uses the session only after a Surface attaches, so it is never called before the session exists.
     private val video = Video(requestKeyframe = { session.requestKeyframe() }, onFirstFrame = { listener.onFirstFrame() })
@@ -52,7 +58,6 @@ class Connection(config: Config, private val listener: Listener) {
     /** `true` if sent; `false` without sending if it exceeds the size limit */
     fun clipboard(text: String): Boolean = session.clipboard(text)
 
-    fun language(language: String) = session.language(language)
 
     fun resize(mode: DisplayMode) = session.resize(mode)
 
@@ -83,6 +88,7 @@ class Connection(config: Config, private val listener: Listener) {
 
     private fun announce(event: Event) {
         when (event) {
+            is Event.Source -> source = event.source
             is Event.Decoder -> video.configure(event.config)
             is Event.ResetDecoder -> video.reset()
             is Event.AudioConfig -> startAudio(event.config)

@@ -323,15 +323,20 @@ impl Session {
         let _ = self.session.resize(&mode.into());
     }
 
-    /// Reports the tablet's input language. Call it with a BCP 47 tag (`ko-KR`) whenever the language changes.
-    ///
-    /// - Meant for platforms whose keys only give the Latin letter of the physical position. Do not call it when the system gives layout-applied characters.
-    pub fn language(&self, language: String) {
-        let _ = self.session.language(&language);
-    }
-
     /// Closes the session. Named apart from the Kotlin object's `close` (native resource release) to avoid a clash.
     pub fn disconnect(&self) {
         self.session.close();
     }
+}
+
+/// What to send so the Mac types what this Latin key means in `language` (a BCP 47 tag such as `ko-KR`), given the Mac's
+/// input source from the latest `Event::Source`.
+///
+/// - `latin` is the keysym of the Latin character on the physical key, shifted as typed.
+/// - `None` when the language has no Mac layout to follow, such as Latin-script languages: send what the keyboard produced.
+/// - In secure input it returns the Latin key, since the Mac forces ABC there.
+/// - Not for shortcuts: with Command, Control, or Option held, send the Latin key as is.
+#[uniffi::export]
+pub fn character(latin: u32, language: String, source: Option<InputSource>) -> Option<u32> {
+    crate::keyboard::character(latin, &language, source.as_ref())
 }

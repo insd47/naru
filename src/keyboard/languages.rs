@@ -116,7 +116,7 @@ pub fn layout(language: &str, mac: Option<&str>) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::{LANGUAGES, MODES, layout};
-    use crate::session::keyboard::tables::TABLES;
+    use crate::keyboard::tables::TABLES;
 
     #[test]
     fn languages_resolve_by_their_own_layouts() {

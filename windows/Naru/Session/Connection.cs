@@ -19,6 +19,7 @@ internal sealed class Connection : SessionListener
     private readonly Action<Event> listener;
     private readonly Core.Session session;
     private Speaker? audio;
+    private volatile InputSource? source;
 
     public Player Video { get; }
 
@@ -46,8 +47,8 @@ internal sealed class Connection : SessionListener
 
     public void Resize(DisplayMode mode) => session.Resize(mode);
 
-    /// <summary>The input language as a BCP 47 tag. The session maps characters to that language's Mac layout.</summary>
-    public void Language(string language) => session.Language(language);
+    /// <summary>The Mac's latest input source, which decides what keys type there. Written on the session's event thread.</summary>
+    public InputSource? Source => source;
 
     public void Disconnect() => session.Disconnect();
 
@@ -75,6 +76,9 @@ internal sealed class Connection : SessionListener
     {
         switch (@event)
         {
+            case Event.Source changed:
+                source = changed.SourceValue;
+                break;
             case Event.Decoder decoder:
                 Video.Configure(decoder.Config);
                 break;

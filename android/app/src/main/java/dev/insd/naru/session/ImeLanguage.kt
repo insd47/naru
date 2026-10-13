@@ -10,14 +10,17 @@ import android.view.inputmethod.InputMethodManager
 import dev.insd.naru.TAG
 
 /**
- * Reports the tablet IME's input language to the session as a BCP 47 tag. The session maps characters to that language's Mac layout.
+ * Tracks the tablet IME's input language as a BCP 47 tag, which decides what character keys type on the Mac.
  *
  * - One UI handles the Korean/English key, so [sync] rereads the language after it is pressed. The selected IME subtype is also observed in case the system consumes the key.
- * - The same language is not reported twice. Call only on the main thread.
+ * - Call only on the main thread.
  */
-class ImeLanguage(private val context: Context, private val connection: Connection) {
+class ImeLanguage(private val context: Context) {
     private val handler = Handler(Looper.getMainLooper())
-    private var reported: String? = null
+
+    /** The current input language, empty when the IME reports none */
+    var current: String = ""
+        private set
 
     private val observer = object : ContentObserver(handler) {
         override fun onChange(selfChange: Boolean) = sync(delayMs = 0)
@@ -38,16 +41,13 @@ class ImeLanguage(private val context: Context, private val connection: Connecti
     }
 
     private fun report(language: String) {
-        if (language == reported) {
-            return
+        if (language != current) {
+            current = language
+            Log.i(TAG, "Tablet input language: $language")
         }
-
-        reported = language
-        Log.i(TAG, "Tablet input language: $language")
-        connection.language(language)
     }
 
-    // An empty tag when the subtype reports no language. The session then sends Latin characters as is, as for an unknown language.
+    // An empty tag when the subtype reports no language. Latin characters are then sent as is, as for an unknown language.
     private fun read(): String {
         val subtype = context.getSystemService(InputMethodManager::class.java).currentInputMethodSubtype
         return subtype?.languageTag?.takeIf { it.isNotEmpty() } ?: subtype?.let { @Suppress("DEPRECATION") it.locale } ?: ""

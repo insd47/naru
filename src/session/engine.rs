@@ -1,6 +1,5 @@
 use super::control::Control;
 use super::input::{self, Input};
-use super::keyboard::Keyboard;
 use super::media::{Media, Sockets};
 use super::negotiation::Negotiation;
 use super::{Command, Config, Event, Events, Stage};
@@ -26,7 +25,6 @@ pub struct Engine {
     sockets: Sockets,
     media: Media,
     input: Input,
-    keyboard: Keyboard,
     negotiation: Negotiation,
     messages: Messages,
     cursors: Cursors,
@@ -56,7 +54,6 @@ impl Engine {
         Self {
             media: Media::new(sockets.clone(), &offer, codec, config.priority),
             input: Input::new(control.keys().clone()),
-            keyboard: Keyboard::new(),
             control,
             sockets,
             negotiation: Negotiation::new(offer),
@@ -218,7 +215,6 @@ impl Engine {
                         continue;
                     };
 
-                    self.keyboard.observe(&source);
                     outgoing.push(Event::InputSource(source));
                 }
                 Rect::Skipped(_) => {}
@@ -260,11 +256,7 @@ impl Engine {
 
     async fn command(&mut self, command: Command, now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
         match command {
-            Command::Key { keysym, down } => self.control.send(&self.keyboard.key(keysym, down)).await,
-            Command::Language(language) => {
-                self.keyboard.select(&language);
-                Ok(())
-            }
+            Command::Key { keysym, down } => self.control.send(&client::key(keysym, down)).await,
             // Touch moves the cursor relatively, so report the new position for the native layer to draw the cursor there.
             Command::Input(event @ input::Event::Touch(_), at) => {
                 self.control.send_all(self.input.handle(event, at)).await?;

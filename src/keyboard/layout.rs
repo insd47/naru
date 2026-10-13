@@ -50,7 +50,7 @@ fn keysym(char: char) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::{ABC, Layout, keysym, table};
-    use crate::session::keyboard::tables::TABLES;
+    use crate::keyboard::tables::TABLES;
 
     // Checks that the generated table matches the earlier hand-written Dubeolsik chart.
     #[test]

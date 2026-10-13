@@ -21,7 +21,6 @@ mod control;
 mod engine;
 mod input;
 pub use input::TouchPhase;
-mod keyboard;
 mod media;
 mod negotiation;
 
@@ -212,7 +211,6 @@ enum Command {
     },
     /// An input and when it happened. Momentum velocity is computed from this time, not from when the engine handled it.
     Input(input::Event, Instant),
-    Language(String),
     Clipboard(Vec<u8>),
     Keyframe,
     Resize(Vec<u8>),
@@ -237,9 +235,10 @@ impl Session {
         (Self { commands, closed }, events_receiver)
     }
 
-    /// Presses or releases a key. The key is an X11 keysym; Command is Super (`0xffeb`) and Option is Alt (`0xffe9`).
+    /// Presses or releases a key. The key is an X11 keysym of what the Mac should type; Command is Super (`0xffeb`) and Option is Alt (`0xffe9`).
     ///
-    /// - Send character keys as the Latin letter of the physical key. When the Mac's input source is Korean, the session converts them to Dubeolsik jamo.
+    /// - It goes to the Mac as is. Choosing it is the client's job; the FFI's `character` gives what a Latin key types in a language.
+    /// - Release with the keysym that was pressed, so no key stays held on the Mac if the language changed in between.
     pub fn key(&self, keysym: u32, down: bool) -> Result<()> {
         self.send(Command::Key { keysym, down })
     }
@@ -294,14 +293,6 @@ impl Session {
     /// - With no modes or a pixel size past the server's limit, nothing is sent and `Invalid` is returned.
     pub fn resize(&self, display: &DisplayConfig) -> Result<()> {
         self.send(Command::Resize(display.encode()?))
-    }
-
-    /// Reports the tablet's input language. Call it with a BCP 47 tag (`ko-KR`) whenever the language changes.
-    ///
-    /// - Characters are converted to the matching Mac layout's characters before sending. The Mac's input source is not changed, so leave the Mac on the native-language input method.
-    /// - Meant for platforms whose keys only give the Latin letter of the physical position (Android). Platforms that give layout-applied characters (iPadOS) do not call it and send those characters as is.
-    pub fn language(&self, language: &str) -> Result<()> {
-        self.send(Command::Language(language.to_owned()))
     }
 
     /// Closes the session. It stops immediately even while connecting, and `Event::Closed(None)` arrives last.
