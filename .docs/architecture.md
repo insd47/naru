@@ -83,6 +83,12 @@ itself. What differs is what each system hands the app:
 | Windows | the Windows layout's character, and a Korean/English mode tracked by the app | `character(char, language)`, or the character |
 | iPad | the character iPadOS typed in its input language | `character(physical Latin, language)` for languages with a Mac layout, otherwise iPadOS's character |
 
+With "Sync Keyboard Language" on, as in Apple's client, each app also selects the Mac's input source when its own
+input language changes: `input_source(language, source)` gives the ID and `select_input_source` sends it right before
+the next key. The Mac switches at that key, which also commits a composition its input method still holds; without the
+option, Korean typed before switching to English stays composing until Space. The Mac shows the new source but may keep
+typing with the old input method when more than one non-Latin source is involved, the same as with Apple's client.
+
 iPadOS applies a hardware keyboard language switch only when its text system sees the next key, and that key's
 `UIKey.characters` is still in the old language. The iPad app therefore passes typing keys to the text system first and
 reads the input language afterwards, which is already the new one.

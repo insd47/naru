@@ -84,6 +84,19 @@ pub fn key(keysym: u32, down: bool) -> [u8; 8] {
     [4, down.into(), 0, 0, first, second, third, fourth]
 }
 
+/// Builds SetKeyboardInputSource, which selects a Mac input source by its ID. The agent selects it at the next key.
+///
+/// - The type is followed by one byte of padding; without it the server loses message boundaries.
+pub fn input_source(id: &str) -> Vec<u8> {
+    let id = &id.as_bytes()[..id.len().min(usize::from(u16::MAX) - 4)];
+    let mut message = vec![0x1a, 0];
+    message.extend_from_slice(&((4 + id.len()) as u16).to_be_bytes());
+    message.extend_from_slice(&1u16.to_be_bytes());
+    message.extend_from_slice(&(id.len() as u16).to_be_bytes());
+    message.extend_from_slice(id);
+    message
+}
+
 /// Builds an encrypted pointer event. This message is still wrapped in a record when sent.
 ///
 /// - Coordinates are pixels of the decoded video; the caller clamps them to the video size.
@@ -171,5 +184,13 @@ mod tests {
             block.as_slice(),
             [0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 0xff, 2, 0x07, 0x7f, 0x04, 0x37]
         );
+    }
+
+    #[test]
+    fn input_source_has_padding_and_lengths() {
+        let message = super::input_source("com.apple.keylayout.ABC");
+        let mut expected = vec![0x1a, 0, 0, 27, 0, 1, 0, 23];
+        expected.extend_from_slice(b"com.apple.keylayout.ABC");
+        assert_eq!(message, expected);
     }
 }

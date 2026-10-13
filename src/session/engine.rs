@@ -253,7 +253,7 @@ impl Engine {
                 Some(message) => self.control.send(&message).await,
                 None => Ok(()),
             },
-            Command::Clipboard(message) => self.control.send(&message).await,
+            Command::Clipboard(message) | Command::InputSource(message) => self.control.send(&message).await,
             // A server gone quiet on a still screen ignores keyframe requests.
             // Resend the offer instead; the server opens a new stream and sends a config and keyframe even for a still screen.
             Command::Keyframe if !self.media.active(now) => match self.negotiation.reoffer(now) {

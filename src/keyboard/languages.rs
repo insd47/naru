@@ -48,12 +48,60 @@ const MODES: [Mode; 12] = [
     Mode { id: "com.apple.inputmethod.Tamil.Tamil99",                             language: "ta",      layout: "com.apple.keylayout.Tamil99" },
 ];
 
+// The input method mode each language starts in, for languages typed through one. Korean was checked on a Mac; the
+// others are Apple's default modes for their language.
+#[rustfmt::skip]
+const METHODS: [(&str, &str); 8] = [
+    ("ko",      "com.apple.inputmethod.Korean.2SetKorean"),
+    ("ja",      "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese"),
+    ("zh-Hans", "com.apple.inputmethod.SCIM.ITABC"),
+    ("zh-Hant", "com.apple.inputmethod.TCIM.Zhuyin"),
+    ("zh-HK",   "com.apple.inputmethod.TCIM.Cangjie"),
+    ("zh-MO",   "com.apple.inputmethod.TCIM.Cangjie"),
+    ("vi",      "com.apple.inputmethod.VietnameseIM.VietnameseTelex"),
+    ("ta",      "com.apple.inputmethod.Tamil.Tamil99"),
+];
+
+const LATIN: &str = "com.apple.keylayout.ABC";
+
 /// ID of the Mac layout used to type the tablet language (a BCP 47 tag), or `None` for languages that send Latin letters as is.
 ///
 /// - When the Mac's reported input source (`mac`) is a mode or layout of the same language, that layout is used, to follow the Mac's layout choice (Sebeolsik, Kana typing).
 /// - Otherwise it picks the chosen layout, falling back to the first layout Apple tags with that language.
 /// - Languages written in Latin script (`sr-Latn`) and languages composed from Latin keys (Japanese Romaji, Chinese Pinyin) have no layout.
 pub fn layout(language: &str, mac: Option<&str>) -> Option<&'static str> {
+    let (key, regional) = keys(language)?;
+    let current = mac.and_then(|mac| {
+        let mode = MODES
+            .iter()
+            .find(|mode| mode.id == mac && mode.language == key)
+            .map(|mode| mode.layout);
+        mode.or_else(|| {
+            TABLES
+                .iter()
+                .find(|table| table.id == mac && table.language == Some(key.as_str()))
+                .map(|table| table.id)
+        })
+    });
+    let chosen = |key: &str| {
+        LANGUAGES
+            .iter()
+            .find_map(|language| (language.tag == key).then_some(language.layout))
+    };
+
+    current
+        .or_else(|| regional.and_then(|regional| chosen(&regional)))
+        .or_else(|| chosen(&key))
+        .or_else(|| {
+            TABLES
+                .iter()
+                .find_map(|table| (table.language == Some(key.as_str())).then_some(table.id))
+        })
+}
+
+// The tag languages are looked up by (`ko`, `zh-Hant`) and its regional form (`zh-HK`), or `None` for languages written in
+// Latin script.
+fn keys(language: &str) -> Option<(String, Option<String>)> {
     let mut subtags = language.split(['-', '_']);
     let primary = subtags.next()?.to_ascii_lowercase();
     let rest: Vec<&str> = subtags.collect();
@@ -85,37 +133,39 @@ pub fn layout(language: &str, mac: Option<&str>) -> Option<&'static str> {
         Some(script) => format!("{primary}-{script}"),
         None => primary,
     };
-    let current = mac.and_then(|mac| {
-        let mode = MODES
-            .iter()
-            .find(|mode| mode.id == mac && mode.language == key)
-            .map(|mode| mode.layout);
-        mode.or_else(|| {
-            TABLES
-                .iter()
-                .find(|table| table.id == mac && table.language == Some(key.as_str()))
-                .map(|table| table.id)
-        })
-    });
-    let chosen = |key: &str| {
-        LANGUAGES
-            .iter()
-            .find_map(|language| (language.tag == key).then_some(language.layout))
-    };
 
-    current
-        .or_else(|| regional.and_then(|regional| chosen(&regional)))
-        .or_else(|| chosen(&key))
-        .or_else(|| {
-            TABLES
+    Some((key, regional))
+}
+
+/// The Mac input source that types the tablet language, for clients that set the Mac's input source to follow their own.
+///
+/// - A Mac already on a mode or layout of the same language (Sebeolsik, Kana typing) keeps it.
+/// - Languages typed through a Mac input method get that method's default mode; other non-Latin languages get their
+///   layout, and Latin languages get ABC.
+pub fn source(language: &str, mac: Option<&str>) -> String {
+    let Some((key, regional)) = keys(language) else {
+        return LATIN.to_owned();
+    };
+    let same_language = |mac: &&str| {
+        MODES.iter().any(|mode| mode.id == *mac && mode.language == key)
+            || METHODS.iter().any(|(tag, id)| id == mac && *tag == key)
+            || TABLES
                 .iter()
-                .find_map(|table| (table.language == Some(key.as_str())).then_some(table.id))
-        })
+                .any(|table| table.id == *mac && table.language == Some(key.as_str()))
+    };
+    let method = |key: &str| METHODS.iter().find_map(|(tag, id)| (*tag == key).then_some(*id));
+
+    mac.filter(same_language)
+        .or_else(|| regional.as_deref().and_then(method))
+        .or_else(|| method(&key))
+        .or_else(|| layout(language, None))
+        .unwrap_or(LATIN)
+        .to_owned()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{LANGUAGES, MODES, layout};
+    use super::{LANGUAGES, MODES, layout, source};
     use crate::keyboard::tables::TABLES;
 
     #[test]
@@ -192,5 +242,23 @@ mod tests {
                 language.layout
             );
         }
+    }
+
+    #[test]
+    fn sources_follow_the_language_and_keep_the_macs_own_mode() {
+        assert_eq!(source("ko-KR", None), "com.apple.inputmethod.Korean.2SetKorean");
+        assert_eq!(
+            source("en-US", Some("com.apple.inputmethod.Korean.2SetKorean")),
+            "com.apple.keylayout.ABC"
+        );
+        assert_eq!(source("ru", None), "com.apple.keylayout.Russian");
+        assert_eq!(source("zh-HK", None), "com.apple.inputmethod.TCIM.Cangjie");
+
+        let three_set = "com.apple.inputmethod.Korean.3SetKorean";
+        assert_eq!(source("ko", Some(three_set)), three_set);
+        assert_eq!(
+            source("ja", Some(three_set)),
+            "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese"
+        );
     }
 }

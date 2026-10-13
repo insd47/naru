@@ -1,4 +1,4 @@
-//! What the Mac's keyboard layouts type, as a pure function for clients whose keys give Latin letters.
+//! What the Mac's keyboard layouts type, and which Mac input source types a language, as pure functions for clients.
 //!
 //! - The Mac stays on the user's native-language input method, and the client decides per key what to type. The agent
 //!   looks up each received character in the Mac's current layout and presses that key, so a Korean Mac must receive
@@ -29,6 +29,19 @@ pub fn character(latin: u32, language: &str, source: Option<&InputSource>) -> Op
     let mac = source.map(|source| source.id.as_str());
     let layout = languages::layout(language, mac).and_then(Layout::find)?;
     Some(layout.translate(latin))
+}
+
+/// The Mac input source to select so the Mac follows the client's input language, as Apple's "Sync Keyboard Language"
+/// does. `None` in secure input, where the Mac forces ABC.
+///
+/// - A Mac already on another mode of the same language (Sebeolsik, Kana typing) keeps it. Latin languages get ABC.
+/// - The Mac switches at the next key and applies it to that key, so send this right before it, without waiting.
+pub fn source(language: &str, current: Option<&InputSource>) -> Option<String> {
+    if current.is_some_and(|current| current.secure) {
+        return None;
+    }
+
+    Some(languages::source(language, current.map(|current| current.id.as_str())))
 }
 
 #[cfg(test)]

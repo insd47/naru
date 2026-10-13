@@ -307,6 +307,12 @@ impl Session {
         let _ = self.session.magnify(phase, scale);
     }
 
+    /// Selects the Mac's input source by its ID, as Apple's "Sync Keyboard Language" does. [`input_source`] gives the ID
+    /// for a language. The Mac switches at the next key and applies it to that key, so send it right before that key.
+    pub fn select_input_source(&self, id: String) {
+        let _ = self.session.select_input_source(&id);
+    }
+
     /// Puts text on the Mac's clipboard. Past the same size limit used when receiving, nothing is sent and `false` is returned.
     pub fn clipboard(&self, text: String) -> bool {
         self.session.clipboard(&text).is_ok()
@@ -395,4 +401,15 @@ impl From<crate::touchpad::Gesture> for Gesture {
 #[uniffi::export]
 pub fn character(latin: u32, language: String, source: Option<InputSource>) -> Option<u32> {
     crate::keyboard::character(latin, &language, source.as_ref())
+}
+
+/// The Mac input source that types `language` (a BCP 47 tag), for "Sync Keyboard Language": select it with
+/// `select_input_source` when the client's input language changes. `None` in secure input, where the Mac forces ABC.
+///
+/// - A Mac already on another mode of the same language (Sebeolsik, Kana typing) keeps it. Latin languages get ABC.
+/// - With more than one non-Latin language the Mac may show the new source but keep typing with the old one, as with
+///   Apple's client.
+#[uniffi::export]
+pub fn input_source(language: String, current: Option<InputSource>) -> Option<String> {
+    crate::keyboard::source(&language, current.as_ref())
 }

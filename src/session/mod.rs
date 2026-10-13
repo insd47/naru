@@ -6,7 +6,7 @@
 use crate::error::{Error, Result};
 use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority, VideoCodec};
 use crate::message::gesture::{MomentumPhase, Phase};
-use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, clipboard};
+use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, client, clipboard};
 use control::Control;
 use engine::Engine;
 use media::Sockets;
@@ -209,6 +209,7 @@ enum Command {
     /// An input and when it happened. Double clicks are judged from this time, not from when the engine handled it.
     Input(input::Event, Instant),
     Clipboard(Vec<u8>),
+    InputSource(Vec<u8>),
     Keyframe,
     Resize(Vec<u8>),
 }
@@ -274,6 +275,11 @@ impl Session {
     /// Magnify gesture. The scale starts at 1.0 and is cumulative. The center is the last pointer position.
     pub fn magnify(&self, phase: Phase, scale: f32) -> Result<()> {
         self.input(input::Event::Magnify { phase, scale })
+    }
+
+    /// Selects the Mac's input source by its ID. The Mac switches at the next key and applies it to that key.
+    pub fn select_input_source(&self, id: &str) -> Result<()> {
+        self.send(Command::InputSource(client::input_source(id)))
     }
 
     /// Puts text on the Mac's clipboard. Past the same size limit used when receiving, nothing is sent and `TooLong` is returned.
