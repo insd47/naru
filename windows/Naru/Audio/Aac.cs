@@ -47,19 +47,22 @@ internal sealed partial class Aac : IDisposable
     /// <summary>Decodes one access unit into interleaved 16-bit PCM, or returns nothing for a frame it cannot decode.</summary>
     public unsafe ReadOnlySpan<short> Decode(byte[] unit)
     {
+        int error;
+
         fixed (byte* bytes = unit)
         {
             var pointer = bytes;
             var size = (uint)unit.Length;
             var valid = size;
-            Check(aacDecoder_Fill(handle, &pointer, &size, &valid), "fill");
+            error = aacDecoder_Fill(handle, &pointer, &size, &valid);
         }
 
-        int error;
-
-        fixed (short* samples = pcm)
+        if (error == 0)
         {
-            error = aacDecoder_DecodeFrame(handle, samples, pcm.Length, 0);
+            fixed (short* samples = pcm)
+            {
+                error = aacDecoder_DecodeFrame(handle, samples, pcm.Length, 0);
+            }
         }
 
         // Lost or damaged frames come back as errors. They are skipped, and the next frame decodes on its own.
