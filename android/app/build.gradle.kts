@@ -16,11 +16,31 @@ android {
         // MediaCodecInfo.isHardwareAccelerated exists from API 29.
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // One version for the core and every app: the naru crate's, from Cargo.toml. The build number is the commit
+        // count, which the iPad app uses too, so it only grows and can be recomputed from a release tag.
+        versionName = rootDir.resolve("../Cargo.toml").useLines { lines ->
+            lines.first { it.startsWith("version = ") }.substringAfter('"').substringBefore('"')
+        }
+        versionCode = providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+            .standardOutput.asText.get().trim().toInt()
 
         // The Rust protocol crate is built for arm64 only.
         ndk { abiFilters += "arm64-v8a" }
+    }
+
+    // The upload key comes from Gradle properties, set in CI as ORG_GRADLE_PROJECT_naruUpload* environment variables.
+    // Release builds without it fail below instead of falling back to the debug key.
+    signingConfigs {
+        create("release") {
+            providers.gradleProperty("naruUploadStoreFile").orNull?.let { storeFile = file(it) }
+            storePassword = providers.gradleProperty("naruUploadStorePassword").orNull
+            keyAlias = providers.gradleProperty("naruUploadKeyAlias").orNull
+            keyPassword = providers.gradleProperty("naruUploadKeyPassword").orNull
+        }
+    }
+
+    buildTypes {
+        release { signingConfig = signingConfigs.getByName("release") }
     }
 
     compileOptions {
@@ -37,6 +57,14 @@ android {
         getByName("main") {
             jniLibs.directories += "build/generated/jniLibs"
             kotlin.directories += "build/generated/uniffi"
+        }
+    }
+}
+
+tasks.matching { it.name == "signReleaseBundle" || it.name == "packageRelease" }.configureEach {
+    doFirst {
+        check(providers.gradleProperty("naruUploadStoreFile").isPresent) {
+            "Release builds need the upload key: set the naruUpload* Gradle properties"
         }
     }
 }
