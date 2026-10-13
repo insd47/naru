@@ -34,8 +34,14 @@ internal sealed partial class SessionWindow : Window
     private readonly MacCursor cursor;
     private readonly DispatcherQueueTimer resizing;
     private readonly DispatcherQueueTimer revealing;
+    private RectInt32[] passthrough = [];
+    private bool applying;
     private bool active;
     private bool ended;
+
+    // Set as soon as the window starts closing. Layout may run once more while it goes away, when its title bar
+    // regions can no longer be set.
+    private bool closed;
 
     public SessionWindow(Sessions sessions, Running session)
     {
@@ -45,6 +51,8 @@ internal sealed partial class SessionWindow : Window
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(Bar);
+        // Tall caption buttons match the 48 px bar, so they line up with its buttons.
+        AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
         AppIcon.Apply(Icon);
         AppWindow.SetIcon("Assets/Naru.ico");
         Rename(session.Host.Title);
@@ -55,7 +63,11 @@ internal sealed partial class SessionWindow : Window
         clipboard = new Clipboard(session.Connection, App.Current.Preferences);
         cursor = new MacCursor(Screen);
 
-        AppWindow.Closing += (_, _) => sessions.Close(session.Host.Id);
+        AppWindow.Closing += (_, _) =>
+        {
+            closed = true;
+            sessions.Close(session.Host.Id);
+        };
         AppWindow.Changed += OnChanged;
         Activated += OnActivated;
         Closed += (_, _) =>
@@ -93,21 +105,40 @@ internal sealed partial class SessionWindow : Window
         Screen.PointerWheelChanged += OnWheel;
         Bar.PointerExited += (_, _) => Reveal(false);
         Bar.SizeChanged += (_, _) => UpdateTitleBar();
+        Bar.LayoutUpdated += (_, _) => UpdatePassthrough();
         Bar.Loaded += (_, _) => Content.XamlRoot.Changed += (_, _) => UpdateTitleBar();
     }
 
-    // The whole bar drags the window, except the buttons, whose rectangles pass clicks through. The right edge keeps
-    // room for the caption buttons, which full screen removes.
+    // The right edge keeps room for the caption buttons, which full screen removes. Changing it moves the buttons,
+    // and UpdatePassthrough follows them once layout has run.
     private void UpdateTitleBar()
     {
-        if (Content.XamlRoot is not { } root)
+        if (closed || Content.XamlRoot is not { } root)
+        {
+            return;
+        }
+
+        // A minimized window reports a scale of 0, and an infinite width throws. The inset waits for a real scale.
+        var inset = FullScreen ? 0 : AppWindow.TitleBar.RightInset / root.RasterizationScale;
+
+        if (double.IsFinite(inset) && inset >= 0)
+        {
+            CaptionInset.Width = inset;
+        }
+    }
+
+    // The whole bar drags the window, except the buttons, whose rectangles pass clicks through. They are measured after
+    // every layout pass, since the inset, the window size, and full screen all move them without resizing them. Stale
+    // rectangles left over the caption buttons would swallow their clicks. Only changes go to the window.
+    private void UpdatePassthrough()
+    {
+        // A minimized window has nothing to click, and full screen has no title bar regions at all.
+        if (closed || FullScreen || AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized } || Content.XamlRoot is not { } root)
         {
             return;
         }
 
         var scale = root.RasterizationScale;
-        CaptionInset.Width = FullScreen ? 0 : AppWindow.TitleBar.RightInset / scale;
-
         var buttons = new[] { Toolbar, Actions }
             .Where(element => element.ActualWidth > 0)
             .Select(element =>
@@ -117,7 +148,28 @@ internal sealed partial class SessionWindow : Window
             })
             .ToArray();
 
-        InputNonClientPointerSource.GetForWindowId(AppWindow.Id).SetRegionRects(NonClientRegionKind.Passthrough, buttons);
+        if (buttons.SequenceEqual(passthrough))
+        {
+            return;
+        }
+
+        passthrough = buttons;
+
+        // Layout runs inside the window's own size and state changes, where setting regions crashes the windowing
+        // layer. They are set once that work returns, with the latest rectangles if several layouts queued up.
+        if (!applying)
+        {
+            applying = true;
+            DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+            {
+                applying = false;
+
+                if (!closed)
+                {
+                    InputNonClientPointerSource.GetForWindowId(AppWindow.Id).SetRegionRects(NonClientRegionKind.Passthrough, passthrough);
+                }
+            });
+        }
     }
 
     private bool FullScreen => AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
@@ -167,6 +219,7 @@ internal sealed partial class SessionWindow : Window
         if (!ended)
         {
             ended = true;
+            closed = true;
             Close();
         }
     }
@@ -236,7 +289,20 @@ internal sealed partial class SessionWindow : Window
     }
 
     // In full screen the screen spans both rows and the title bar becomes an overlay, hidden until revealed.
+    // An exception escaping an AppWindow handler makes the windowing layer end the process, so it is logged instead.
     private void OnChanged(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        try
+        {
+            Changed(args);
+        }
+        catch (Exception error)
+        {
+            Log.Error("Cannot follow a window change", error);
+        }
+    }
+
+    private void Changed(AppWindowChangedEventArgs args)
     {
         // Maximizing changes the caption buttons' size, so the reserved room follows.
         if (args.DidSizeChange && !args.DidPresenterChange)
@@ -250,6 +316,17 @@ internal sealed partial class SessionWindow : Window
         }
 
         var full = FullScreen;
+
+        // In full screen the bar is an overlay of buttons, not a title bar: dragging it must not move the window.
+        ExtendsContentIntoTitleBar = !full;
+        passthrough = [];
+
+        if (!full)
+        {
+            SetTitleBar(Bar);
+            AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+        }
+
         Grid.SetRow(Screen, full ? 0 : 1);
         Grid.SetRowSpan(Screen, full ? 2 : 1);
         FullScreenIcon.Glyph = full ? "" : "";
@@ -276,9 +353,11 @@ internal sealed partial class SessionWindow : Window
     {
         var point = e.GetCurrentPoint(Surface);
 
+        // Like the RDP connection bar, the bar comes down only from the middle of the top edge and not mid-drag, so the
+        // rest of the top edge stays the Mac's, for its menu bar and window title bars.
         if (FullScreen && Bar.Visibility == Visibility.Collapsed)
         {
-            if (point.Position.Y <= 2)
+            if (point.Position.Y <= 2 && !point.IsInContact && Math.Abs(point.Position.X - Surface.ActualWidth / 2) <= Surface.ActualWidth / 6)
             {
                 if (!revealing.IsRunning)
                 {
