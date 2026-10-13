@@ -127,10 +127,6 @@
                     <TextBlock Text="Naru" />
                     <TextBlock x:Name="Version" Style="{StaticResource Detail}" />
                     <TextBlock Text="Cross over to your Mac." Style="{StaticResource Detail}" />
-                    <TextBlock Style="{StaticResource Detail}" TextWrapping="Wrap">
-                        Audio is decoded with the Fraunhofer FDK AAC Codec Library for Android, whose license is in the third-party notices.
-                        <Hyperlink NavigateUri="https://github.com/mstorsjo/fdk-aac">Source code</Hyperlink>
-                    </TextBlock>
                     <TextBlock Style="{StaticResource Detail}" Margin="0,4,0,0">
                         <Hyperlink Click="OnNotices">Third-party notices</Hyperlink><Run Text="   " /><Hyperlink NavigateUri="https://github.com/insd47/naru/blob/main/PRIVACY.md">Privacy policy</Hyperlink>
                     </TextBlock>
