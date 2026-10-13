@@ -31,6 +31,7 @@ internal sealed partial class SessionWindow : Window
     private readonly Running session;
     private readonly Keyboard keyboard;
     private readonly Clipboard clipboard;
+    private readonly MacCursor cursor;
     private readonly DispatcherQueueTimer resizing;
     private readonly DispatcherQueueTimer revealing;
     private bool active;
@@ -52,6 +53,7 @@ internal sealed partial class SessionWindow : Window
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         keyboard = new Keyboard(handle, session.Connection, App.Current.Preferences, Capturing, () => FullScreen, ToggleFullScreen);
         clipboard = new Clipboard(session.Connection, App.Current.Preferences);
+        cursor = new MacCursor(Screen);
 
         AppWindow.Closing += (_, _) => sessions.Close(session.Host.Id);
         AppWindow.Changed += OnChanged;
@@ -60,6 +62,7 @@ internal sealed partial class SessionWindow : Window
         {
             keyboard.Dispose();
             clipboard.Dispose();
+            cursor.Dispose();
         };
 
         resizing = DispatcherQueue.CreateTimer();
@@ -71,6 +74,11 @@ internal sealed partial class SessionWindow : Window
         revealing.Interval = RevealDelay;
         revealing.IsRepeating = false;
         revealing.Tick += (_, _) => Reveal(true);
+
+        if (session.Cursor is { } shape)
+        {
+            cursor.Show(shape);
+        }
 
         session.Connection.Video.FirstFrame += () => DispatcherQueue.TryEnqueue(() => Loading.Visibility = Visibility.Collapsed);
         Surface.Loaded += (_, _) => session.Connection.Video.Attach(Surface, PixelWidth, PixelHeight, Scale);
@@ -128,9 +136,28 @@ internal sealed partial class SessionWindow : Window
     /// <summary>A session event, on the UI thread.</summary>
     public void Handle(Event @event)
     {
-        if (@event is Event.Clipboard text)
+        switch (@event)
         {
-            clipboard.OnServer(text.Text);
+            case Event.Clipboard text:
+                clipboard.OnServer(text.Text);
+                break;
+            case Event.Cursor shape:
+                cursor.Show(shape);
+                ScaleCursor();
+                break;
+            case Event.Layout:
+                ScaleCursor();
+                break;
+        }
+    }
+
+    // The cursor image is in the Mac's points. On screen a point covers the Mac's pixels per point times the fit.
+    private void ScaleCursor()
+    {
+        if (session.Layout is { } layout && layout.LogicalWidth > 0 && PixelWidth > 0 && PixelHeight > 0)
+        {
+            var fit = Video.Fit.Of(PixelWidth, PixelHeight, layout.PixelWidth, layout.PixelHeight);
+            cursor.Scale(fit.Scale * layout.PixelWidth / layout.LogicalWidth);
         }
     }
 
@@ -182,6 +209,7 @@ internal sealed partial class SessionWindow : Window
     private void OnSurfaceChanged()
     {
         session.Connection.Video.Resize(PixelWidth, PixelHeight, Scale);
+        ScaleCursor();
         resizing.Stop();
         resizing.Start();
     }

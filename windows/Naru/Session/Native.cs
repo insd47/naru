@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Naru.Session;
 
-/// <summary>Win32 functions for keyboard capture, the IME, and wheel settings.</summary>
+/// <summary>Win32 functions for keyboard capture, the IME, wheel settings, and the cursor.</summary>
 internal static unsafe partial class Native
 {
     public const int WhKeyboardLl = 13;
@@ -39,6 +39,86 @@ internal static unsafe partial class Native
     [LibraryImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SystemParametersInfo(uint action, uint param, uint* value, uint update);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool DestroyIcon(nint icon);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BitmapInfoHeader
+    {
+        public uint Size;
+        public int Width;
+        public int Height;
+        public ushort Planes;
+        public ushort BitCount;
+        public uint Compression;
+        public uint SizeImage;
+        public int XPelsPerMeter;
+        public int YPelsPerMeter;
+        public uint ClrUsed;
+        public uint ClrImportant;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IconInfo
+    {
+        public int Icon;
+        public uint HotspotX;
+        public uint HotspotY;
+        public nint Mask;
+        public nint Color;
+    }
+
+    [LibraryImport("gdi32.dll")]
+    private static partial nint CreateDIBSection(nint dc, BitmapInfoHeader* info, uint usage, void** bits, nint section, uint offset);
+
+    [LibraryImport("gdi32.dll")]
+    private static partial nint CreateBitmap(int width, int height, uint planes, uint bitCount, void* bits);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DeleteObject(nint bitmap);
+
+    [LibraryImport("user32.dll")]
+    private static partial nint CreateIconIndirect(IconInfo* info);
+
+    /// <summary>A cursor from top-down BGRA pixels with straight alpha. The alpha draws it, so the mask is empty.</summary>
+    public static nint CreateCursor(byte[] bgra, int width, int height, uint hotspotX, uint hotspotY)
+    {
+        var header = new BitmapInfoHeader
+        {
+            Size = (uint)sizeof(BitmapInfoHeader),
+            Width = width,
+            Height = -height,
+            Planes = 1,
+            BitCount = 32,
+        };
+        void* bits;
+        var color = CreateDIBSection(0, &header, 0, &bits, 0, 0);
+
+        if (color == 0)
+        {
+            return 0;
+        }
+
+        Marshal.Copy(bgra, 0, (nint)bits, bgra.Length);
+
+        // Monochrome rows are padded to 16 bits. All zero, the mask leaves every pixel to the alpha.
+        var zeros = new byte[(width + 15) / 16 * 2 * height];
+        nint mask;
+
+        fixed (byte* pointer = zeros)
+        {
+            mask = CreateBitmap(width, height, 1, 1, pointer);
+        }
+
+        var info = new IconInfo { Icon = 0, HotspotX = hotspotX, HotspotY = hotspotY, Mask = mask, Color = color };
+        var cursor = CreateIconIndirect(&info);
+        DeleteObject(mask);
+        DeleteObject(color);
+        return cursor;
+    }
 
     [LibraryImport("user32.dll")]
     public static partial nint GetForegroundWindow();
