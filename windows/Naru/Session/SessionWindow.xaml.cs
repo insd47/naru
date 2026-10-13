@@ -32,6 +32,10 @@ internal sealed partial class SessionWindow : Window
     private readonly Keyboard keyboard;
     private readonly Clipboard clipboard;
     private readonly MacCursor cursor;
+    private readonly TouchCursor touchCursor;
+
+    // Where finger touches last moved the Mac's cursor, in layout pixels, while it is drawn
+    private Point? touchPoint;
     private readonly DispatcherQueueTimer resizing;
     private readonly DispatcherQueueTimer revealing;
     private RectInt32[] passthrough = [];
@@ -62,6 +66,7 @@ internal sealed partial class SessionWindow : Window
         keyboard = new Keyboard(handle, session.Connection, App.Current.Preferences, Capturing, () => FullScreen, ToggleFullScreen);
         clipboard = new Clipboard(session.Connection, App.Current.Preferences);
         cursor = new MacCursor(Screen);
+        touchCursor = new TouchCursor(TouchImage);
 
         AppWindow.Closing += (_, _) =>
         {
@@ -90,6 +95,7 @@ internal sealed partial class SessionWindow : Window
         if (session.Cursor is { } shape)
         {
             cursor.Show(shape);
+            touchCursor.Show(shape);
         }
 
         session.Connection.Video.FirstFrame += () => DispatcherQueue.TryEnqueue(() => Loading.Visibility = Visibility.Collapsed);
@@ -195,12 +201,31 @@ internal sealed partial class SessionWindow : Window
                 break;
             case Event.Cursor shape:
                 cursor.Show(shape);
+                touchCursor.Show(shape);
                 ScaleCursor();
                 break;
             case Event.Layout:
                 ScaleCursor();
                 break;
+            case Event.Pointer pointer:
+                touchPoint = new Point(pointer.X, pointer.Y);
+                PlaceTouchCursor();
+                break;
         }
+    }
+
+    // Draws the touch cursor at its point in the Mac's layout, placed the way the renderer placed the picture.
+    private void PlaceTouchCursor()
+    {
+        if (touchPoint is not { } at || session.Layout is not { } layout || layout.LogicalWidth == 0 || PixelWidth == 0 || PixelHeight == 0)
+        {
+            return;
+        }
+
+        var fit = Video.Fit.Of(PixelWidth, PixelHeight, layout.PixelWidth, layout.PixelHeight);
+        var scale = Surface.CompositionScaleX;
+        var dipsPerPoint = fit.Scale * layout.PixelWidth / layout.LogicalWidth / scale;
+        touchCursor.Place((fit.Left + at.X * fit.Scale) / scale, (fit.Top + at.Y * fit.Scale) / scale, dipsPerPoint);
     }
 
     // The cursor image is in the Mac's points. On screen a point covers the Mac's pixels per point times the fit.
@@ -211,6 +236,8 @@ internal sealed partial class SessionWindow : Window
             var fit = Video.Fit.Of(PixelWidth, PixelHeight, layout.PixelWidth, layout.PixelHeight);
             cursor.Scale(fit.Scale * layout.PixelWidth / layout.LogicalWidth);
         }
+
+        PlaceTouchCursor();
     }
 
     /// <summary>The session ended. The window closes without disconnecting again.</summary>
@@ -381,6 +408,10 @@ internal sealed partial class SessionWindow : Window
         }
         else
         {
+            // A mouse or pen shows the system pointer, so the drawn touch cursor goes away.
+            touchPoint = null;
+            touchCursor.Hide();
+
             var properties = point.Properties;
             var buttons = (byte)((properties.IsLeftButtonPressed ? 1 : 0) | (properties.IsRightButtonPressed ? 2 : 0) | (properties.IsMiddleButtonPressed ? 4 : 0));
             session.Connection.Pointer(buttons, (ushort)mac.X, (ushort)mac.Y);

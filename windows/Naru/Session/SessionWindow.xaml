@@ -17,6 +17,10 @@
         <!-- The screen spans both rows so the title bar can overlay it in full screen. -->
         <local:ScreenGrid x:Name="Screen" Grid.Row="1" Background="Black">
             <SwapChainPanel x:Name="Surface" />
+            <!-- The cursor drawn where finger touches moved it. Touch has no system pointer. -->
+            <Canvas IsHitTestVisible="False">
+                <Image x:Name="TouchImage" Stretch="Fill" Visibility="Collapsed" />
+            </Canvas>
             <ProgressRing x:Name="Loading" IsActive="True" Width="48" Height="48" />
         </local:ScreenGrid>
 
