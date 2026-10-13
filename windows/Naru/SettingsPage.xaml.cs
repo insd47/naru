@@ -25,15 +25,17 @@ public sealed partial class SettingsPage : Page
 
         var version = Package.Current.Id.Version;
         Version.Text = $"Version {version.Major}.{version.Minor}.{version.Build}";
-        ShowHevc();
+        ShowCodec();
         loaded = true;
     }
 
     // Shows whether sessions get HEVC 4:4:4 or H.264. The check may still be running from launch.
-    private async void ShowHevc()
+    private async void ShowCodec()
     {
-        var supported = await Task.Run(Video.Decoder.SupportsHevc444);
-        Hevc.Text = $"HEVC 4:4:4 hardware decoding: {(supported ? "supported" : "unsupported")}";
+        var hevc = await Task.Run(Video.Decoder.SupportsHevc444);
+        Codec.Text = hevc
+            ? "Video: HEVC 4:4:4, decoded by the graphics card."
+            : "Video: H.264. This PC can't decode HEVC 4:4:4 in hardware, so text may look softer.";
     }
 
     // Controls raise change events while the page sets their initial values, which must not write back.

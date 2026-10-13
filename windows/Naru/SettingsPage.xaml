@@ -101,7 +101,10 @@
                     </RadioButton>
                 </RadioButtons>
             </Border>
-            <TextBlock Text="Changes apply from the next connection." Style="{StaticResource Detail}" Margin="0,8,0,0" />
+            <StackPanel Margin="0,8,0,0" Spacing="4">
+                <TextBlock x:Name="Codec" Style="{StaticResource Detail}" />
+                <TextBlock Text="Changes apply from the next connection." Style="{StaticResource Detail}" />
+            </StackPanel>
 
             <TextBlock Text="Help" Style="{StaticResource Section}" />
             <Border Style="{StaticResource Card}">
@@ -123,8 +126,7 @@
                 <StackPanel Spacing="4">
                     <TextBlock Text="Naru" />
                     <TextBlock x:Name="Version" Style="{StaticResource Detail}" />
-                    <TextBlock x:Name="Hevc" Style="{StaticResource Detail}" />
-                    <TextBlock Text="Connects to macOS Screen Sharing in High Performance mode." Style="{StaticResource Detail}" />
+                    <TextBlock Text="Cross over to your Mac." Style="{StaticResource Detail}" />
                     <TextBlock Style="{StaticResource Detail}" TextWrapping="Wrap">
                         Audio is decoded with the Fraunhofer FDK AAC Codec Library for Android, whose license is included in the app's Licenses folder.
                         <Hyperlink NavigateUri="https://github.com/mstorsjo/fdk-aac">Source code</Hyperlink>
