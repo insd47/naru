@@ -13,6 +13,8 @@ namespace Naru.Session;
 /// <item>Windows key combinations (the Windows key, Alt+Tab, Alt+Esc, Ctrl+Esc) stay with Windows unless the setting sends them to the Mac.</item>
 /// <item>Ctrl+Alt+Break toggles full screen, as in Remote Desktop.</item>
 /// <item>The Korean/English key never reaches the IME, so the Korean mode is tracked here as the input language that decides what keys type.</item>
+/// <item>With Sync Keyboard Language on, the Mac's input source follows that language. Switching also commits what the Mac's
+/// input method is still composing.</item>
 /// <item>The hook runs on the UI thread that installed it and must return quickly, or Windows removes it.</item>
 /// </list>
 /// </remarks>
@@ -34,6 +36,8 @@ internal sealed class Keyboard
     private Keys keys;
     private bool korean;
     private string language = "";
+    // The Mac input source last selected for the language, with Sync Keyboard Language on
+    private string? selected;
 
     public Keyboard(nint window, Connection connection, Preferences preferences, Func<bool> capturing, Func<bool> fullScreen, Action toggleFullScreen)
     {
@@ -50,11 +54,12 @@ internal sealed class Keyboard
         Install();
     }
 
-    /// <summary>The window came to the front: settings may have changed, and the language is read again.</summary>
+    /// <summary>The window came to the front: settings may have changed, and the language is read and selected again.</summary>
     public void Activated()
     {
         keys = new Keys(preferences.SwapCommandOption);
         held.Clear();
+        selected = null;
         Report(Layout());
     }
 
@@ -207,6 +212,26 @@ internal sealed class Keyboard
         {
             language = next;
             Log.Info($"Input language: {language}");
+        }
+
+        Sync();
+    }
+
+    // The source goes out as soon as the language changes, so the Mac has switched before the user types. Selecting
+    // again before each key covers a source the Mac changed meanwhile; the core holds that key until the Mac switches.
+    private void Sync()
+    {
+        if (!preferences.SyncKeyboardLanguage || language.Length == 0)
+        {
+            selected = null;
+            return;
+        }
+
+        if (Core.NaruMethods.InputSource(language, connection.Source) is { } source && source != selected)
+        {
+            selected = source;
+            connection.SelectInputSource(source);
+            Log.Info($"Mac input source selected: {source}");
         }
     }
 

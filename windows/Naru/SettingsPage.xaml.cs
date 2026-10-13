@@ -17,6 +17,7 @@ public sealed partial class SettingsPage : Page
         InitializeComponent();
 
         Swap.IsOn = preferences.SwapCommandOption;
+        SyncLanguage.IsOn = preferences.SyncKeyboardLanguage;
         WindowsKeys.SelectedIndex = (int)preferences.WindowsKeys;
         Clipboard.IsOn = preferences.SharedClipboard;
         Quality.SelectedIndex = preferences.Priority == Priority.Quality ? 1 : 0;
@@ -40,6 +41,14 @@ public sealed partial class SettingsPage : Page
         if (loaded)
         {
             preferences.SwapCommandOption = Swap.IsOn;
+        }
+    }
+
+    private void OnSyncLanguage(object sender, RoutedEventArgs e)
+    {
+        if (loaded)
+        {
+            preferences.SyncKeyboardLanguage = SyncLanguage.IsOn;
         }
     }
 

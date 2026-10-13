@@ -40,6 +40,19 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel>
+                            <TextBlock Text="Sync keyboard language" />
+                            <TextBlock Text="The Mac switches its input source with this computer's language. Works best with one language besides English on the Mac." Style="{StaticResource Detail}" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="SyncLanguage" Grid.Column="1" OnContent="" OffContent="" MinWidth="0" Toggled="OnSyncLanguage" />
+                    </Grid>
+                </Border>
+                <Border Style="{StaticResource Card}">
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
                             <TextBlock Text="Windows key combinations" />
                             <TextBlock Text="Where shortcuts like Alt+Tab and the Windows key go, as in Remote Desktop." Style="{StaticResource Detail}" />
                         </StackPanel>
