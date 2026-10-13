@@ -1,5 +1,6 @@
 package dev.insd.naru
 
+import android.content.Intent
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.ListItemDefaults
@@ -91,10 +92,18 @@ fun Settings(preferences: Preferences) {
         item {
             SegmentedListItem(
                 onClick = { scope.launch { Diagnostics.share(context) } },
-                shapes = ListItemDefaults.segmentedShapes(0, 1),
+                shapes = ListItemDefaults.segmentedShapes(0, 2),
                 colors = ListItemDefaults.segmentedColors(),
                 supportingContent = { Text("Saves this launch's app log as a text file to share with a bug report. It has no passwords, typed text, or clipboard contents.") },
             ) { Text("Export Diagnostics") }
+        }
+
+        item {
+            SegmentedListItem(
+                onClick = { context.startActivity(Intent(context, LicensesActivity::class.java)) },
+                shapes = ListItemDefaults.segmentedShapes(1, 2),
+                colors = ListItemDefaults.segmentedColors(),
+            ) { Text("Open source licenses") }
         }
     }
 }
