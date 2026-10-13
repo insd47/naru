@@ -27,7 +27,7 @@ public sealed partial class SettingsPage : Page
         Quality.SelectedIndex = preferences.Priority == Priority.Quality ? 1 : 0;
 
         var version = Package.Current.Id.Version;
-        Version.Text = $"Version {version.Major}.{version.Minor}.{version.Build}";
+        Version.Text = $"Cross over to your Mac. Version {version.Major}.{version.Minor}.{version.Build}";
         ShowCodec();
         loaded = true;
     }

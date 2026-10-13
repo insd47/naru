@@ -126,7 +126,6 @@
                 <StackPanel Spacing="4">
                     <TextBlock Text="Naru" />
                     <TextBlock x:Name="Version" Style="{StaticResource Detail}" />
-                    <TextBlock Text="Cross over to your Mac." Style="{StaticResource Detail}" />
                     <TextBlock Style="{StaticResource Detail}" Margin="0,4,0,0">
                         <Hyperlink Click="OnNotices">Third-party notices</Hyperlink><Run Text="   " /><Hyperlink NavigateUri="https://github.com/insd47/naru/blob/main/PRIVACY.md">Privacy policy</Hyperlink>
                     </TextBlock>
