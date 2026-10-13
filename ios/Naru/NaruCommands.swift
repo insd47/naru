@@ -34,6 +34,8 @@ struct NaruCommands: Commands {
             Toggle("Use Shared Clipboard", isOn: Binding(get: { preferences.sharedClipboard }, set: { preferences.sharedClipboard = $0 }))
             Button("Send Clipboard") { session.sendClipboard() }
                 .disabled(session.connection == nil)
+            Divider()
+            Toggle("Sync Keyboard Language", isOn: Binding(get: { preferences.syncKeyboardLanguage }, set: { preferences.syncKeyboardLanguage = $0 }))
         }
 
         // The Mac's default shortcuts: Control-Up Arrow, Control-Down Arrow, F11

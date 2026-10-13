@@ -15,6 +15,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     var connection: Connection? {
         didSet {
             guard connection !== oldValue else { return }
+            selectedSource = nil
             oldValue?.video.layer.removeFromSuperlayer()
             if let layer = connection?.video.layer { self.layer.insertSublayer(layer, at: 0) }
             setNeedsLayout()
@@ -28,6 +29,14 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     var cursor: SessionController.Cursor? {
         didSet { placeCursor() }
     }
+
+    /// Whether the Mac's input source follows the iPad's input language ("Sync Keyboard Language")
+    var syncsLanguage = false {
+        didSet { if !syncsLanguage { selectedSource = nil } }
+    }
+
+    // The Mac input source last selected for the iPad's language
+    private var selectedSource: String?
 
     private let cursorLayer = CALayer()
     private var keys = Keys()
@@ -229,6 +238,10 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
             return
         }
 
+        if syncsLanguage, let language {
+            selectSource(for: language)
+        }
+
         connection?.key(keysym, down: true)
         log.key("down", key, "lang \(language ?? "nil") sent \(log.secure ? "-" : String(keysym, radix: 16))")
 
@@ -237,6 +250,18 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         } else if Keys.isNavigation(key) {
             repeatNavigation(keysym, code: key.keyCode)
         }
+    }
+
+    // The Mac switches its input source at the next key and applies it to that key, so the source goes out right before
+    // the first key in a new language, which also commits any composition left in the Mac's input method.
+    private func selectSource(for language: String) {
+        guard let connection, let source = inputSource(language: language, current: connection.source), source != selectedSource else {
+            return
+        }
+
+        connection.selectInputSource(source)
+        selectedSource = source
+        DiagnosticsLog.shared.record("LANG", "selected Mac source \(source)")
     }
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {

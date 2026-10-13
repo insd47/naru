@@ -3,7 +3,7 @@ import Foundation
 /// Settings shared by all Macs.
 ///
 /// - Quality is changed in the Settings app (Settings.bundle) and read when connecting.
-/// - Clipboard sharing is toggled from the Edit menu, as in Screen Sharing on the Mac.
+/// - Clipboard sharing and keyboard language sync are toggled from the Edit menu, as in Screen Sharing on the Mac.
 /// - There is no key mapping setting (Alt and Command) because iPadOS's modifier key settings handle it.
 @MainActor @Observable
 final class Preferences {
@@ -17,7 +17,13 @@ final class Preferences {
         didSet { UserDefaults.standard.set(sharedClipboard, forKey: "sharedClipboard") }
     }
 
+    /// Whether the Mac's input source follows the iPad's input language. Off by default, as in Screen Sharing.
+    var syncKeyboardLanguage: Bool {
+        didSet { UserDefaults.standard.set(syncKeyboardLanguage, forKey: "syncKeyboardLanguage") }
+    }
+
     init() {
         sharedClipboard = UserDefaults.standard.object(forKey: "sharedClipboard") as? Bool ?? true
+        syncKeyboardLanguage = UserDefaults.standard.bool(forKey: "syncKeyboardLanguage")
     }
 }

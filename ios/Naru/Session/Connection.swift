@@ -39,6 +39,8 @@ final class Connection: SessionListener, @unchecked Sendable {
 
     func magnify(_ phase: Phase, scale: Float) { session.magnify(phase: phase, scale: scale) }
 
+    func selectInputSource(_ id: String) { session.selectInputSource(id: id) }
+
     /// `true` if sent, or `false` without sending when it exceeds the size limit.
     func clipboard(_ text: String) -> Bool { session.clipboard(text: text) }
 

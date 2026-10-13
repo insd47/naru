@@ -53,6 +53,9 @@ final class SessionController {
     private(set) var codec: VideoCodec?
     /// One line with why the last session ended, including its cause chain, or `nil` if it was closed normally. Shown on the diagnostics screen.
     private(set) var closedDetail: String?
+    /// Whether the Mac's input source follows the iPad's input language
+    var syncsKeyboardLanguage: Bool { preferences.syncKeyboardLanguage }
+
     /// Whether the session screen is shown. Turned on when authentication succeeds and off when the session ends.
     var presented = false
 
