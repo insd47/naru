@@ -283,9 +283,14 @@ impl Input {
         momentum: Option<Momentum>,
         continuous: bool,
     ) -> Vec<u8> {
-        let total = (delta.0 + self.remainder.0, delta.1 + self.remainder.1);
+        // Only continuous scrolls carry fractions over; a wheel sends its own distance as given.
+        let carried = if continuous { self.remainder } else { (0.0, 0.0) };
+        let total = (delta.0 + carried.0, delta.1 + carried.1);
         let points = (total.0.round(), total.1.round());
-        self.remainder = (total.0 - points.0, total.1 - points.1);
+
+        if continuous {
+            self.remainder = (total.0 - points.0, total.1 - points.1);
+        }
 
         Scroll {
             // Float-to-int `as` saturates out of range.
@@ -411,6 +416,36 @@ mod tests {
         let phases: Vec<_> = messages.iter().map(|message| phases(message)).collect();
         assert_eq!(phases, [(0, 3), (1, 0)]);
         assert!(input.deadline().is_none());
+    }
+
+    // A trackpad fraction left over must not shift a wheel notch, which carries the client's own distance.
+    #[test]
+    fn wheel_ignores_the_trackpad_remainder() {
+        let mut input = input();
+        let now = Instant::now();
+        input.handle(
+            Event::Scroll {
+                phase: Phase::Began,
+                delta: (0.0, 0.0),
+            },
+            now,
+        );
+        input.handle(
+            Event::Scroll {
+                phase: Phase::Changed,
+                delta: (0.0, 0.4),
+            },
+            now,
+        );
+
+        let messages = input.handle(
+            Event::Wheel {
+                points: (0.0, 30.3),
+                lines: (0.0, 3.0),
+            },
+            now,
+        );
+        assert_eq!(&messages.last().unwrap()[30..34], 30i32.to_be_bytes());
     }
 
     #[test]
