@@ -353,11 +353,11 @@ internal sealed partial class SessionWindow : Window
     {
         var point = e.GetCurrentPoint(Surface);
 
-        // Like the RDP connection bar, the bar comes down only from the middle of the top edge and not mid-drag, so the
-        // rest of the top edge stays the Mac's, for its menu bar and window title bars.
+        // The bar spans the top, so it comes down anywhere along the top edge, but not mid-drag, where the Mac's window
+        // title bars and menu bar are being used.
         if (FullScreen && Bar.Visibility == Visibility.Collapsed)
         {
-            if (point.Position.Y <= 2 && !point.IsInContact && Math.Abs(point.Position.X - Surface.ActualWidth / 2) <= Surface.ActualWidth / 6)
+            if (point.Position.Y <= 2 && !point.IsInContact)
             {
                 if (!revealing.IsRunning)
                 {
