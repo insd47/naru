@@ -83,6 +83,10 @@
             <TextBlock Text="Quality" Style="{StaticResource Section}" />
             <Border Style="{StaticResource Card}">
                 <RadioButtons x:Name="Quality" SelectionChanged="OnQuality">
+                    <!-- The header's margin stays even without a header; the section title above is the header. -->
+                    <RadioButtons.Resources>
+                        <Thickness x:Key="RadioButtonsTopHeaderMargin">0</Thickness>
+                    </RadioButtons.Resources>
                     <RadioButton>
                         <StackPanel>
                             <TextBlock Text="Adapt to network conditions" />
