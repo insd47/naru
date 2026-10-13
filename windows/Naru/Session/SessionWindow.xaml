@@ -19,17 +19,20 @@
             <ProgressRing x:Name="Loading" IsActive="True" Width="48" Height="48" />
         </Grid>
 
-        <!-- Every title bar button shares one size and spacing, like the caption buttons beside them. -->
+        <!-- Every title bar button shares one compact size and spacing. The title bar gives buttons a minimum width, so it is cleared here. -->
         <TitleBar x:Name="Bar" Height="48">
             <TitleBar.Resources>
                 <Style x:Key="BarButton" TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}">
-                    <Setter Property="Width" Value="40" />
+                    <Setter Property="Width" Value="36" />
+                    <Setter Property="MinWidth" Value="0" />
                     <Setter Property="Height" Value="32" />
                     <Setter Property="Padding" Value="0" />
+                    <Setter Property="Margin" Value="0" />
                 </Style>
             </TitleBar.Resources>
+            <!-- Centered on the window rather than on the space the title leaves; see CenterToolbar. -->
             <TitleBar.Content>
-                <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel x:Name="Toolbar" Orientation="Horizontal" Spacing="2" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="Mission Control" AutomationProperties.Name="Mission Control" Click="OnMissionControl">
                         <FontIcon Glyph="&#xE7C4;" FontSize="16" />
                     </Button>
@@ -42,7 +45,7 @@
                 </StackPanel>
             </TitleBar.Content>
             <TitleBar.RightHeader>
-                <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,4,0" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,0,4,0" VerticalAlignment="Center">
                     <Button x:Name="FullScreenButton" Style="{StaticResource BarButton}" Click="OnFullScreen" ToolTipService.ToolTip="Full Screen (Ctrl+Alt+Break)" AutomationProperties.Name="Full Screen">
                         <FontIcon x:Name="FullScreenIcon" Glyph="&#xE740;" FontSize="16" />
                     </Button>

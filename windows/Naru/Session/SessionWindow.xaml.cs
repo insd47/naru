@@ -84,6 +84,45 @@ internal sealed partial class SessionWindow : Window
         Screen.PointerCaptureLost += OnPointerEnded;
         Screen.PointerWheelChanged += OnWheel;
         Bar.PointerExited += (_, _) => Reveal(false);
+        Toolbar.LayoutUpdated += (_, _) => CenterToolbar();
+        Root.SizeChanged += (_, _) => centering = double.MaxValue;
+    }
+
+    // Distance from the window's center at the last toolbar move, to stop when moving no longer helps
+    private double centering = double.MaxValue;
+
+    // The title bar centers its content in the space between the title and the right-hand buttons, which sits left of
+    // the window's center. A margin, rather than a transform, moves the toolbar so the title bar's clickable region follows it.
+    //
+    // Each pass measures how far the toolbar still is from the window's center and shifts it by that much. A margin of
+    // 2d on one side moves a centered element by d, so the shift settles within a layout pass or two.
+    private void CenterToolbar()
+    {
+        if (Toolbar.ActualWidth <= 0 || Content is not FrameworkElement root)
+        {
+            return;
+        }
+
+        var center = Toolbar.TransformToVisual(root).TransformPoint(default).X + Toolbar.ActualWidth / 2;
+        var remaining = root.ActualWidth / 2 - center;
+
+        // Layout runs again after a margin change, so only a real move updates it. When the title leaves no room to move,
+        // the distance stops shrinking and the toolbar stays where it is until the window resizes.
+        if (Math.Abs(remaining) <= 0.5)
+        {
+            return;
+        }
+
+        // Zero blocks further moves until a resize or a new title resets it.
+        if (Math.Abs(remaining) >= centering - 0.5)
+        {
+            centering = 0;
+            return;
+        }
+
+        centering = Math.Abs(remaining);
+        var shift = (Toolbar.Margin.Left - Toolbar.Margin.Right) / 2 + remaining;
+        Toolbar.Margin = shift > 0 ? new Thickness(shift * 2, 0, 0, 0) : new Thickness(0, 0, -shift * 2, 0);
     }
 
     private bool FullScreen => AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
@@ -97,6 +136,7 @@ internal sealed partial class SessionWindow : Window
     {
         Title = title;
         Bar.Title = title;
+        centering = double.MaxValue;
     }
 
     /// <summary>A session event, on the UI thread.</summary>
