@@ -34,7 +34,7 @@ fun Settings(preferences: Preferences) {
         item {
             SegmentedListItem(
                 onClick = { preferences.swapCommandOption = !preferences.swapCommandOption },
-                shapes = ListItemDefaults.segmentedShapes(0, 1),
+                shapes = ListItemDefaults.segmentedShapes(0, 2),
                 colors = ListItemDefaults.segmentedColors(),
                 modifier = Modifier.semantics {
                     role = Role.Switch
@@ -43,6 +43,22 @@ fun Settings(preferences: Preferences) {
                 supportingContent = { Text("Alt sends Command and the Windows key sends Option, matching the keys on a Mac keyboard.") },
                 trailingContent = { Switch(checked = preferences.swapCommandOption, onCheckedChange = null) },
             ) { Text("Swap Alt and Command") }
+        }
+
+        item {
+            SegmentedListItem(
+                onClick = { preferences.syncKeyboardLanguage = !preferences.syncKeyboardLanguage },
+                shapes = ListItemDefaults.segmentedShapes(1, 2),
+                colors = ListItemDefaults.segmentedColors(),
+                modifier = Modifier.semantics {
+                    role = Role.Switch
+                    toggleableState = ToggleableState(preferences.syncKeyboardLanguage)
+                },
+                supportingContent = {
+                    Text("The Mac switches its input source with the tablet's language. Works best with one language besides English on the Mac.")
+                },
+                trailingContent = { Switch(checked = preferences.syncKeyboardLanguage, onCheckedChange = null) },
+            ) { Text("Sync Keyboard Language") }
         }
 
         item { Section("Quality") }

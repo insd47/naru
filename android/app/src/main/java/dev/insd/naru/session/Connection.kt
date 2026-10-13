@@ -55,6 +55,8 @@ class Connection(config: Config, private val listener: Listener) {
 
     fun magnify(phase: Phase, scale: Float) = session.magnify(phase, scale)
 
+    fun selectInputSource(id: String) = session.selectInputSource(id)
+
     /** `true` if sent; `false` without sending if it exceeds the size limit */
     fun clipboard(text: String): Boolean = session.clipboard(text)
 

@@ -39,6 +39,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import dev.insd.naru.core.Event
+import dev.insd.naru.core.inputSource
 import dev.insd.naru.session.Connection
 import dev.insd.naru.session.ImeLanguage
 import dev.insd.naru.session.Keys
@@ -64,6 +65,9 @@ class SessionActivity : ComponentActivity() {
     private var language: ImeLanguage? = null
     private var touchpad: Touchpad? = null
     private var momentum: Momentum? = null
+
+    // The Mac input source last selected for the tablet's language, with Sync Keyboard Language on
+    private var selectedSource: String? = null
 
     private val listener = object : Connection.Listener {
         override fun onEvent(event: Event) = handle(event)
@@ -162,7 +166,10 @@ class SessionActivity : ComponentActivity() {
     // During a session, sends the key to the Mac and returns `true`. The screen view calls this before the IME, and the activity calls it when focus is elsewhere.
     private fun handleKey(event: KeyEvent, afterIme: Boolean = false): Boolean {
         val current = connection ?: return false
-        val translated = keys.translate(event, language?.current.orEmpty(), current.source)
+        val tabletLanguage = language?.current.orEmpty()
+        val translated = keys.translate(event, tabletLanguage, current.source)
+
+        if (translated.any { (_, down) -> down }) syncSource(current, tabletLanguage)
 
         for ((keysym, down) in translated) {
             current.key(keysym, down)
@@ -179,6 +186,22 @@ class SessionActivity : ComponentActivity() {
         }
 
         return true
+    }
+
+    // The Mac switches its input source at the next key and applies it to that key, so the source goes out right before
+    // the first key in a new language, which also commits any composition left in the Mac's input method.
+    private fun syncSource(current: Connection, tabletLanguage: String) {
+        if (!naru.preferences.syncKeyboardLanguage || tabletLanguage.isEmpty()) {
+            selectedSource = null
+            return
+        }
+
+        val source = inputSource(tabletLanguage, current.source) ?: return
+
+        if (source != selectedSource) {
+            current.selectInputSource(source)
+            selectedSource = source
+        }
     }
 
     @Composable
@@ -218,6 +241,7 @@ class SessionActivity : ComponentActivity() {
     // Attaches this screen's input to the session's connection.
     private fun adopt(next: Connection) {
         connection = next
+        selectedSource = null
         language = ImeLanguage(this).also { it.sync(delayMs = 0) }
         momentum = Momentum(this) { phase, dx, dy -> next.momentum(phase, dx, dy) }.also { touchpad = Touchpad(this, next, it) }
         immersive(true)
