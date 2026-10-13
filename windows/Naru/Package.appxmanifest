@@ -7,15 +7,15 @@
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap uap10 rescap">
 
-  <!-- Associating the app with the Store replaces the name and publisher. -->
+  <!-- The product identity reserved in Partner Center. The display name must stay the reserved name. -->
   <Identity
-    Name="dev.insd.naru"
-    Publisher="CN=insd"
+    Name="7FAF067B.Naru"
+    Publisher="CN=3ACD86B2-7153-44F0-B53B-BC9EA1DB72BC"
     Version="0.1.0.0" />
 
   <Properties>
     <DisplayName>Naru</DisplayName>
-    <PublisherDisplayName>insd</PublisherDisplayName>
+    <PublisherDisplayName>황인성</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <uap10:PackageIntegrity>
       <uap10:Content Enforcement="on"/>
