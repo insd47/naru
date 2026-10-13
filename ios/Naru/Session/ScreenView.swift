@@ -43,6 +43,8 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
     private let cursorLayer = CALayer()
     private var keys = Keys()
+    // Presses passed to the text system
+    private var typing = Set<UIKeyboardHIDUsage>()
     private var buttons: UInt8 = 0
     private var pointer: CGPoint?
     private var resizing: DispatchWorkItem?
@@ -110,6 +112,8 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     override var inputView: UIView? { blank }
     private let blank = UIView()
 
+    // Typing keys also go to the text system, which applies hardware keyboard language switches only to keys it sees.
+    // The text it reports is never used; keys are sent from the presses.
     var hasText: Bool { false }
     func insertText(_ text: String) {}
     func deleteBackward() {}
@@ -122,8 +126,15 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
             if Keys.isSystem(key) {
                 system.insert(press)
-            } else if let keysym = keys.press(key) {
-                connection?.key(keysym, down: true)
+                continue
+            }
+
+            guard let keysym = keys.press(key) else { continue }
+            connection?.key(keysym, down: true)
+
+            if Keys.isTyping(key) {
+                system.insert(press)
+                typing.insert(key.keyCode)
             }
         }
 
@@ -146,7 +157,14 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
             if Keys.isSystem(key) {
                 system.insert(press)
-            } else if let keysym = keys.release(key) {
+                continue
+            }
+
+            if typing.remove(key.keyCode) != nil {
+                system.insert(press)
+            }
+
+            if let keysym = keys.release(key) {
                 connection?.key(keysym, down: false)
             }
         }

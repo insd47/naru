@@ -16,6 +16,11 @@ struct Keys {
         key.keyCode == .keyboardCapsLock || (key.keyCode == .keyboardErrorUndefined && key.modifierFlags.rawValue & globe != 0)
     }
 
+    /// Whether the key types text rather than triggering a shortcut. Such keys are also given to the text system.
+    static func isTyping(_ key: UIKey) -> Bool {
+        key.modifierFlags.isDisjoint(with: [.command, .control, .alternate]) && special[key.keyCode.rawValue].map { !modifiers.contains($0) } ?? true
+    }
+
     /// The keysym for a pressed key, or `nil` for a key that is not sent.
     mutating func press(_ key: UIKey) -> UInt32? {
         guard let keysym = Self.keysym(key) else {
@@ -80,6 +85,9 @@ struct Keys {
 
     // The Globe key arrives as this modifier bit with no HID code (the same bit as Fn on macOS).
     private static let globe = 1 << 23
+
+    // Control, Shift, Alt, and Super keysyms on both sides
+    private static let modifiers: Set<UInt32> = [0xffe3, 0xffe1, 0xffe9, 0xffeb, 0xffe4, 0xffe2, 0xffea, 0xffec, 0xffe7, 0xffe8]
 
     // The Mac maps Super to Command and Meta to Option.
     private static let special: [Int: UInt32] = {
