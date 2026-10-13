@@ -26,6 +26,7 @@ import dev.insd.naru.core.DisplayMode
 import dev.insd.naru.core.Event
 import dev.insd.naru.core.Failure
 import dev.insd.naru.core.Stage
+import dev.insd.naru.core.VideoCodec
 import dev.insd.naru.home.Host
 import dev.insd.naru.naru
 
@@ -100,7 +101,7 @@ class SessionService : Service() {
             audio = Player.supported(),
             priority = naru.preferences.priority,
             // The server's HEVC is 4:4:4 only, which most Android hardware decoders cannot decode, and there is no profile constant to query support.
-            hevc = false,
+            codec = VideoCodec.H264,
         )
 
         val relay = Relay()

@@ -73,7 +73,7 @@ internal sealed class Sessions(Hosts hosts, Preferences preferences)
             Display: display,
             Audio: true,
             Priority: preferences.Priority,
-            Hevc: Video.Decoder.SupportsHevc444());
+            Codec: Video.Decoder.SupportsHevc444() ? VideoCodec.Hevc : VideoCodec.H264);
 
         Running? session = null;
         var connection = new Connection(config, @event => queue.TryEnqueue(() => Handle(session!, @event)));

@@ -83,7 +83,7 @@ final class SessionController {
         let config = Config(
             host: host.address, port: UInt16(host.port), username: credentials.username, password: credentials.password,
             knownKey: ServerKeys.find(host), display: display, audio: true, priority: preferences.priority,
-            hevc: Video.decodesHevc444
+            codec: Video.decodesHevc444 ? .hevc : .h264
         )
 
         // Drops events from a previous session that arrive after a new one has started.

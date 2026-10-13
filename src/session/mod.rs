@@ -127,7 +127,7 @@ pub enum Event {
     Pointer { x: u16, y: u16 },
     /// The Mac's computer name. Arrives once after authentication.
     ServerName(String),
-    /// The Mac's current input source. The session does character conversion itself, so this is only for logging and display.
+    /// The Mac's current input source, which decides what keys type there
     InputSource(InputSource),
     /// The Mac's clipboard text
     Clipboard(String),

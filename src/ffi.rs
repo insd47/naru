@@ -4,6 +4,7 @@
 //! - Core types without tuples or private fields pass through as is; the rest are reshaped here for the native side.
 use crate::{
     AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, MediaStats, Mode, Phase, Priority, Stage, TouchPhase,
+    VideoCodec,
 };
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, LazyLock};
@@ -35,8 +36,9 @@ pub struct Config {
     pub audio: bool,
     /// Whether latency or quality wins when packets are lost
     pub priority: Priority,
-    /// Whether to receive HEVC 4:4:4. Turn it on only when the device's hardware decoder supports 4:4:4; off means H.264 4:2:0.
-    pub hevc: bool,
+    /// Video codec to request. Ask for HEVC 4:4:4 only when the device's hardware decoder supports 4:4:4; if its video does not
+    /// start, later attempts fall back to H.264 4:2:0.
+    pub codec: VideoCodec,
 }
 
 impl From<Config> for crate::Config {
@@ -51,11 +53,7 @@ impl From<Config> for crate::Config {
             display: config.display.map(Into::into),
             audio: config.audio,
             priority: config.priority,
-            codec: if config.hevc {
-                crate::VideoCodec::Hevc
-            } else {
-                crate::VideoCodec::H264
-            },
+            codec: config.codec,
             local_ports: None,
         }
     }
@@ -131,7 +129,7 @@ pub enum Event {
         x: u16,
         y: u16,
     },
-    /// The Mac's current input source. The session does character conversion itself, so this is only for logging and display.
+    /// The Mac's current input source. Pass the latest one to [`character`].
     Source {
         source: InputSource,
     },
@@ -269,7 +267,8 @@ impl Session {
         Arc::new(Self { session })
     }
 
-    /// Key input. `keysym` is an X11 keysym; send character keys as the Latin letter of the physical key. The session handles conversion to Korean jamo.
+    /// Key input. `keysym` is an X11 keysym of what the Mac should type, sent as is; [`character`] gives what a Latin key types in a
+    /// language. Release with the keysym that was pressed.
     pub fn key(&self, keysym: u32, down: bool) {
         let _ = self.session.key(keysym, down);
     }
