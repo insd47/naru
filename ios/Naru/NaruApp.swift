@@ -7,7 +7,6 @@ struct NaruApp: App {
     @State private var preferences: Preferences
     @State private var discovery = Discovery()
     @State private var session: SessionController
-    @State private var diagnosing = false
     @Environment(\.scenePhase) private var phase
 
     init() {
@@ -16,6 +15,7 @@ struct NaruApp: App {
         _hosts = State(initialValue: hosts)
         _preferences = State(initialValue: preferences)
         _session = State(initialValue: SessionController(hosts: hosts, preferences: preferences))
+        _ = DiagnosticsLog.shared
     }
 
     var body: some Scene {
@@ -24,7 +24,6 @@ struct NaruApp: App {
                 .environment(hosts)
                 .environment(discovery)
                 .environment(session)
-                .sheet(isPresented: $diagnosing) { Diagnostics(session: session).presentationSizing(.page) }
         }
         .onChange(of: phase) { _, phase in
             switch phase {
@@ -34,7 +33,7 @@ struct NaruApp: App {
             }
         }
         .commands {
-            NaruCommands(hosts: hosts, preferences: preferences, session: session, diagnosing: $diagnosing)
+            NaruCommands(hosts: hosts, preferences: preferences, session: session)
         }
     }
 }

@@ -25,22 +25,22 @@ final class Connection: SessionListener, @unchecked Sendable {
     func key(_ keysym: UInt32, down: Bool) { session.key(keysym: keysym, down: down) }
 
     func pointer(_ buttons: UInt8, x: UInt16, y: UInt16) {
-        InputTrace.shared.record("pointer \(buttons) \(x),\(y)")
+        DiagnosticsLog.shared.record("PTR", "\(buttons) \(x),\(y)")
         session.pointer(buttons: buttons, x: x, y: y)
     }
 
     func scroll(_ phase: Phase, dx: Float, dy: Float) {
-        InputTrace.shared.record("scroll \(phase) \(String(format: "%.1f %.1f", dx, dy))")
+        DiagnosticsLog.shared.record("SCR", "\(phase) \(String(format: "%.1f %.1f", dx, dy))")
         session.scroll(phase: phase, dx: dx, dy: dy)
     }
 
     func wheel(dx: Float, dy: Float, linesX: Float, linesY: Float) {
-        InputTrace.shared.record("wheel \(String(format: "%.1f %.1f, lines %.1f %.1f", dx, dy, linesX, linesY))")
+        DiagnosticsLog.shared.record("WHL", "\(String(format: "%.1f %.1f, lines %.1f %.1f", dx, dy, linesX, linesY))")
         session.wheel(dx: dx, dy: dy, linesX: linesX, linesY: linesY)
     }
 
     func magnify(_ phase: Phase, scale: Float) {
-        InputTrace.shared.record("magnify \(phase) \(String(format: "%.3f", scale))")
+        DiagnosticsLog.shared.record("MAG", "\(phase) \(String(format: "%.3f", scale))")
         session.magnify(phase: phase, scale: scale)
     }
 
@@ -62,6 +62,11 @@ final class Connection: SessionListener, @unchecked Sendable {
             break
         default:
             log.info("\(Self.describe(event), privacy: .public)")
+            DiagnosticsLog.shared.record("EVT", Self.describe(event))
+        }
+
+        if case let .source(source) = event {
+            DiagnosticsLog.shared.secure = source.secure
         }
 
         switch event {
