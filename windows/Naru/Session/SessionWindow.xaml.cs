@@ -20,33 +20,33 @@ namespace Naru.Session;
 /// <item>Closing the window disconnects, as in Screen Sharing.</item>
 /// <item>The virtual display follows the screen area's size. The picture is centered with black bars when the sizes differ.</item>
 /// <item>Pointer positions are converted to the pixels of the Mac's latest layout. Touch goes to the session's trackpad emulation.</item>
-/// <item>The title bar holds the toolbar. In full screen it hides, and slides back over the screen when the pointer rests at the top edge.</item>
 /// </list>
 /// </remarks>
 internal sealed partial class SessionWindow : Window
 {
-    // How long the pointer rests at the top edge in full screen before the title bar slides down
-    private static readonly TimeSpan RevealDelay = TimeSpan.FromMilliseconds(300);
+    // The Mac's default shortcuts for the toolbar: Control-Up Arrow, Control-Down Arrow, F11
+    private const uint ControlKey = 0xffe3;
+    private const uint UpKey = 0xff52;
+    private const uint DownKey = 0xff54;
+    private const uint F11Key = 0xffc8;
+
+    // Windows has no system line height. Edge and Chrome scroll 100 DIPs a notch at the default 3 lines.
+    private const float LineHeight = 100f / 3;
 
     private readonly Sessions sessions;
     private readonly Running session;
+    private readonly Chrome chrome;
     private readonly Keyboard keyboard;
     private readonly Clipboard clipboard;
     private readonly MacCursor cursor;
     private readonly TouchCursor touchCursor;
+    // Held so the tracker lives as long as the window
     private readonly Touchpad? touchpad;
+    private readonly DispatcherQueueTimer resizing;
 
     // Where finger touches last moved the Mac's cursor, in layout pixels, while it is drawn
     private Point? touchPoint;
-    private readonly DispatcherQueueTimer resizing;
-    private readonly DispatcherQueueTimer revealing;
-    private RectInt32[] passthrough = [];
-    private bool applying;
     private bool active;
-    private bool ended;
-
-    // Set as soon as the window starts closing. Layout may run once more while it goes away, when its title bar
-    // regions can no longer be set.
     private bool closed;
 
     public SessionWindow(Sessions sessions, Running session)
@@ -55,10 +55,7 @@ internal sealed partial class SessionWindow : Window
         this.session = session;
         InitializeComponent();
 
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(Bar);
-        // Tall caption buttons match the 48 px bar, so they line up with its buttons.
-        AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+        chrome = new Chrome(this, Bar, [Toolbar, Actions], CaptionInset);
         AppIcon.Apply(Icon);
         AppWindow.SetIcon("Assets/Naru.ico");
         Rename(session.Host.Title);
@@ -69,19 +66,31 @@ internal sealed partial class SessionWindow : Window
         clipboard = new Clipboard(session.Connection, App.Current.Preferences);
         cursor = new MacCursor(Screen);
         touchCursor = new TouchCursor(TouchImage);
+
         // Without the tracker, the touchpad still scrolls through the wheel handler, only in steps.
         try
         {
-            touchpad = new Touchpad(Screen, session.Connection.Scroll, MacPointsPerDip);
+            touchpad = new Touchpad(Screen, session.Connection.Scroll, () => (float)(Place()?.PointsPerDip ?? 1));
         }
         catch (Exception error) when (error is COMException or InvalidOperationException)
         {
             Log.Error("Cannot take touchpad scrolling", error);
         }
 
+        if (session.Cursor is { } shape)
+        {
+            cursor.Show(shape);
+            touchCursor.Show(shape);
+        }
+
+        resizing = DispatcherQueue.CreateTimer();
+        resizing.Interval = TimeSpan.FromMilliseconds(500);
+        resizing.IsRepeating = false;
+        resizing.Tick += (_, _) => ResizeDisplay();
+
         AppWindow.Closing += (_, _) =>
         {
-            closed = true;
+            chrome.Close();
             sessions.Close(session.Host.Id);
         };
         AppWindow.Changed += OnChanged;
@@ -92,22 +101,6 @@ internal sealed partial class SessionWindow : Window
             clipboard.Dispose();
             cursor.Dispose();
         };
-
-        resizing = DispatcherQueue.CreateTimer();
-        resizing.Interval = TimeSpan.FromMilliseconds(500);
-        resizing.IsRepeating = false;
-        resizing.Tick += (_, _) => ResizeDisplay();
-
-        revealing = DispatcherQueue.CreateTimer();
-        revealing.Interval = RevealDelay;
-        revealing.IsRepeating = false;
-        revealing.Tick += (_, _) => Reveal(true);
-
-        if (session.Cursor is { } shape)
-        {
-            cursor.Show(shape);
-            touchCursor.Show(shape);
-        }
 
         session.Connection.Video.FirstFrame += () => DispatcherQueue.TryEnqueue(() => Loading.Visibility = Visibility.Collapsed);
         Surface.Loaded += (_, _) => session.Connection.Video.Attach(Surface, PixelWidth, PixelHeight, Scale);
@@ -120,73 +113,6 @@ internal sealed partial class SessionWindow : Window
         Screen.PointerCanceled += OnPointerEnded;
         Screen.PointerCaptureLost += OnPointerEnded;
         Screen.PointerWheelChanged += OnWheel;
-        Bar.PointerExited += (_, _) => Reveal(false);
-        Bar.SizeChanged += (_, _) => UpdateTitleBar();
-        Bar.LayoutUpdated += (_, _) => UpdatePassthrough();
-        Bar.Loaded += (_, _) => Content.XamlRoot.Changed += (_, _) => UpdateTitleBar();
-    }
-
-    // The right edge keeps room for the caption buttons, which full screen removes. Changing it moves the buttons,
-    // and UpdatePassthrough follows them once layout has run.
-    private void UpdateTitleBar()
-    {
-        if (closed || Content.XamlRoot is not { } root)
-        {
-            return;
-        }
-
-        // A minimized window reports a scale of 0, and an infinite width throws. The inset waits for a real scale.
-        var inset = FullScreen ? 0 : AppWindow.TitleBar.RightInset / root.RasterizationScale;
-
-        if (double.IsFinite(inset) && inset >= 0)
-        {
-            CaptionInset.Width = inset;
-        }
-    }
-
-    // The whole bar drags the window, except the buttons, whose rectangles pass clicks through. They are measured after
-    // every layout pass, since the inset, the window size, and full screen all move them without resizing them. Stale
-    // rectangles left over the caption buttons would swallow their clicks. Only changes go to the window.
-    private void UpdatePassthrough()
-    {
-        // A minimized window has nothing to click, and full screen has no title bar regions at all.
-        if (closed || FullScreen || AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized } || Content.XamlRoot is not { } root)
-        {
-            return;
-        }
-
-        var scale = root.RasterizationScale;
-        var buttons = new[] { Toolbar, Actions }
-            .Where(element => element.ActualWidth > 0)
-            .Select(element =>
-            {
-                var bounds = element.TransformToVisual(null).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight));
-                return new RectInt32((int)(bounds.X * scale), (int)(bounds.Y * scale), (int)Math.Ceiling(bounds.Width * scale), (int)Math.Ceiling(bounds.Height * scale));
-            })
-            .ToArray();
-
-        if (buttons.SequenceEqual(passthrough))
-        {
-            return;
-        }
-
-        passthrough = buttons;
-
-        // Layout runs inside the window's own size and state changes, where setting regions crashes the windowing
-        // layer. They are set once that work returns, with the latest rectangles if several layouts queued up.
-        if (!applying)
-        {
-            applying = true;
-            DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
-            {
-                applying = false;
-
-                if (!closed)
-                {
-                    InputNonClientPointerSource.GetForWindowId(AppWindow.Id).SetRegionRects(NonClientRegionKind.Passthrough, passthrough);
-                }
-            });
-        }
     }
 
     private bool FullScreen => AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
@@ -213,51 +139,25 @@ internal sealed partial class SessionWindow : Window
             case Event.Cursor shape:
                 cursor.Show(shape);
                 touchCursor.Show(shape);
-                ScaleCursor();
+                PlaceCursors();
                 break;
             case Event.Layout:
-                ScaleCursor();
+                PlaceCursors();
                 break;
             case Event.Pointer pointer:
                 touchPoint = new Point(pointer.X, pointer.Y);
-                PlaceTouchCursor();
+                PlaceCursors();
                 break;
         }
-    }
-
-    // Draws the touch cursor at its point in the Mac's layout, placed the way the renderer placed the picture.
-    private void PlaceTouchCursor()
-    {
-        if (touchPoint is not { } at || session.Layout is not { } layout || layout.LogicalWidth == 0 || PixelWidth == 0 || PixelHeight == 0)
-        {
-            return;
-        }
-
-        var fit = Video.Fit.Of(PixelWidth, PixelHeight, layout.PixelWidth, layout.PixelHeight);
-        var scale = Surface.CompositionScaleX;
-        var dipsPerPoint = fit.Scale * layout.PixelWidth / layout.LogicalWidth / scale;
-        touchCursor.Place((fit.Left + at.X * fit.Scale) / scale, (fit.Top + at.Y * fit.Scale) / scale, dipsPerPoint);
-    }
-
-    // The cursor image is in the Mac's points. On screen a point covers the Mac's pixels per point times the fit.
-    private void ScaleCursor()
-    {
-        if (session.Layout is { } layout && layout.LogicalWidth > 0 && PixelWidth > 0 && PixelHeight > 0)
-        {
-            var fit = Video.Fit.Of(PixelWidth, PixelHeight, layout.PixelWidth, layout.PixelHeight);
-            cursor.Scale(fit.Scale * layout.PixelWidth / layout.LogicalWidth);
-        }
-
-        PlaceTouchCursor();
     }
 
     /// <summary>The session ended. The window closes without disconnecting again.</summary>
     public void Ended()
     {
-        if (!ended)
+        if (!closed)
         {
-            ended = true;
             closed = true;
+            chrome.Close();
             Close();
         }
     }
@@ -265,6 +165,24 @@ internal sealed partial class SessionWindow : Window
     public void ToggleFullScreen()
     {
         AppWindow.SetPresenter(FullScreen ? AppWindowPresenterKind.Default : AppWindowPresenterKind.FullScreen);
+    }
+
+    private Placement? Place() => Placement.Of(session.Layout, PixelWidth, PixelHeight, Scale);
+
+    // Both cursors follow the picture's placement, which changes with the layout, the window, and the monitor.
+    private void PlaceCursors()
+    {
+        if (Place() is not { } place)
+        {
+            return;
+        }
+
+        cursor.Scale(place.PixelsPerPoint);
+
+        if (touchPoint is { } at)
+        {
+            touchCursor.Place(place.Screen(at), place.PixelsPerPoint / place.Scale);
+        }
     }
 
     // Keys go to the Mac while this window is in front and no menu or dialog is open over it.
@@ -300,7 +218,7 @@ internal sealed partial class SessionWindow : Window
     private void OnSurfaceChanged()
     {
         session.Connection.Video.Resize(PixelWidth, PixelHeight, Scale);
-        ScaleCursor();
+        PlaceCursors();
         resizing.Stop();
         resizing.Start();
     }
@@ -326,13 +244,21 @@ internal sealed partial class SessionWindow : Window
             area.Y + Math.Max(0, (area.Height - AppWindow.Size.Height) / 2)));
     }
 
-    // In full screen the screen spans both rows and the title bar becomes an overlay, hidden until revealed.
     // An exception escaping an AppWindow handler makes the windowing layer end the process, so it is logged instead.
     private void OnChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
         try
         {
-            Changed(args);
+            chrome.Follow(args);
+
+            // In full screen the screen spans both rows, under the title bar's overlay.
+            if (args.DidPresenterChange)
+            {
+                var full = FullScreen;
+                Grid.SetRow(Screen, full ? 0 : 1);
+                Grid.SetRowSpan(Screen, full ? 2 : 1);
+                FullScreenIcon.Glyph = full ? "" : "";
+            }
         }
         catch (Exception error)
         {
@@ -340,78 +266,18 @@ internal sealed partial class SessionWindow : Window
         }
     }
 
-    private void Changed(AppWindowChangedEventArgs args)
-    {
-        // Maximizing changes the caption buttons' size, so the reserved room follows.
-        if (args.DidSizeChange && !args.DidPresenterChange)
-        {
-            UpdateTitleBar();
-        }
-
-        if (!args.DidPresenterChange)
-        {
-            return;
-        }
-
-        var full = FullScreen;
-
-        // In full screen the bar is an overlay of buttons, not a title bar: dragging it must not move the window.
-        ExtendsContentIntoTitleBar = !full;
-        passthrough = [];
-
-        if (!full)
-        {
-            SetTitleBar(Bar);
-            AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
-        }
-
-        Grid.SetRow(Screen, full ? 0 : 1);
-        Grid.SetRowSpan(Screen, full ? 2 : 1);
-        FullScreenIcon.Glyph = full ? "" : "";
-        Bar.Background = full ? (Brush)Application.Current.Resources["AcrylicInAppFillColorDefaultBrush"] : null;
-        Reveal(!full);
-        UpdateTitleBar();
-    }
-
-    private void Reveal(bool visible)
-    {
-        revealing.Stop();
-
-        // A menu opened from the overlay keeps it down until it closes.
-        if (!visible && (!FullScreen || (Content.XamlRoot is { } root && VisualTreeHelper.GetOpenPopupsForXamlRoot(root).Count > 0)))
-        {
-            return;
-        }
-
-        Bar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-    }
-
     // The phase names what happened for mouse and pen too: Began is a press and Ended a release.
     private void OnPointer(PointerRoutedEventArgs e, TouchPhase phase)
     {
         var point = e.GetCurrentPoint(Surface);
+        chrome.Hover(point.Position, point.IsInContact);
 
-        // The bar spans the top, so it comes down anywhere along the top edge, but not mid-drag, where the Mac's window
-        // title bars and menu bar are being used.
-        if (FullScreen && Bar.Visibility == Visibility.Collapsed)
-        {
-            if (point.Position.Y <= 2 && !point.IsInContact)
-            {
-                if (!revealing.IsRunning)
-                {
-                    revealing.Start();
-                }
-            }
-            else
-            {
-                revealing.Stop();
-            }
-        }
-
-        if (MacPoint(point.Position) is not { } mac)
+        if (Place() is not { } place)
         {
             return;
         }
+
+        var mac = place.Mac(point.Position);
 
         if (e.Pointer.PointerDeviceType == PointerDeviceType.Touch)
         {
@@ -439,77 +305,40 @@ internal sealed partial class SessionWindow : Window
 
     private void OnPointerEnded(object sender, PointerRoutedEventArgs e)
     {
-        if (e.Pointer.PointerDeviceType == PointerDeviceType.Touch && MacPoint(e.GetCurrentPoint(Surface).Position) is { } mac)
+        if (e.Pointer.PointerDeviceType == PointerDeviceType.Touch && Place() is { } place)
         {
+            var mac = place.Mac(e.GetCurrentPoint(Surface).Position);
             session.Connection.Touch(e.Pointer.PointerId, TouchPhase.Cancelled, (float)mac.X, (float)mac.Y);
         }
     }
 
-    // Windows has no system line height. Edge and Chrome scroll 100 DIPs a notch at the default 3 lines, so a line is a third of that.
-    private const float LineHeight = 100f / 3;
-
-    // One notch is 120 and scrolls as many lines as the Windows setting says, read each time so changes apply at once.
-    // The distance is those lines at LineHeight, in the Mac's points. There is no acceleration, as with a wheel on a Mac.
-    // Windows counts up and right as positive, the session up and left.
+    // A notch is 120 and scrolls the lines the Windows setting says, read each time so a change applies at once. There
+    // is no acceleration, as with a wheel on a Mac. Windows counts up and right as positive, the session up and left.
     private void OnWheel(object sender, PointerRoutedEventArgs e)
     {
         var properties = e.GetCurrentPoint(Surface).Properties;
         var notches = properties.MouseWheelDelta / 120f;
-        var points = LineHeight * MacPointsPerDip();
+        var points = LineHeight * (float)(Place()?.PointsPerDip ?? 1);
 
         if (properties.IsHorizontalMouseWheel)
         {
-            var lines = -notches * WheelLines(Native.SpiGetWheelScrollChars);
+            var lines = -notches * Native.WheelLines(Native.SpiGetWheelScrollChars);
             session.Connection.Wheel(lines * points, 0, lines, 0);
         }
         else
         {
-            var lines = notches * WheelLines(Native.SpiGetWheelScrollLines);
+            var lines = notches * Native.WheelLines(Native.SpiGetWheelScrollLines);
             session.Connection.Wheel(0, lines * points, 0, lines);
         }
 
         e.Handled = true;
     }
 
-    // How many of the Mac's points one DIP of the window covers, undoing the monitor scale, the fit, and the Mac's own scale.
-    private float MacPointsPerDip()
-    {
-        if (session.Layout is not { } layout || layout.PixelWidth == 0 || PixelWidth == 0 || PixelHeight == 0)
-        {
-            return 1;
-        }
+    private void OnMissionControl(object sender, RoutedEventArgs e) => Press(ControlKey, UpKey);
 
-        var fit = Video.Fit.Of(PixelWidth, PixelHeight, layout.PixelWidth, layout.PixelHeight);
-        return (float)(Surface.CompositionScaleX / fit.Scale * layout.LogicalWidth / layout.PixelWidth);
-    }
+    private void OnAppWindows(object sender, RoutedEventArgs e) => Press(ControlKey, DownKey);
 
-    // Lines per notch, 3 by default. "One screen at a time" has no counterpart on the Mac, so it scrolls the default.
-    private static unsafe uint WheelLines(uint setting)
-    {
-        uint lines = 3;
-        return Native.SystemParametersInfo(setting, 0, &lines, 0) && lines != Native.WheelPageScroll ? lines : 3;
-    }
-
-    // Converts a position on the screen area to pixels of the Mac's layout, undoing the placement the renderer used.
-    private Point? MacPoint(Point position)
-    {
-        if (session.Layout is not { } layout || layout.PixelWidth == 0 || layout.PixelHeight == 0 || PixelWidth == 0 || PixelHeight == 0)
-        {
-            return null;
-        }
-
-        var fit = Video.Fit.Of(PixelWidth, PixelHeight, layout.PixelWidth, layout.PixelHeight);
-        var x = Math.Clamp((position.X * Surface.CompositionScaleX - fit.Left) / fit.Scale, 0, layout.PixelWidth - 1);
-        var y = Math.Clamp((position.Y * Surface.CompositionScaleY - fit.Top) / fit.Scale, 0, layout.PixelHeight - 1);
-        return new Point(x, y);
-    }
-
-    // The Mac's default shortcuts: Control-Up Arrow, Control-Down Arrow, F11
-    private void OnMissionControl(object sender, RoutedEventArgs e) => Press(Keysyms.ControlL, Keysyms.Up);
-
-    private void OnAppWindows(object sender, RoutedEventArgs e) => Press(Keysyms.ControlL, Keysyms.Down);
-
-    private void OnDesktop(object sender, RoutedEventArgs e) => Press(Keysyms.F11);
+    private void OnDesktop(object sender, RoutedEventArgs e) => Press(F11Key);
 
     private void OnFullScreen(object sender, RoutedEventArgs e) => ToggleFullScreen();
 
@@ -517,7 +346,6 @@ internal sealed partial class SessionWindow : Window
 
     private void OnDisconnect(object sender, RoutedEventArgs e) => sessions.Close(session.Host.Id);
 
-    // Presses the keys in order and releases them in reverse.
     private void Press(params uint[] keysyms)
     {
         foreach (var keysym in keysyms)

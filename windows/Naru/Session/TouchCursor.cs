@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Naru.Core;
+using Windows.Foundation;
 
 namespace Naru.Session;
 
@@ -54,11 +55,8 @@ internal sealed class TouchCursor(Image image)
         image.Source = bitmap;
     }
 
-    /// <summary>
-    /// Places the cursor's hotspot at a point in DIPs of the screen area. <paramref name="dipsPerPoint"/> is how many
-    /// DIPs one of the Mac's points covers.
-    /// </summary>
-    public void Place(double x, double y, double dipsPerPoint)
+    /// <summary>Places the hotspot at a point of the screen area, sized by the DIPs one of the Mac's points covers.</summary>
+    public void Place(Point at, double dipsPerPoint)
     {
         if (shape is not { Width: > 0, Height: > 0 } current)
         {
@@ -67,8 +65,8 @@ internal sealed class TouchCursor(Image image)
 
         image.Width = current.Width * dipsPerPoint;
         image.Height = current.Height * dipsPerPoint;
-        Canvas.SetLeft(image, x - current.HotspotX * dipsPerPoint);
-        Canvas.SetTop(image, y - current.HotspotY * dipsPerPoint);
+        Canvas.SetLeft(image, at.X - current.HotspotX * dipsPerPoint);
+        Canvas.SetTop(image, at.Y - current.HotspotY * dipsPerPoint);
         image.Visibility = Visibility.Visible;
     }
 

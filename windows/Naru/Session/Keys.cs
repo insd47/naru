@@ -1,4 +1,5 @@
 using System.Globalization;
+using static Naru.Session.Native;
 
 namespace Naru.Session;
 
@@ -24,27 +25,14 @@ internal sealed unsafe class Keys(bool swapCommandOption)
     private const uint OptionLeft = 0xffe7;
     private const uint OptionRight = 0xffe8;
 
-    // Virtual keys
-    private const uint VkShift = 0x10;
-    private const uint VkCapital = 0x14;
-    private const uint VkLShift = 0xa0;
-    private const uint VkRShift = 0xa1;
-    private const uint VkLControl = 0xa2;
-    private const uint VkRControl = 0xa3;
-    private const uint VkLMenu = 0xa4;
-    private const uint VkRMenu = 0xa5;
-    private const uint VkLWin = 0x5b;
-    private const uint VkRWin = 0x5c;
-    private const uint VkReturn = 0x0d;
-
     private static readonly Dictionary<uint, uint> Special = new()
     {
         [VkLShift] = 0xffe1,
         [VkRShift] = 0xffe2,
         [VkLControl] = 0xffe3,
         [VkRControl] = 0xffe4,
-        [0x1b] = 0xff1b, // Escape
-        [0x09] = 0xff09, // Tab
+        [VkEscape] = 0xff1b,
+        [VkTab] = 0xff09,
         [0x08] = 0xff08, // Backspace
         [VkReturn] = 0xff0d,
         [0x2e] = 0xffff, // Delete
@@ -62,9 +50,6 @@ internal sealed unsafe class Keys(bool swapCommandOption)
 
     private readonly Dictionary<uint, uint> pressed = [];
 
-    // Keys held, tracked here because the hook swallows them before Windows updates its own key state
-    private readonly HashSet<uint> held = [];
-
     private readonly Dictionary<uint, uint> modifiers = swapCommandOption
         ? new() { [VkLMenu] = CommandLeft, [VkRMenu] = CommandRight, [VkLWin] = OptionLeft, [VkRWin] = OptionRight }
         : new() { [VkLMenu] = OptionLeft, [VkRMenu] = OptionRight, [VkLWin] = CommandLeft, [VkRWin] = CommandRight };
@@ -72,19 +57,11 @@ internal sealed unsafe class Keys(bool swapCommandOption)
     /// <summary>
     /// The (keysym, down) pairs to send for a key, empty for a key the Mac does not get.
     /// </summary>
-    public List<(uint Keysym, bool Down)> Translate(uint vk, uint scan, bool extended, bool down, nint layout)
+    /// <param name="held">Keys held, this one included</param>
+    public List<(uint Keysym, bool Down)> Translate(uint vk, uint scan, bool extended, bool down, nint layout, IReadOnlySet<uint> held)
     {
         // The extended flag keeps the keypad Enter and the main Enter apart.
         var key = vk | (extended ? 0x100u : 0);
-
-        if (down)
-        {
-            held.Add(vk);
-        }
-        else
-        {
-            held.Remove(vk);
-        }
 
         if (!down)
         {
@@ -97,7 +74,7 @@ internal sealed unsafe class Keys(bool swapCommandOption)
             return [(repeat, true)];
         }
 
-        var characters = Keysyms(vk, scan, layout);
+        var characters = Keysyms(vk, scan, layout, held);
 
         if (characters.Count == 0)
         {
@@ -118,10 +95,9 @@ internal sealed unsafe class Keys(bool swapCommandOption)
         return result;
     }
 
-    /// <summary>Releases every held key so none stays held on the Mac when the window loses the keyboard.</summary>
+    /// <summary>Releases every pressed key so none stays held on the Mac when the window loses the keyboard.</summary>
     public List<(uint Keysym, bool Down)> ReleaseAll()
     {
-        held.Clear();
         var released = pressed.Values.Select(keysym => (keysym, false)).ToList();
         pressed.Clear();
         return released;
@@ -140,7 +116,7 @@ internal sealed unsafe class Keys(bool swapCommandOption)
         }
     }
 
-    private List<uint> Keysyms(uint vk, uint scan, nint layout)
+    private List<uint> Keysyms(uint vk, uint scan, nint layout, IReadOnlySet<uint> held)
     {
         if (modifiers.TryGetValue(vk, out var modifier))
         {
@@ -152,6 +128,7 @@ internal sealed unsafe class Keys(bool swapCommandOption)
             return [special];
         }
 
+        // F1 to F24
         if (vk is >= 0x70 and <= 0x87)
         {
             return [0xffbe + vk - 0x70];
@@ -162,7 +139,7 @@ internal sealed unsafe class Keys(bool swapCommandOption)
             return [];
         }
 
-        return Characters(vk, scan, layout).Select(ToKeysym).ToList();
+        return Characters(vk, scan, layout, held).Select(ToKeysym).ToList();
     }
 
     // Latin-1 uses the character code directly; anything else uses a Unicode keysym.
@@ -171,7 +148,7 @@ internal sealed unsafe class Keys(bool swapCommandOption)
         : 0x0100_0000u + character;
 
     // The layout's characters for the key. Only Shift counts, unless a shortcut modifier is held. A pending dead key composes with the next key.
-    private List<char> Characters(uint vk, uint scan, nint layout)
+    private static List<char> Characters(uint vk, uint scan, nint layout, IReadOnlySet<uint> held)
     {
         var state = stackalloc byte[256];
         var shortcut = held.Overlaps([VkLControl, VkRControl, VkLMenu, VkRMenu, VkLWin, VkRWin]);
@@ -182,7 +159,7 @@ internal sealed unsafe class Keys(bool swapCommandOption)
         }
 
         var buffer = stackalloc char[8];
-        var count = Native.ToUnicodeEx(vk, scan, state, buffer, 8, 0, layout);
+        var count = ToUnicodeEx(vk, scan, state, buffer, 8, 0, layout);
 
         // A dead key returns -1 and waits for the next key, which returns the composed character.
         return count <= 0 ? [] : new string(buffer, 0, count).Where(character => !char.IsControl(character)).ToList();

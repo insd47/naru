@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Naru.Store;
+using static Naru.Session.Native;
 
 namespace Naru.Session;
 
@@ -17,18 +18,6 @@ namespace Naru.Session;
 /// </remarks>
 internal sealed class Keyboard
 {
-    private const uint VkCancel = 0x03;
-    private const uint VkTab = 0x09;
-    private const uint VkPause = 0x13;
-    private const uint VkHangul = 0x15;
-    private const uint VkHanja = 0x19;
-    private const uint VkEscape = 0x1b;
-    private const uint VkLWin = 0x5b;
-    private const uint VkRWin = 0x5c;
-    private const uint VkLControl = 0xa2;
-    private const uint VkRControl = 0xa3;
-    private const uint VkLMenu = 0xa4;
-    private const uint VkRMenu = 0xa5;
     private const int KoreanLanguage = 0x0412;
 
     private static readonly Dictionary<nint, Keyboard> Windows = [];
@@ -40,6 +29,7 @@ internal sealed class Keyboard
     private readonly Func<bool> capturing;
     private readonly Func<bool> fullScreen;
     private readonly Action toggleFullScreen;
+    // Keys held, tracked here because the hook swallows them before Windows updates its own key state
     private readonly HashSet<uint> held = [];
     private Keys keys;
     private bool korean;
@@ -91,7 +81,7 @@ internal sealed class Keyboard
     {
         if (hook == 0)
         {
-            hook = Native.SetWindowsHookEx(Native.WhKeyboardLl, &Hook, Native.GetModuleHandle(null), 0);
+            hook = Native.SetWindowsHookEx(WhKeyboardLl, &Hook, Native.GetModuleHandle(null), 0);
 
             if (hook == 0)
             {
@@ -191,13 +181,13 @@ internal sealed class Keyboard
             // Alt also goes to Windows, which needs it for Alt+Tab. The Mac still gets it as Command.
             if (vk is VkLMenu or VkRMenu)
             {
-                Send(keys.Translate(vk, scan, extended, down, layout));
+                Send(keys.Translate(vk, scan, extended, down, layout, held));
                 return false;
             }
         }
 
         Report(layout);
-        Send(keys.Translate(vk, scan, extended, down, layout));
+        Send(keys.Translate(vk, scan, extended, down, layout, held));
         return true;
     }
 

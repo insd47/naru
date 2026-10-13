@@ -16,7 +16,7 @@ namespace Naru.Session;
 /// <item>Call only on the UI thread.</item>
 /// </list>
 /// </remarks>
-internal sealed unsafe class MacCursor(ScreenGrid screen) : IDisposable
+internal sealed unsafe partial class MacCursor(ScreenGrid screen) : IDisposable
 {
     private static readonly Guid StaticsInterop = new("ac6f5065-90c4-46ce-beb7-05e138e54117");
 
@@ -58,7 +58,7 @@ internal sealed unsafe class MacCursor(ScreenGrid screen) : IDisposable
         }
 
         // A hidden cursor is a fully transparent one, since the screen's cursor cannot be "none".
-        var next = shape.Width == 0 || shape.Height == 0 ? Native.CreateCursor(new byte[4], 1, 1, 0, 0) : Create(shape, scale);
+        var next = shape.Width == 0 || shape.Height == 0 ? Create(new byte[4], 1, 1, 0, 0) : Create(shape, scale);
 
         if (next == 0 || Wrap(next) is not { } cursor)
         {
@@ -113,12 +113,12 @@ internal sealed unsafe class MacCursor(ScreenGrid screen) : IDisposable
     {
         if (cursor != 0)
         {
-            Native.DestroyIcon(cursor);
+            DestroyIcon(cursor);
         }
     }
 
-    // Scales the image with bilinear filtering on premultiplied colors, so edges do not pick up dark fringes, and makes a
-    // cursor from it. Windows cursors take straight alpha.
+    // Scales the image with bilinear filtering on premultiplied colors, so edges do not pick up dark fringes. Windows
+    // cursors take straight alpha.
     private static nint Create(Event.Cursor shape, double scale)
     {
         int sourceWidth = shape.Width, sourceHeight = shape.Height;
@@ -172,6 +172,77 @@ internal sealed unsafe class MacCursor(ScreenGrid screen) : IDisposable
 
         var hotspotX = (uint)Math.Clamp((int)Math.Round(shape.HotspotX * scale), 0, width - 1);
         var hotspotY = (uint)Math.Clamp((int)Math.Round(shape.HotspotY * scale), 0, height - 1);
-        return Native.CreateCursor(pixels, width, height, hotspotX, hotspotY);
+        return Create(pixels, width, height, hotspotX, hotspotY);
     }
+
+    // A cursor from top-down BGRA pixels. The alpha draws it, so the monochrome mask is all zero; its rows are padded to 16 bits.
+    private static nint Create(byte[] bgra, int width, int height, uint hotspotX, uint hotspotY)
+    {
+        var header = new BitmapInfoHeader { Size = (uint)sizeof(BitmapInfoHeader), Width = width, Height = -height, Planes = 1, BitCount = 32 };
+        void* bits;
+        var color = CreateDIBSection(0, &header, 0, &bits, 0, 0);
+
+        if (color == 0)
+        {
+            return 0;
+        }
+
+        Marshal.Copy(bgra, 0, (nint)bits, bgra.Length);
+        var zeros = new byte[(width + 15) / 16 * 2 * height];
+        nint mask;
+
+        fixed (byte* pointer = zeros)
+        {
+            mask = CreateBitmap(width, height, 1, 1, pointer);
+        }
+
+        var info = new IconInfo { Icon = 0, HotspotX = hotspotX, HotspotY = hotspotY, Mask = mask, Color = color };
+        var cursor = CreateIconIndirect(&info);
+        DeleteObject(mask);
+        DeleteObject(color);
+        return cursor;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BitmapInfoHeader
+    {
+        public uint Size;
+        public int Width;
+        public int Height;
+        public ushort Planes;
+        public ushort BitCount;
+        public uint Compression;
+        public uint SizeImage;
+        public int XPelsPerMeter;
+        public int YPelsPerMeter;
+        public uint ClrUsed;
+        public uint ClrImportant;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IconInfo
+    {
+        public int Icon;
+        public uint HotspotX;
+        public uint HotspotY;
+        public nint Mask;
+        public nint Color;
+    }
+
+    [LibraryImport("gdi32.dll")]
+    private static partial nint CreateDIBSection(nint dc, BitmapInfoHeader* info, uint usage, void** bits, nint section, uint offset);
+
+    [LibraryImport("gdi32.dll")]
+    private static partial nint CreateBitmap(int width, int height, uint planes, uint bitCount, void* bits);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DeleteObject(nint bitmap);
+
+    [LibraryImport("user32.dll")]
+    private static partial nint CreateIconIndirect(IconInfo* info);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DestroyIcon(nint icon);
 }
