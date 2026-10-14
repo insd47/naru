@@ -33,9 +33,9 @@ public sealed class HostItem : INotifyPropertyChanged
     public Found? Found { get; set; }
 
     public string Title { get => title; set => Set(ref title, value); }
-    public string Subtitle { get => subtitle; set => Set(ref subtitle, value, nameof(SubtitleVisibility)); }
+    public string Subtitle { get => subtitle; set => Set(ref subtitle, value, [nameof(SubtitleVisibility)]); }
     public string Detail { get => detail; set => Set(ref detail, value); }
-    public Presence Presence { get => presence; set => Set(ref presence, value, nameof(InSession), nameof(Connecting), nameof(Idle)); }
+    public Presence Presence { get => presence; set => Set(ref presence, value, [nameof(InSession), nameof(Connecting), nameof(Idle)]); }
 
     public Visibility SubtitleVisibility => subtitle.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     public bool InSession => presence == Presence.InSession;
@@ -92,7 +92,7 @@ public sealed class HostItem : INotifyPropertyChanged
         return $"{local.ToString("MMM d, yyyy", CultureInfo.InvariantCulture)} at {clock}";
     }
 
-    private void Set<T>(ref T field, T value, params string[] dependents)
+    private void Set<T>(ref T field, T value, string[]? dependents = null, [CallerMemberName] string? property = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))
         {
@@ -100,14 +100,9 @@ public sealed class HostItem : INotifyPropertyChanged
         }
 
         field = value;
-        Raise(dependents);
-    }
-
-    private void Raise(string[] dependents, [CallerMemberName] string? property = null)
-    {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property));
 
-        foreach (var dependent in dependents)
+        foreach (var dependent in dependents ?? [])
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(dependent));
         }
