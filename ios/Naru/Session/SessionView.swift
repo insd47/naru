@@ -59,15 +59,18 @@ struct SessionView: View {
     }
 }
 
-// Reports whether the window fills its screen. iPadOS has no property for it, so the window and screen sizes are
-// compared, either way round for rotation.
+// The window behind the session: reports whether it fills its screen, and drags the window where nothing in front
+// takes the touch.
+//
+// - iPadOS has no property for filling the screen, so the window and screen sizes are compared, either way round for
+//   rotation.
+// - The title bar drags the window only in its upper half. Touches that fall through its lower half land here.
 private struct ScreenFill: UIViewRepresentable {
     let onChange: (Bool) -> Void
 
-    // It lies behind the title bar, so it must not take the touches that drag the window.
     func makeUIView(context: Context) -> FillView {
         let view = FillView()
-        view.isUserInteractionEnabled = false
+        view.addInteraction(UIWindowSceneDragInteraction())
         return view
     }
 
