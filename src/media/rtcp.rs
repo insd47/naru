@@ -81,8 +81,7 @@ pub fn refresh_request(sender: u32, size: (u16, u16)) -> Vec<u8> {
     packet
 }
 
-/// Builds an LTR acknowledgment: an APP packet of subtype 5 naming the last top-band picture received intact by its
-/// DONL.
+/// Builds an LTR acknowledgment: an APP packet of subtype 5 naming a picture received intact by its DONL.
 ///
 /// - After a loss the server references the acknowledged picture instead of sending a keyframe. It silently ignores any
 ///   other counter in place of the DONL.
@@ -114,8 +113,7 @@ pub struct Feedback {
 /// - The server raises its video bitrate only on this feedback. Without it the bitrate stays at its 20.8 Mbps floor.
 /// - The server turns the packet count into the uplink loss it logs, and looks up its send history by the timestamp.
 ///   A wrong count reads as heavy loss, and a wrong timestamp fails the lookup.
-/// - The field after the clock is sent as 0. Apple's client sends 0 at the start and small numbers later; a fixed 20
-///   kept the bitrate from rising.
+/// - The field after the clock is sent as 0, as Apple's client sends it at the start.
 pub fn rate_feedback(sender: u32, feedback: &Feedback) -> Vec<u8> {
     let mut packet = header(0, APPLICATION, 7);
     packet.extend_from_slice(&sender.to_be_bytes());

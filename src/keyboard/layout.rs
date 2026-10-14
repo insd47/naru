@@ -55,7 +55,7 @@ mod tests {
     use super::{ABC, Layout, keysym, table};
     use crate::keyboard::tables::TABLES;
 
-    // Checks that the generated table matches the earlier hand-written Dubeolsik chart.
+    // Checks the generated table against the Dubeolsik chart.
     #[test]
     fn two_set_matches_the_dubeolsik_chart() {
         let layout = Layout::find("com.apple.keylayout.2SetHangul").unwrap();
@@ -82,7 +82,7 @@ mod tests {
         assert_eq!(layout.translate(u32::from(b'Q')), keysym('Й'));
     }
 
-    // Characters outside ABC, like Cyrillic, were already converted by the tablet layout, so they pass through.
+    // Characters outside ABC, like Cyrillic, were already converted by the client's layout, so they pass through.
     #[test]
     fn characters_outside_abc_pass_through() {
         let layout = Layout::find("com.apple.keylayout.Russian").unwrap();

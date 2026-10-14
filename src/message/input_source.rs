@@ -6,7 +6,7 @@ const SECURE: u32 = 1;
 /// The Mac's keyboard input source.
 ///
 /// - The server announces every change with a `0x455` rectangle.
-/// - The client could set it with `0x1a`, but input methods keep the previous layout, so that is not used.
+/// - The client sets it with `0x1a`, and keys wait for the announcement while the Mac switches.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct InputSource {
     /// Input source ID, e.g. `com.apple.inputmethod.Korean.2SetKorean`

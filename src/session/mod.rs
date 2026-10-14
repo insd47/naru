@@ -123,10 +123,11 @@ pub enum Event {
     AudioConfig(Vec<u8>),
     /// Audio access unit
     Audio(AudioFrame),
-    /// Access unit for the decoder. Only arrives after a decoder config, and resumes from a keyframe after a loss.
+    /// Access unit for the decoder. Only arrives after a decoder config.
     Frame(AccessUnit),
     /// Every band of one instant has arrived as frames, so show the screen they make up. Only for video in several
-    /// bands, whose bands shown one by one as they decode would put the top band ahead of the others.
+    /// bands, and not while any band's latest picture is lost or broken, so the screen never pairs bands from different
+    /// moments.
     Present,
     /// Cursor shape, used as the pointer icon
     Cursor(Arc<CursorImage>),
@@ -167,7 +168,7 @@ pub struct MediaStats {
     pub missing: u64,
     /// Number of packets that filled a gap by arriving out of order
     pub filled: u64,
-    /// Number of unrecovered losses that forced a wait for a keyframe
+    /// Number of access units that could not be recovered and were dropped
     pub losses: u64,
 }
 

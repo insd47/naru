@@ -67,7 +67,7 @@ impl Control {
         within(prelude(stream, &wrap_key, config, events)).await
     }
 
-    /// Record layer keys, also used to encrypt pointer events
+    /// Record layer keys
     pub fn keys(&self) -> &RecordKeys {
         &self.keys
     }

@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
 
 const TICK: Duration = Duration::from_millis(500);
-// The receiver feedback interval, as in Apple's client. The server raises its bitrate one step per feedback.
+// The receiver feedback interval, as in Apple's client
 const FEEDBACK: Duration = Duration::from_millis(50);
 
 // If no decoder config arrives this long after the answer, the session gives up, about as long as Apple's client waits.

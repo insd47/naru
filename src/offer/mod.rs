@@ -67,7 +67,7 @@ pub struct Offer {
     session_id: [u8; 16],
     /// SRTP key blobs
     pub keys: MediaKeys,
-    /// Client audio SSRC, used for the audio keepalive
+    /// Client audio SSRC, used as the sender SSRC of the client's audio RTCP
     pub audio_ssrc: u32,
     /// Client video SSRC, used as the sender SSRC of the client's RTCP
     pub video_ssrc: u32,
@@ -78,7 +78,7 @@ pub struct Offer {
 /// The four SRTP key blobs carried in the offer.
 #[derive(Clone)]
 pub struct MediaKeys {
-    /// Audio keepalive sent by the client
+    /// Audio RTCP sent by the client
     pub audio_send: [u8; KEY_BLOB_BYTES],
     /// Audio sent by the server
     pub audio_receive: [u8; KEY_BLOB_BYTES],

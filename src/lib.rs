@@ -7,7 +7,7 @@
 //! - `unsafe` is allowed only at the FFI boundary that UniFFI generates (`ffi`).
 //! - `record`, `RtpPacket`, and `SrtpContext` are primitives that integration tests acting as the server use to build
 //!   records and media.
-//! - `auth` exposes the RFB version string so the probe can test the handshake without authenticating.
+//! - `auth` is public so the probe can test the handshake without authenticating.
 #![deny(unsafe_code)]
 
 pub use error::{Error, Result};

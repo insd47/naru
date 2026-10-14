@@ -23,8 +23,8 @@ pub const SECURITY_TYPE: u8 = 33;
 /// First authentication message. It picks the security type and requests the server's RSA public key.
 pub const KEY_REQUEST: [u8; 15] = *b"\x21\x00\x00\x00\x0a\x01\x00RSA1\x00\x00\x00\x00";
 
-// Every server message has a `u32` length prefix. The key response is a few hundred bytes and the SRP challenge about
-// 1.2 KiB.
+/// Largest server message read. Every one has a `u32` length prefix; the key response is a few hundred bytes and the
+/// SRP challenge about 1.2 KiB.
 pub const MAX_MESSAGE_BYTES: usize = 8 << 10;
 const MAX_KEY_BYTES: usize = 2 << 10;
 

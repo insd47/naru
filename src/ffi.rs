@@ -1,4 +1,4 @@
-//! The UniFFI boundary that exposes sessions to Kotlin and Swift.
+//! The UniFFI boundary that exposes sessions to Kotlin, Swift, and C#.
 //!
 //! - The native side opens a session by passing a [`SessionListener`] to [`Session::connect`] and receives events in
 //!   order on a dedicated session thread.
@@ -119,8 +119,9 @@ pub enum Event {
     Frame {
         unit: AccessUnit,
     },
-    /// Every band of one instant has arrived as frames, so show the screen they make up. Only for HEVC, which comes in
-    /// bands.
+    /// Every band of one instant has arrived as frames, so show the screen they make up. Only for video in several
+    /// bands, and not while any band's latest picture is lost or broken, so the screen never pairs bands from different
+    /// moments.
     Present,
     /// Cursor shape as row-major RGBA with non-premultiplied alpha
     Cursor {

@@ -1,6 +1,6 @@
 use super::tables::TABLES;
 
-/// A tablet language and the Mac layout used to type it
+/// A client language and the Mac layout used to type it
 struct Language {
     /// BCP 47 primary language, plus the region or script for languages whose layout depends on it (`zh-HK`, `zh-Hant`)
     tag: &'static str,
@@ -10,7 +10,7 @@ struct Language {
 /// A Mac input method mode and the layout it overrides
 struct Mode {
     id: &'static str,
-    /// Language compared against the tablet language, shaped like [`Language::tag`]
+    /// Language compared against the client language, shaped like [`Language::tag`]
     language: &'static str,
     layout: &'static str,
 }
@@ -30,7 +30,7 @@ const LANGUAGES: [Language; 7] = [
     Language { tag: "iu",      layout: "com.apple.keylayout.Inuktitut-Nunavut" },
 ];
 
-// When the Mac is in one of these modes, tablet input of the same language is converted with its layout. This serves
+// When the Mac is in one of these modes, client input of the same language is converted with its layout. This serves
 // users of non-default layouts such as Sebeolsik or Kana typing. Modes pick their layout at runtime, so the tables
 // cannot hold them. Modes that take Latin keys, like Romaji, are left out. The Korean, Traditional Chinese, and
 // Japanese Kana modes were checked by reading the current layout after selecting each mode; Tamil 99 is paired by name
@@ -67,7 +67,7 @@ const METHODS: [(&str, &str); 8] = [
 
 const LATIN: &str = "com.apple.keylayout.ABC";
 
-/// ID of the Mac layout used to type the tablet language (a BCP 47 tag), or `None` for languages that send Latin
+/// ID of the Mac layout used to type the client language (a BCP 47 tag), or `None` for languages that send Latin
 /// letters as is.
 ///
 /// - When the Mac's reported input source (`mac`) is a mode or layout of the same language, that layout is used, to
@@ -143,7 +143,7 @@ fn keys(language: &str) -> Option<(String, Option<String>)> {
     Some((key, regional))
 }
 
-/// The Mac input source that types the tablet language, for clients that set the Mac's input source to follow their
+/// The Mac input source that types the client language, for clients that set the Mac's input source to follow their
 /// own.
 ///
 /// - A Mac already on a mode or layout of the same language (Sebeolsik, Kana typing) keeps it.
@@ -207,7 +207,7 @@ mod tests {
         assert_eq!(layout("", None), None);
     }
 
-    // A Mac mode of the same language picks its layout; one of another language leaves the tablet language's default
+    // A Mac mode of the same language picks its layout; one of another language leaves the client language's default
     // layout.
     #[test]
     fn mac_mode_of_the_same_language_picks_the_layout() {

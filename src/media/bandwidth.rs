@@ -3,13 +3,12 @@
 //! - The signal is the trend of one-way delay, as in WebRTC's delay-based estimate: for each frame, how much longer its
 //!   first packet took to arrive than its RTP timestamp advanced, accumulated and fitted to a line. A queue filling up
 //!   tilts the line upward. A fixed delay, a change in how long the Mac takes to encode, and random loss do not, so
-//!   none of them lowers the estimate. Apple's client ignores the same things.
+//!   none of them lowers the estimate. Apple's client ignores the same things. Only the first packet counts, since the
+//!   Mac spreads a frame's packets over half the frame interval, so later ones arrive later the bigger the frame.
 //! - Once the queue is full its delay stops rising, and the packets it drops show instead. More than 25% of packets
 //!   lost in the last second counts as congestion too. Apple's client kept its estimate through 10% random loss and
 //!   lowered it at 30% and more behind a bottleneck. Above 2% the estimate does not climb, as in WebRTC, since a full
 //!   queue still drops a few packets after the Mac has slowed down to nearly its rate.
-//! - The first packet of a frame, because the Mac spreads a frame's packets over half the frame interval, so later
-//!   packets arrive later the bigger the frame even with no queue.
 //! - While the delay keeps rising, the estimate falls by 15% every 450 ms, but not below 85% of what arrived in the
 //!   last second. Once it stops rising the estimate holds for 4 seconds, then climbs back linearly to the ceiling.
 //! - The numbers follow Apple's client behind a queueing bottleneck: near 85% of the bottleneck within 2.5 to 5.5
@@ -405,9 +404,8 @@ mod tests {
         assert!(path.reports.iter().all(|&(_, kbps)| kbps == 60000));
     }
 
-    // A still screen encodes faster than a moving one, so the delay steps up when motion starts. This lowered the
-    // estimate when it was judged by the delay itself rather than its trend. Encoding time varied by under 4 ms from
-    // frame to frame in Apple's captures, and steps of 15 ms pass.
+    // A still screen encodes faster than a moving one, so the delay steps up when motion starts without a queue behind
+    // it. Encoding time varied by under 4 ms from frame to frame in Apple's captures, and a step of 15 ms passes.
     #[test]
     fn a_step_in_encoding_time_does_not_lower_the_estimate() {
         let mut path = Path::new();
