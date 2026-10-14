@@ -1,9 +1,8 @@
 //! The media offer (`0x1c`) and its answer.
 //!
 //! - The offer is one binary plist each for audio and video, holding a zlib-compressed protobuf (MediaBlob).
-//! - By default the video offer lists only codec bank 123 and requests one tile, which yields a single H.264 4:2:0
-//!   stream. Listing bank 100 makes the server send HEVC 4:4:4 in four bands, which typical mobile hardware decoders
-//!   can't decode.
+//! - For H.264 the video offer lists only codec bank 123 and requests one tile, which yields a single 4:2:0 stream.
+//!   For HEVC it lists bank 100, and the server sends 4:4:4 in four bands, which many hardware decoders can't decode.
 //! - The audio offer can't be omitted. To turn audio off, a low requested bitrate stops the server from sending it.
 //! - The client generates the SRTP master keys and sends them in the offer, so compromising the control channel also
 //!   compromises the media.
