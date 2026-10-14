@@ -86,7 +86,8 @@ pub struct Media {
     // A unit was lost and no keyframe has arrived since. Frames after a loss reference what was lost, so keyframe
     // requests repeat until one arrives rather than going out once and possibly being swallowed by the rate limit.
     awaiting_keyframe: bool,
-    fir_sequence: u8,
+    // Picture size from the latest decoder config, which keyframe requests name
+    picture_size: Option<(u16, u16)>,
     // Keyframe requests sent since the last keyframe arrived
     unanswered: u32,
     // Whether frames go out intact since the last keyframe, so the server may reference them. A loss or a decoder reset
@@ -134,7 +135,7 @@ impl Media {
             group: None,
             last_keyframe_request: None,
             awaiting_keyframe: false,
-            fir_sequence: 0,
+            picture_size: None,
             unanswered: 0,
             acknowledging: false,
             datagrams: 0,
@@ -242,6 +243,9 @@ impl Media {
             match output {
                 Assembled::Config(config) => {
                     self.configured = true;
+                    self.picture_size = config
+                        .picture_size()
+                        .and_then(|(width, height)| Some((u16::try_from(width).ok()?, u16::try_from(height).ok()?)));
                     events.push(Event::DecoderConfig(config));
                 }
                 Assembled::Frame { unit, donl } => {
@@ -393,24 +397,21 @@ impl Media {
 
     /// Requests a keyframe, unless within the minimum interval, the server is quiet, or there is no stream yet.
     ///
-    /// - The request names the top band, the only one that carries keyframes.
     /// - It does not decide whether to drop frames until the keyframe. The group decides after a loss, and the native layer after recreating the decoder.
     pub async fn request_keyframe(&mut self, now: Instant) {
         let recent = self
             .last_keyframe_request
             .is_some_and(|last| now.duration_since(last) < self.keyframe_interval());
-        let Some(target) = self.streams.current().filter(|_| !recent && self.active(now)) else {
+        if recent || self.streams.current().is_none() || !self.active(now) {
             return;
-        };
-
-        // A repeat keeps the FIR sequence number, so it reads as the same request rather than a new one (RFC 5104).
-        if self.unanswered == 0 {
-            self.fir_sequence = self.fir_sequence.wrapping_add(1);
         }
 
         self.last_keyframe_request = Some(now);
         self.unanswered += 1;
-        self.send_video_rtcp(&rtcp::keyframe_request(self.video_ssrc, target, self.fir_sequence))
+
+        // Before the first decoder config the size is not known yet and goes out as 0.
+        let size = self.picture_size.unwrap_or((0, 0));
+        self.send_video_rtcp(&rtcp::keyframe_request(self.video_ssrc, size))
             .await;
     }
 

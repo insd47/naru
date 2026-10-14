@@ -50,6 +50,16 @@ impl DecoderConfig {
     pub fn annex_b(&self) -> Vec<u8> {
         annex_b(self.vps.iter().chain(&self.sps).chain(&self.pps))
     }
+
+    /// The picture size its SPS describes: the whole screen for H.264 and one band for HEVC
+    pub fn picture_size(&self) -> Option<(u32, u32)> {
+        let sps = self.sps.first()?;
+
+        match self.codec {
+            VideoCodec::H264 => h264::picture_size(sps),
+            VideoCodec::Hevc => hevc::picture_size(sps),
+        }
+    }
 }
 
 /// A complete access unit ready for the decoder.

@@ -1,4 +1,4 @@
-//! RTCP packets the client sends. All of them go out encrypted with SRTCP, the reports and requests as compound packets.
+//! RTCP packets the client sends, all encrypted with SRTCP.
 //!
 //! - The sender SSRC is the client SSRC of the stream the packet is about, negotiated in the offer. With any other SSRC,
 //!   the server cuts the stream after about 30 seconds.
@@ -7,7 +7,6 @@
 
 const RECEIVER_REPORT: u8 = 201;
 const SOURCE_DESCRIPTION: u8 = 202;
-const FEEDBACK_PAYLOAD: u8 = 206;
 const LEGACY_FIR: u8 = 192;
 const APPLICATION: u8 = 204;
 
@@ -16,9 +15,6 @@ const LTR_ACKNOWLEDGMENT: u32 = 5;
 // Apple's client sends this word after the name in every feedback packet. Its meaning is unknown.
 const RATE_FEEDBACK: &[u8; 4] = b"RCTL";
 const RATE_FEEDBACK_WORD: u32 = 0x8500_0004;
-
-const FORMAT_PLI: u8 = 1;
-const FORMAT_FIR: u8 = 4;
 
 /// Builds a receiver report (RR) with one report block per `(SSRC, extended sequence number)`, up to 31.
 pub fn receiver_report(sender: u32, sources: &[(u32, u32)]) -> Vec<u8> {
@@ -45,25 +41,15 @@ pub fn source_description(sender: u32) -> Vec<u8> {
     packet
 }
 
-/// Builds a bundle of keyframe requests.
+/// Builds a keyframe request as Apple's client sends it: a legacy FIR (RFC 2032) of its own, naming the client's video
+/// SSRC and the picture size in pixels.
 ///
-/// - The server often ignores the AVPF requests (RFC 5104 FIR, RFC 4585 PLI) and answers the legacy FIR (RFC 2032), so all three are sent.
-/// - `sequence` is the FIR command sequence number, incremented by 1 per request.
-pub fn keyframe_request(sender: u32, target: u32, sequence: u8) -> Vec<u8> {
-    let mut packet = receiver_report(sender, &[]);
-
-    packet.extend(header(FORMAT_FIR, FEEDBACK_PAYLOAD, 4));
+/// - Apple's client sends neither the AVPF FIR nor PLI. The size is the encoder's: one band for HEVC.
+pub fn keyframe_request(sender: u32, size: (u16, u16)) -> Vec<u8> {
+    let mut packet = header(0, LEGACY_FIR, 2);
     packet.extend_from_slice(&sender.to_be_bytes());
-    packet.extend_from_slice(&[0; 4]);
-    packet.extend_from_slice(&target.to_be_bytes());
-    packet.extend_from_slice(&[sequence, 0, 0, 0]);
-
-    packet.extend(header(FORMAT_PLI, FEEDBACK_PAYLOAD, 2));
-    packet.extend_from_slice(&sender.to_be_bytes());
-    packet.extend_from_slice(&target.to_be_bytes());
-
-    packet.extend(header(0, LEGACY_FIR, 1));
-    packet.extend_from_slice(&target.to_be_bytes());
+    packet.extend_from_slice(&size.0.to_be_bytes());
+    packet.extend_from_slice(&size.1.to_be_bytes());
     packet
 }
 
@@ -157,11 +143,12 @@ mod tests {
     }
 
     #[test]
-    fn keyframe_request_bundles_rr_fir_pli_and_legacy_fir() {
-        let packet = keyframe_request(1, 2, 9);
-        assert_eq!(split(&packet), [(201, 0, 8), (206, 4, 20), (206, 1, 12), (192, 0, 8)]);
-        assert_eq!(&packet[8 + 12..8 + 17], [0, 0, 0, 2, 9]);
-        assert_eq!(&packet[packet.len() - 8..], [0x80, 192, 0, 1, 0, 0, 0, 2]);
+    fn keyframe_request_matches_apples_legacy_fir() {
+        let packet = keyframe_request(0x97b1_0c13, (3560, 512));
+        assert_eq!(
+            packet,
+            [0x80, 0xc0, 0, 2, 0x97, 0xb1, 0x0c, 0x13, 0x0d, 0xe8, 0x02, 0x00]
+        );
     }
 
     #[test]

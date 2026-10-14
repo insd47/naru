@@ -9,6 +9,7 @@ pub use unit::{AccessUnit, DecoderConfig, VideoCodec};
 mod assembler;
 mod audio;
 mod bandwidth;
+mod bits;
 mod group;
 mod h264;
 mod hevc;

@@ -4,6 +4,7 @@
 //!   With one band requested the server sends the standard format without DONL, which this module does not read.
 //! - DONL counts pictures across all four bands in decoding order, and an LTR acknowledgment names a picture by it.
 //! - Parameter sets (VPS, SPS, PPS) arrive in-stream with the keyframe, not in a config packet.
+use super::bits::Bits;
 use super::unit::{DecoderConfig, VideoCodec};
 use crate::reader::Reader;
 
@@ -43,6 +44,57 @@ impl DecoderConfig {
             pps,
         })
     }
+}
+
+/// The picture size an SPS describes, after its conformance window: one band's size for the banded video.
+pub fn picture_size(sps: &[u8]) -> Option<(u32, u32)> {
+    let mut bits = Bits::new(sps.get(2..)?);
+
+    // sps_video_parameter_set_id, then the sub-layer count and temporal_id_nesting_flag
+    bits.skip(4)?;
+    let sub_layers = bits.read(3)?;
+    bits.skip(1)?;
+
+    // profile_tier_level: the general profile and level, the sub-layer presence flags padded to eight, then each
+    // sub-layer's profile (88 bits) and level (8 bits) when present.
+    bits.skip(96)?;
+    let present: Vec<(u32, u32)> = (0..sub_layers)
+        .map(|_| Some((bits.read(1)?, bits.read(1)?)))
+        .collect::<Option<_>>()?;
+
+    if sub_layers > 0 {
+        bits.skip(2 * (8 - sub_layers))?;
+    }
+
+    for (profile, level) in present {
+        bits.skip(profile * 88 + level * 8)?;
+    }
+
+    bits.ue()?;
+    let chroma_format = bits.ue()?;
+
+    if chroma_format == 3 {
+        bits.skip(1)?;
+    }
+
+    let (width, height) = (bits.ue()?, bits.ue()?);
+
+    if bits.read(1)? == 0 {
+        return Some((width, height));
+    }
+
+    // The conformance window counts in chroma samples: 2 luma samples across for 4:2:0 and 4:2:2, 2 down for 4:2:0.
+    let (across, down) = match chroma_format {
+        1 => (2, 2),
+        2 => (2, 1),
+        _ => (1, 1),
+    };
+    let (left, right, top, bottom) = (bits.ue()?, bits.ue()?, bits.ue()?, bits.ue()?);
+
+    Some((
+        width.checked_sub(across * (left + right))?,
+        height.checked_sub(down * (top + bottom))?,
+    ))
 }
 
 /// Type from the NAL header, or `None` if the header is shorter than 2 bytes
@@ -135,7 +187,7 @@ fn rbsp(bytes: &[u8], len: usize) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{depacketize, is_keyframe};
+    use super::{depacketize, is_keyframe, picture_size};
     use crate::media::unit::{AccessUnit, DecoderConfig, VideoCodec};
 
     // Parameter sets captured from a Mac streaming a 2420×1668 virtual display.
@@ -258,5 +310,18 @@ mod tests {
                 .0
                 .has_sps()
         );
+    }
+
+    #[test]
+    fn picture_size_reads_past_the_profile_and_level() {
+        // The SPS a Mac sent for a 2420×1668 virtual display, as in the iPad app's decoder check
+        let sps = [
+            0x42, 0x01, 0x01, 0x04, 0x08, 0x00, 0x00, 0x03, 0x00, 0xbe, 0x08, 0x00, 0x00, 0x03, 0x00, 0x00, 0x96, 0x90,
+            0x00, 0x26, 0x04, 0x00, 0xd2, 0x38, 0xd8, 0xdc, 0x40, 0x67, 0x72, 0x29, 0x0c, 0x5c, 0xfe, 0x27, 0xe1, 0x7f,
+            0x43, 0x7e,
+        ];
+
+        assert_eq!(picture_size(&sps), Some((2420, 1668)));
+        assert_eq!(picture_size(&sps[..20]), None);
     }
 }

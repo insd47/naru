@@ -2,6 +2,7 @@
 //!
 //! - The server doesn't send SPS and PPS as separate NAL units; it sends them as an ISO BMFF `avcC` box in a config packet whose first byte is `0x92`. That byte has the forbidden bit set and isn't a valid NAL header, so it is checked before the NAL type.
 //! - A keyframe can arrive as an I slice inside a type 1 NAL unit instead of an IDR (type 5).
+use super::bits::Bits;
 use super::unit::{DecoderConfig, VideoCodec};
 use crate::error::Result;
 use crate::reader::Reader;
@@ -127,6 +128,112 @@ pub fn is_keyframe(nals: &[Vec<u8>]) -> bool {
         .is_some_and(|slice_type| slice_type % 5 == 2)
 }
 
+/// The picture size an SPS describes, after its frame cropping.
+pub fn picture_size(sps: &[u8]) -> Option<(u32, u32)> {
+    let mut bits = Bits::new(sps.get(1..)?);
+    let profile = bits.read(8)?;
+
+    // constraint flags and level_idc, then seq_parameter_set_id
+    bits.skip(16)?;
+    bits.ue()?;
+
+    // High profiles carry the chroma format, bit depths, and optional scaling lists.
+    let mut chroma_format = 1;
+
+    if matches!(
+        profile,
+        44 | 83 | 86 | 100 | 110 | 118 | 122 | 128 | 134 | 135 | 138 | 139 | 144 | 244
+    ) {
+        chroma_format = bits.ue()?;
+
+        if chroma_format == 3 {
+            bits.skip(1)?;
+        }
+
+        bits.ue()?;
+        bits.ue()?;
+        bits.skip(1)?;
+
+        if bits.read(1)? == 1 {
+            let lists = if chroma_format == 3 { 12 } else { 8 };
+
+            for list in 0..lists {
+                if bits.read(1)? == 1 {
+                    skip_scaling_list(&mut bits, if list < 6 { 16 } else { 64 })?;
+                }
+            }
+        }
+    }
+
+    bits.ue()?;
+
+    match bits.ue()? {
+        0 => {
+            bits.ue()?;
+        }
+        1 => {
+            bits.skip(1)?;
+            bits.se()?;
+            bits.se()?;
+
+            for _ in 0..bits.ue()? {
+                bits.se()?;
+            }
+        }
+        _ => {}
+    }
+
+    // max_num_ref_frames and gaps_in_frame_num_value_allowed_flag
+    bits.ue()?;
+    bits.skip(1)?;
+
+    let width = (bits.ue()? + 1) * 16;
+    let map_units = bits.ue()? + 1;
+    let frames_only = bits.read(1)?;
+    let height = (2 - frames_only) * map_units * 16;
+
+    if frames_only == 0 {
+        bits.skip(1)?;
+    }
+
+    bits.skip(1)?;
+
+    if bits.read(1)? == 0 {
+        return Some((width, height));
+    }
+
+    // Cropping counts in chroma samples, and in field pairs when the picture can be interlaced.
+    let (across, down) = match chroma_format {
+        0 | 3 => (1, 1),
+        2 => (2, 1),
+        _ => (2, 2),
+    };
+    let down = down * (2 - frames_only);
+    let (left, right, top, bottom) = (bits.ue()?, bits.ue()?, bits.ue()?, bits.ue()?);
+
+    Some((
+        width.checked_sub(across * (left + right))?,
+        height.checked_sub(down * (top + bottom))?,
+    ))
+}
+
+// Skips one scaling list, whose entries are deltas until one makes the next value 0.
+fn skip_scaling_list(bits: &mut Bits, size: usize) -> Option<()> {
+    let mut next = 8;
+
+    for _ in 0..size {
+        if next != 0 {
+            next = (next + bits.se()? + 256) % 256;
+        }
+
+        if next == 0 {
+            break;
+        }
+    }
+
+    Some(())
+}
+
 // Reads `count` NAL units, each with a `u16` length prefix.
 fn units(reader: &mut Reader, count: u8) -> Result<Vec<Vec<u8>>> {
     (0..count)
@@ -141,70 +248,9 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|window| window == needle)
 }
 
-// Reads RBSP bits front to back, skipping emulation prevention bytes (the 03 in 00 00 03).
-struct Bits<'a> {
-    bytes: &'a [u8],
-    at: usize,
-    bit: u8,
-    zeros: u8,
-}
-
-impl<'a> Bits<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self {
-            bytes,
-            at: 0,
-            bit: 0,
-            zeros: 0,
-        }
-    }
-
-    fn bit(&mut self) -> Option<u32> {
-        if self.bit == 0 {
-            if self.zeros >= 2 && self.bytes.get(self.at) == Some(&3) {
-                self.at += 1;
-                self.zeros = 0;
-            }
-
-            let byte = *self.bytes.get(self.at)?;
-            self.zeros = if byte == 0 { self.zeros + 1 } else { 0 };
-        }
-
-        let value = (self.bytes[self.at] >> (7 - self.bit)) & 1;
-        self.bit += 1;
-
-        if self.bit == 8 {
-            self.bit = 0;
-            self.at += 1;
-        }
-
-        Some(u32::from(value))
-    }
-
-    fn ue(&mut self) -> Option<u32> {
-        let mut zeros = 0;
-
-        while self.bit()? == 0 {
-            zeros += 1;
-
-            if zeros > 31 {
-                return None;
-            }
-        }
-
-        let mut value = 1u64;
-
-        for _ in 0..zeros {
-            value = value << 1 | u64::from(self.bit()?);
-        }
-
-        u32::try_from(value - 1).ok()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{depacketize, is_keyframe};
+    use super::{depacketize, is_keyframe, picture_size};
     use crate::media::unit::{AccessUnit, DecoderConfig, VideoCodec};
 
     const SPS: &[u8] = &[0x67, 0x64, 0x00, 0x34, 0xac];
@@ -290,5 +336,22 @@ mod tests {
         assert!(idr.keyframe);
         assert_eq!(idr.annex_b(), [0, 0, 0, 1, 0x65]);
         assert_eq!(donl, None);
+    }
+
+    #[test]
+    fn picture_size_applies_the_frame_cropping() {
+        // x264's High profile SPS for 2800×1752, which crops 8 rows off 110 macroblocks, and Baseline for 1920×1080
+        let high = [
+            0x67, 0x64, 0x00, 0x32, 0xac, 0xd9, 0x40, 0x2b, 0xc0, 0xdd, 0xf9, 0x70, 0x11, 0x00, 0x00, 0x03, 0x00, 0x01,
+            0x00, 0x00, 0x03, 0x00, 0x32, 0x0f, 0x18, 0x31, 0x96,
+        ];
+        let baseline = [
+            0x67, 0x42, 0xc0, 0x28, 0xd9, 0x00, 0x78, 0x02, 0x27, 0xe5, 0xc0, 0x44, 0x00, 0x00, 0x03, 0x00, 0x04, 0x00,
+            0x00, 0x03, 0x00, 0xc8, 0x3c, 0x60, 0xc9, 0x20,
+        ];
+
+        assert_eq!(picture_size(&high), Some((2800, 1752)));
+        assert_eq!(picture_size(&baseline), Some((1920, 1080)));
+        assert_eq!(picture_size(&high[..6]), None);
     }
 }
