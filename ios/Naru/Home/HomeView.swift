@@ -257,7 +257,7 @@ extension FocusedValues {
 ///   for the whole window would have the Mac resize its display as soon as the screen appears.
 @MainActor
 func virtualDisplay() -> DisplayMode? {
-    guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else {
+    guard let window = UIWindow.key else {
         return nil
     }
 
@@ -269,5 +269,5 @@ func virtualDisplay() -> DisplayMode? {
     }
 
     guard size.width > 0, size.height > 0 else { return nil }
-    return DisplayMode(width: UInt32(size.width.rounded()), height: UInt32(size.height.rounded()), scale: 2)
+    return DisplayMode(size: size)
 }

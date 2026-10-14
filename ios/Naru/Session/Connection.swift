@@ -3,7 +3,8 @@ import os
 
 /// Opens one session and routes the events the core pushes to video, audio, and the UI.
 ///
-/// - Events arrive on the session's event thread. Video and audio are fed directly on that thread, and the rest go to [announce].
+/// - Events arrive on the session's event thread. Video, audio, and the input source are handled directly on that thread,
+///   and the rest go to [announce].
 /// - The core drops input sent after the session ends.
 final class Connection: SessionListener, @unchecked Sendable {
     let video: Video
@@ -11,11 +12,10 @@ final class Connection: SessionListener, @unchecked Sendable {
     private var session: Session!
     private let announce: @Sendable (Event) -> Void
     private let log = Logger(subsystem: Diagnostics.subsystem, category: "Connection")
-    private let sourceLock = NSLock()
-    private var latestSource: InputSource?
+    private let latestSource = OSAllocatedUnfairLock<InputSource?>(uncheckedState: nil)
 
     /// The Mac's latest input source, which decides what keys type there
-    var source: InputSource? { sourceLock.withLock { latestSource } }
+    var source: InputSource? { latestSource.withLockUnchecked { $0 } }
 
     // The session starts its event thread while connecting, so the video that receives events must exist first.
     @MainActor
@@ -53,38 +53,35 @@ final class Connection: SessionListener, @unchecked Sendable {
     // Video and audio arrive dozens of times a second, so they are neither passed to the UI nor logged.
     func onEvent(event: Event) {
         switch event {
-        case .frame, .present, .audio, .stats:
-            break
+        case let .frame(unit):
+            video.queue(unit)
+            return
+        case .present:
+            video.present()
+            return
+        case let .audio(frame):
+            audio?.play(frame)
+            return
+        case let .stats(stats):
+            video.report(stats)
+            return
         default:
             log.log("\(Self.describe(event), privacy: .public)")
         }
 
-        if case let .source(source) = event {
-            sourceLock.withLock { latestSource = source }
-        }
-
         switch event {
-        case let .frame(unit):
-            video.queue(unit)
-        case .present:
-            video.present()
-        case let .audio(frame):
-            audio?.play(frame)
-        case let .stats(stats):
-            video.report(stats)
+        case let .source(source):
+            latestSource.withLockUnchecked { $0 = source }
         case let .decoder(config):
             video.configure(config)
-            announce(event)
         case .resetDecoder:
             video.reset()
-            announce(event)
         case let .audioConfig(config):
             // If audio cannot play, continue with video only.
             audio = Audio(config: config)
             if audio == nil {
                 log.error("audio decoder could not be created")
             }
-            announce(event)
         case .closed:
             audio = nil
             announce(event)

@@ -37,12 +37,6 @@ enum Diagnostics {
         return "\(type(of: window)) (\(root), level \(window.windowLevel.rawValue))"
     }
 
-    /// The key window of the app's foreground scene
-    @MainActor
-    static var keyWindow: UIWindow? {
-        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
-    }
-
     /// Writes the header and this launch's log to a text file and returns its location.
     static func export(header: [String]) throws -> URL {
         let store = try OSLogStore(scope: .currentProcessIdentifier)

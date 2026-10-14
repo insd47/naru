@@ -105,7 +105,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         if bounds.size != measured, bounds.width > 0, bounds.height > 0 {
             measured = bounds.size
             resizing?.cancel()
-            let mode = DisplayMode(width: UInt32(bounds.width.rounded()), height: UInt32(bounds.height.rounded()), scale: 2)
+            let mode = DisplayMode(size: bounds.size)
             let work = DispatchWorkItem { [weak self] in self?.onResize(mode) }
             resizing = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
@@ -131,7 +131,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
-        Diagnostics.input.log("Screen became first responder: \(became), in the key window: \(self.window?.isKeyWindow == true), key window \(Diagnostics.describe(Diagnostics.keyWindow), privacy: .public)")
+        Diagnostics.input.log("Screen became first responder: \(became), in the key window: \(self.window?.isKeyWindow == true), key window \(Diagnostics.describe(UIWindow.key), privacy: .public)")
         return became
     }
 
@@ -342,14 +342,11 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     // Gives each finger's position to the touchpad in layout pixels. Positions are not clamped to the screen because movement is relative.
     private func finger(_ touches: Set<UITouch>, _ phase: TouchPhase) {
         guard let layout else { return }
-        let rect = videoRect(layout)
 
         for touch in touches where touch.type == .direct {
-            let location = touch.location(in: self)
-            let x = (location.x - rect.minX) / rect.width * layout.pixels.width
-            let y = (location.y - rect.minY) / rect.height * layout.pixels.height
+            let pixel = layoutPixel(touch.location(in: self), layout)
             let id = UInt32(truncatingIfNeeded: ObjectIdentifier(touch).hashValue)
-            touchpad.touch(id: id, phase: phase, x: Float(x), y: Float(y)).forEach { gesture($0, layout) }
+            touchpad.touch(id: id, phase: phase, x: Float(pixel.x), y: Float(pixel.y)).forEach { gesture($0, layout) }
         }
     }
 
@@ -365,10 +362,10 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
             let rect = videoRect(layout)
             pointer = CGPoint(x: rect.minX + at.x / layout.pixels.width * rect.width, y: rect.minY + at.y / layout.pixels.height * rect.height)
             placeCursor()
-            connection?.pointer(touchButtons, x: UInt16(at.x.rounded()), y: UInt16(at.y.rounded()))
+            sendPointer(touchButtons)
         case let .buttons(buttons):
             touchButtons = buttons
-            connection?.pointer(buttons, x: UInt16(at.x.rounded()), y: UInt16(at.y.rounded()))
+            sendPointer(buttons)
         case let .scroll(phase, dx, dy):
             connection?.scroll(phase, dx: dx * pointsPerPixel, dy: dy * pointsPerPixel)
 
@@ -403,15 +400,23 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         pointer = location
         placeCursor()
 
-        guard let connection, let layout else {
+        guard let layout else {
             return
         }
 
+        let pixel = layoutPixel(location, layout)
+        at = CGPoint(x: pixel.x.clamped(to: 0...(layout.pixels.width - 1)), y: pixel.y.clamped(to: 0...(layout.pixels.height - 1)))
+        sendPointer(buttons)
+    }
+
+    // The layout pixel under a point of this view, not clamped to the screen
+    private func layoutPixel(_ location: CGPoint, _ layout: SessionController.Layout) -> CGPoint {
         let rect = videoRect(layout)
-        let x = ((location.x - rect.minX) / rect.width * layout.pixels.width).clamped(to: 0...(layout.pixels.width - 1))
-        let y = ((location.y - rect.minY) / rect.height * layout.pixels.height).clamped(to: 0...(layout.pixels.height - 1))
-        at = CGPoint(x: x, y: y)
-        connection.pointer(buttons, x: UInt16(x), y: UInt16(y))
+        return CGPoint(x: (location.x - rect.minX) / rect.width * layout.pixels.width, y: (location.y - rect.minY) / rect.height * layout.pixels.height)
+    }
+
+    private func sendPointer(_ buttons: UInt8) {
+        connection?.pointer(buttons, x: UInt16(at.x.rounded()), y: UInt16(at.y.rounded()))
     }
 
     // Trackpad scrolling is converted to Mac points. The scroll begins with the movement the recognizer needed to begin,
@@ -490,7 +495,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         cursorLayer.contents = cursor.image
         cursorLayer.frame = CGRect(
             x: pointer.x - cursor.hotspot.x * scale, y: pointer.y - cursor.hotspot.y * scale,
-            width: cursor.size.width * scale, height: cursor.size.height * scale
+            width: CGFloat(cursor.image.width) * scale, height: CGFloat(cursor.image.height) * scale
         )
     }
 
@@ -507,5 +512,12 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 private extension CGFloat {
     func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
         Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+extension DisplayMode {
+    /// A Retina virtual display of `size` in points
+    init(size: CGSize) {
+        self.init(width: UInt32(size.width.rounded()), height: UInt32(size.height.rounded()), scale: 2)
     }
 }

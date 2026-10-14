@@ -367,6 +367,15 @@ final class Video: @unchecked Sendable {
         return (image, wrapped)
     }
 
+    // Metal reads the pictures as BGRA textures, which a software decoder does not produce by itself.
+    private static var decodedAttributes: CFDictionary {
+        [
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferMetalCompatibilityKey: true,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+        ] as CFDictionary
+    }
+
     /// Whether this device's hardware decoder can decode the server's HEVC 4:4:4
     ///
     /// - `VTIsHardwareDecodeSupported` ignores the chroma format, so this tries to create a hardware-only session from 4:4:4 parameter sets the server sent.
@@ -377,15 +386,9 @@ final class Video: @unchecked Sendable {
 
         let specification = [kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder: true] as CFDictionary
         var session: VTDecompressionSession?
-        // Metal reads the pictures as BGRA textures, which a software decoder does not produce by itself.
-        let attributes = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferMetalCompatibilityKey: true,
-            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
-        ] as CFDictionary
         let status = VTDecompressionSessionCreate(
             allocator: nil, formatDescription: format, decoderSpecification: specification,
-            imageBufferAttributes: attributes, outputCallback: nil, decompressionSessionOut: &session
+            imageBufferAttributes: decodedAttributes, outputCallback: nil, decompressionSessionOut: &session
         )
 
         if let session { VTDecompressionSessionInvalidate(session) }
@@ -451,15 +454,9 @@ final class Video: @unchecked Sendable {
     private static func session(_ format: CMVideoFormatDescription) -> VTDecompressionSession? {
         let specification = [kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder: true] as CFDictionary
         var session: VTDecompressionSession?
-        // Metal reads the pictures as BGRA textures, which a software decoder does not produce by itself.
-        let attributes = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferMetalCompatibilityKey: true,
-            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
-        ] as CFDictionary
         let status = VTDecompressionSessionCreate(
             allocator: nil, formatDescription: format, decoderSpecification: specification,
-            imageBufferAttributes: attributes, outputCallback: nil, decompressionSessionOut: &session
+            imageBufferAttributes: decodedAttributes, outputCallback: nil, decompressionSessionOut: &session
         )
 
         guard let session else {

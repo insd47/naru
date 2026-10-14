@@ -31,19 +31,18 @@ struct NaruCommands: Commands {
 
         CommandGroup(after: .pasteboard) {
             Divider()
-            Toggle("Use Shared Clipboard", isOn: Binding(get: { preferences.sharedClipboard }, set: { preferences.sharedClipboard = $0 }))
+            Toggle("Use Shared Clipboard", isOn: Bindable(preferences).sharedClipboard)
             Button("Send Clipboard") { session.sendClipboard() }
                 .disabled(session.connection == nil)
             Divider()
-            Toggle("Sync Keyboard Language", isOn: Binding(get: { preferences.syncKeyboardLanguage }, set: { preferences.syncKeyboardLanguage = $0 }))
+            Toggle("Sync Keyboard Language", isOn: Bindable(preferences).syncKeyboardLanguage)
         }
 
-        // The Mac's default shortcuts: Control-Up Arrow, Control-Down Arrow, F11
         CommandGroup(replacing: .toolbar) {
             Group {
-                Button("Mission Control") { session.press([0xffe3, 0xff52]) }
-                Button("App Windows") { session.press([0xffe3, 0xff54]) }
-                Button("Desktop") { session.press([0xffc8]) }
+                Button("Mission Control") { session.press(.missionControl) }
+                Button("App Windows") { session.press(.appWindows) }
+                Button("Desktop") { session.press(.desktop) }
             }
             .disabled(session.connection == nil)
         }
@@ -61,11 +60,8 @@ struct NaruCommands: Commands {
     }
 
     private var recent: [Host] {
-        hosts.list
-            .filter { $0.lastConnected != nil }
-            .sorted { $0.lastConnected! > $1.lastConnected! }
-            .prefix(10)
-            .map(\.self)
+        let connected = hosts.list.compactMap { host in host.lastConnected.map { (host, $0) } }
+        return connected.sorted { $0.1 > $1.1 }.prefix(10).map(\.0)
     }
 
     private func shortcut(_ key: KeyEquivalent) -> KeyboardShortcut? {

@@ -5,7 +5,7 @@ import AVFoundation
 ///
 /// - Call only from the session's event thread. Audio plays as it arrives, without syncing to video.
 /// - The AudioSpecificConfig is wrapped in an MPEG-4 ES descriptor, the magic cookie format AudioToolbox reads, so the system determines the sample rate and channels.
-final class Audio: @unchecked Sendable {
+final class Audio {
     private let queue: AudioQueueRef
 
     init?(config: Data) {

@@ -10,14 +10,14 @@ import UIKit
 final class SessionController {
     /// The session stage. Every case carries the Mac it belongs to in [host].
     enum State: Equatable {
-        case connecting(Host, Stage)
+        case connecting(Host)
         /// Authentication succeeded. The screen may still be loading.
         case connected(Host)
         case failed(Host, Failure)
 
         var host: Host {
             switch self {
-            case let .connecting(host, _), let .connected(host), let .failed(host, _): host
+            case let .connecting(host), let .connected(host), let .failed(host, _): host
             }
         }
     }
@@ -35,10 +35,23 @@ final class SessionController {
         var pixels: CGSize
     }
 
-    /// The cursor image. Size and hotspot are in the Mac's logical coordinates.
+    /// A Mac shortcut iPadOS takes for its own three-finger gestures, sent from the View menu and the toolbar
+    enum Shortcut {
+        case missionControl, appWindows, desktop
+
+        // The Mac's defaults: Control-Up Arrow, Control-Down Arrow, F11
+        var keysyms: [UInt32] {
+            switch self {
+            case .missionControl: [0xffe3, 0xff52]
+            case .appWindows: [0xffe3, 0xff54]
+            case .desktop: [0xffc8]
+            }
+        }
+    }
+
+    /// The cursor image. Its size and hotspot are in the Mac's logical coordinates.
     struct Cursor {
         var image: CGImage
-        var size: CGSize
         var hotspot: CGPoint
     }
 
@@ -49,10 +62,6 @@ final class SessionController {
     private(set) var cursor: Cursor?
     /// Whether the first frame has been drawn
     private(set) var shown = false
-    /// The codec of the server's video, or `nil` before the first decoder config arrives.
-    private(set) var codec: VideoCodec?
-    /// One line with why the last session ended, including its cause chain, or `nil` if it was closed normally. Shown on the diagnostics screen.
-    private(set) var closedDetail: String?
     /// Whether the Mac's input source follows the iPad's input language
     var syncsKeyboardLanguage: Bool { preferences.syncKeyboardLanguage }
 
@@ -74,11 +83,8 @@ final class SessionController {
     /// Opens a session with this Mac, closing any session already open.
     func open(_ host: Host, credentials: Credentials, display: DisplayMode?) {
         connection?.disconnect()
-        state = .connecting(host, .warmup)
-        layout = nil
-        cursor = nil
-        shown = false
-        codec = nil
+        state = .connecting(host)
+        clearScreen()
 
         let config = Config(
             host: host.address, port: UInt16(host.port), username: credentials.username, password: credentials.password,
@@ -148,14 +154,14 @@ final class SessionController {
         }
     }
 
-    /// Presses a shortcut's keys in order and releases them in reverse. Used from the View menu in place of three-finger gestures that iPadOS takes.
-    func press(_ keysyms: [UInt32]) {
+    /// Presses a shortcut's keys in order and releases them in reverse.
+    func press(_ shortcut: Shortcut) {
         guard let connection else {
             return
         }
 
-        keysyms.forEach { connection.key($0, down: true) }
-        keysyms.reversed().forEach { connection.key($0, down: false) }
+        shortcut.keysyms.forEach { connection.key($0, down: true) }
+        shortcut.keysyms.reversed().forEach { connection.key($0, down: false) }
     }
 
     /// Writes the diagnostics log to a file and offers it in the share sheet.
@@ -168,15 +174,12 @@ final class SessionController {
         let header = [
             "Naru \(info?["CFBundleShortVersionString"] ?? "?") (\(info?["CFBundleVersion"] ?? "?")), iPadOS \(UIDevice.current.systemVersion), \(model)",
             "HEVC 4:4:4 hardware decoding: \(Video.decodesHevc444 ? "supported" : "unsupported")",
-            "Session codec: \(codec.map { $0 == .hevc ? "HEVC 4:4:4" : "H.264" } ?? "no session")",
-            "Last session ended: \(closedDetail ?? "none")",
             "Input modes: \(UITextInputMode.activeInputModes.compactMap(\.primaryLanguage).joined(separator: ", ")), system language \(Locale.preferredLanguages.first ?? "none")",
         ]
 
-        guard let file = try? Diagnostics.export(header: header),
-              let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
-              var top = scene.keyWindow?.rootViewController
-        else { return }
+        guard let file = try? Diagnostics.export(header: header), var top = UIWindow.key?.rootViewController else {
+            return
+        }
 
         while let presented = top.presentedViewController { top = presented }
 
@@ -239,13 +242,8 @@ final class SessionController {
             )
         case let .cursor(width, height, hotspotX, hotspotY, rgba):
             cursor = Self.cursor(width: Int(width), height: Int(height), rgba: rgba)
-                .map { Cursor(image: $0, size: CGSize(width: Int(width), height: Int(height)), hotspot: CGPoint(x: Int(hotspotX), y: Int(hotspotY))) }
-        case let .decoder(config):
-            codec = config.codec
-        case let .progress(stage):
-            if case .connecting = state { state = .connecting(running.host, stage) }
-        case let .closed(failure, detail):
-            closedDetail = detail
+                .map { Cursor(image: $0, hotspot: CGPoint(x: Int(hotspotX), y: Int(hotspotY))) }
+        case let .closed(failure, _):
             end(running, failure: failure)
         default:
             break
@@ -294,10 +292,7 @@ final class SessionController {
         self.running = nil
         connection = nil
         presented = false
-        layout = nil
-        cursor = nil
-        shown = false
-        codec = nil
+        clearScreen()
         state = failure.map { .failed(running.host, $0) }
 
         if failure == .rejected {
@@ -305,6 +300,12 @@ final class SessionController {
         }
 
         endBackground()
+    }
+
+    private func clearScreen() {
+        layout = nil
+        cursor = nil
+        shown = false
     }
 
     // The core provides non-premultiplied RGBA.

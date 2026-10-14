@@ -47,11 +47,10 @@ struct SessionView: View {
             Button("Connections", systemImage: "chevron.backward") { session.presented = false }
         }
 
-        // The Mac's default shortcuts: Control-Up Arrow, Control-Down Arrow, F11
         ToolbarItemGroup(placement: .topBarTrailing) {
-            Button("Mission Control", systemImage: "rectangle.3.group") { session.press([0xffe3, 0xff52]) }
-            Button("App Windows", systemImage: "macwindow.on.rectangle") { session.press([0xffe3, 0xff54]) }
-            Button("Desktop", systemImage: "menubar.dock.rectangle") { session.press([0xffc8]) }
+            Button("Mission Control", systemImage: "rectangle.3.group") { session.press(.missionControl) }
+            Button("App Windows", systemImage: "macwindow.on.rectangle") { session.press(.appWindows) }
+            Button("Desktop", systemImage: "menubar.dock.rectangle") { session.press(.desktop) }
             Menu("More", systemImage: "ellipsis") {
                 Button("Disconnect", systemImage: "xmark", role: .destructive) { session.close() }
             }
@@ -114,6 +113,11 @@ private struct Screen: UIViewRepresentable {
 }
 
 extension UIWindow {
+    /// The key window of the app's foreground scene
+    static var key: UIWindow? {
+        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+    }
+
     /// Whether the window fills its screen. iPadOS has no property for it, so the sizes are compared, either way round
     /// for rotation.
     var fillsScreen: Bool {
