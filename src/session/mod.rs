@@ -249,7 +249,7 @@ impl Session {
     }
 
     /// Presses or releases a key. The key is an X11 keysym of what the Mac should type; Command is Super (`0xffeb`) and
-    /// Option is Alt (`0xffe9`).
+    /// Option is Meta (`0xffe7`).
     ///
     /// - It goes to the Mac as is. Choosing it is the client's job; the FFI's `character` gives what a Latin key types
     ///   in a language.

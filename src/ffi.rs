@@ -265,8 +265,9 @@ impl Session {
         Arc::new(Self { session })
     }
 
-    /// Key input. `keysym` is an X11 keysym of what the Mac should type, sent as is; [`character`] gives what a Latin
-    /// key types in a language. Release with the keysym that was pressed.
+    /// Key input. `keysym` is an X11 keysym of what the Mac should type, sent as is; Command is Super (`0xffeb`) and
+    /// Option is Meta (`0xffe7`), and [`character`] gives what a Latin key types in a language. Release with the keysym
+    /// that was pressed.
     pub fn key(&self, keysym: u32, down: bool) {
         let _ = self.session.key(keysym, down);
     }
