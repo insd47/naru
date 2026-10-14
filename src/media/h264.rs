@@ -282,11 +282,12 @@ mod tests {
 
     #[test]
     fn in_band_sps_is_detected() {
-        let with_sps = AccessUnit::depacketize(VideoCodec::H264, 1, 0, [SPS, &[0x65][..]]).unwrap();
-        let idr = AccessUnit::depacketize(VideoCodec::H264, 1, 0, [&[0x65][..]]).unwrap();
+        let (with_sps, _) = AccessUnit::depacketize(VideoCodec::H264, 1, 0, 0, [SPS, &[0x65][..]]).unwrap();
+        let (idr, donl) = AccessUnit::depacketize(VideoCodec::H264, 1, 0, 0, [&[0x65][..]]).unwrap();
         assert!(with_sps.has_sps());
         assert!(!idr.has_sps());
         assert!(idr.keyframe);
         assert_eq!(idr.annex_b(), [0, 0, 0, 1, 0x65]);
+        assert_eq!(donl, None);
     }
 }

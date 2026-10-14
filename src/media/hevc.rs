@@ -1,6 +1,8 @@
-//! HEVC RTP payload (RFC 7798, without DONL).
+//! HEVC RTP payload (RFC 7798 with a decoding order number).
 //!
-//! - When one tile is requested, the server sends the standard format without DONL. Only with four tiles does every structure carry a 2-byte DONL.
+//! - The video comes as four bands, and every structure carries a 2-byte DONL, each fragment of a split NAL included.
+//!   With one band requested the server sends the standard format without DONL, which this module no longer reads.
+//! - DONL counts pictures across all four bands in decoding order, and an LTR acknowledgment names a picture by it.
 //! - Parameter sets (VPS, SPS, PPS) arrive in-stream with the keyframe, not in a config packet.
 use super::unit::{DecoderConfig, VideoCodec};
 use crate::reader::Reader;
@@ -47,20 +49,29 @@ pub fn nal_type(nal: &[u8]) -> Option<u8> {
     (nal.len() >= 2).then(|| (nal[0] >> 1) & 0x3f)
 }
 
-/// Turns one access unit's payloads back into a list of NAL units. Returns `None` if a fragment is missing or malformed.
-pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<Vec<Vec<u8>>> {
+/// Turns one access unit's payloads back into NAL units and the unit's DONL. Returns `None` if a fragment is missing or malformed.
+pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<(Vec<Vec<u8>>, u16)> {
     let mut nals = Vec::new();
     let mut fragment: Option<Vec<u8>> = None;
+    let mut donl = None;
 
     for payload in payloads {
-        match nal_type(payload)? {
+        let kind = nal_type(payload)?;
+        let at = if kind == NAL_FU { 3 } else { 2 };
+        let mut reader = Reader::new(payload.get(at..)?, "HEVC payload");
+        donl.get_or_insert(reader.u16().ok()?);
+        let body = reader.rest();
+
+        match kind {
             0..NAL_AP => {
                 fragment.is_none().then_some(())?;
-                nals.push(payload.to_vec());
+                let mut nal = payload[..2].to_vec();
+                nal.extend_from_slice(body);
+                nals.push(nal);
             }
             NAL_AP => {
                 fragment.is_none().then_some(())?;
-                let mut reader = Reader::new(&payload[2..], "AP");
+                let mut reader = Reader::new(body, "AP");
 
                 while reader.remaining() > 0 {
                     let len = reader.u16().ok()? as usize;
@@ -68,8 +79,7 @@ pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<V
                 }
             }
             NAL_FU => {
-                let header = *payload.get(2)?;
-                let body = &payload[3..];
+                let header = payload[2];
                 let (start, end) = (header & 0x80 != 0, header & 0x40 != 0);
 
                 // The original NAL header is the payload header with its type bits replaced by the type from the FU header.
@@ -90,7 +100,8 @@ pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<V
         }
     }
 
-    fragment.is_none().then_some(nals)
+    fragment.is_none().then_some(())?;
+    Some((nals, donl?))
 }
 
 /// An access unit is a keyframe if it contains an IRAP picture.
@@ -138,8 +149,9 @@ mod tests {
     const PPS: &[u8] = &[0x44, 0x01, 0xc0, 0x72, 0xf0, 0x5b, 0x24];
     const IDR: &[u8] = &[0x28, 0x01, 0xaf, 0x01];
 
+    // Aggregation packet with DONL 7.
     fn aggregate(nals: &[&[u8]]) -> Vec<u8> {
-        let mut packet = vec![0x60, 0x01];
+        let mut packet = vec![0x60, 0x01, 0, 7];
 
         for nal in nals {
             packet.extend_from_slice(&(nal.len() as u16).to_be_bytes());
@@ -150,42 +162,55 @@ mod tests {
     }
 
     #[test]
-    fn aggregation_packet_splits_without_don() {
-        let nals = depacketize([aggregate(&[VPS, SPS, PPS]).as_slice()]).unwrap();
+    fn aggregation_packet_splits_after_its_don() {
+        let (nals, donl) = depacketize([aggregate(&[VPS, SPS, PPS]).as_slice()]).unwrap();
         assert_eq!(nals, [VPS, SPS, PPS]);
+        assert_eq!(donl, 7);
     }
 
     #[test]
     fn aggregation_size_past_the_payload_is_rejected() {
         let mut packet = aggregate(&[PPS]);
-        packet[3] += 1;
+        packet[5] += 1;
         assert_eq!(depacketize([packet.as_slice()]), None);
     }
 
     #[test]
-    fn fragments_rebuild_the_nal_header() {
-        // IDR_N_LP (20) split into three FUs. The type bits of the first byte hold 49.
-        let nals = depacketize([
-            &[0x62, 0x01, 0x94, 1, 2][..],
-            &[0x62, 0x01, 0x14, 3][..],
-            &[0x62, 0x01, 0x54, 4][..],
-        ]);
-        assert_eq!(nals.unwrap(), [vec![0x28, 0x01, 1, 2, 3, 4]]);
+    fn single_nal_drops_its_don() {
+        let (nals, donl) = depacketize([&[0x02, 0x01, 0xff, 0xfe, 9, 8][..]]).unwrap();
+        assert_eq!(nals, [vec![0x02, 0x01, 9, 8]]);
+        assert_eq!(donl, 0xfffe);
+    }
+
+    // Every fragment repeats the DONL, so it comes off each one, including a fragment that carries nothing else.
+    #[test]
+    fn fragments_rebuild_the_nal_header_and_drop_every_don() {
+        let (nals, donl) = depacketize([
+            &[0x62, 0x01, 0x94, 0, 3, 1, 2][..],
+            &[0x62, 0x01, 0x14, 0, 3][..],
+            &[0x62, 0x01, 0x14, 0, 3, 3][..],
+            &[0x62, 0x01, 0x54, 0, 3, 4][..],
+        ])
+        .unwrap();
+        assert_eq!(nals, [vec![0x28, 0x01, 1, 2, 3, 4]]);
+        assert_eq!(donl, 3);
     }
 
     #[test]
-    fn missing_fragment_start_or_end_is_incomplete() {
+    fn missing_fragment_start_end_or_don_is_incomplete() {
         assert_eq!(
-            depacketize([&[0x62, 0x01, 0x14, 3][..], &[0x62, 0x01, 0x54, 4][..]]),
+            depacketize([&[0x62, 0x01, 0x14, 0, 3, 3][..], &[0x62, 0x01, 0x54, 0, 3, 4][..]]),
             None
         );
-        assert_eq!(depacketize([&[0x62, 0x01, 0x94, 1][..]]), None);
+        assert_eq!(depacketize([&[0x62, 0x01, 0x94, 0, 3, 1][..]]), None);
+        assert_eq!(depacketize([&[0x62, 0x01, 0x94, 0][..]]), None);
+        assert_eq!(depacketize([&[0x02, 0x01, 0][..]]), None);
         assert_eq!(depacketize([&[0x62, 0x01][..]]), None);
     }
 
     #[test]
     fn unknown_payload_structures_are_rejected() {
-        assert_eq!(depacketize([&[0x64, 0x01, 0][..]]), None);
+        assert_eq!(depacketize([&[0x64, 0x01, 0, 0, 0][..]]), None);
         assert_eq!(depacketize([&[0x40][..]]), None);
     }
 
@@ -214,13 +239,22 @@ mod tests {
 
     #[test]
     fn in_band_sps_is_detected() {
-        let unit =
-            AccessUnit::depacketize(VideoCodec::Hevc, 1, 0, [aggregate(&[VPS, SPS, PPS]).as_slice(), IDR]).unwrap();
+        let idr = [0x28, 0x01, 0, 8, 0xaf, 0x01];
+        let (unit, donl) = AccessUnit::depacketize(
+            VideoCodec::Hevc,
+            1,
+            0,
+            0,
+            [aggregate(&[VPS, SPS, PPS]).as_slice(), &idr],
+        )
+        .unwrap();
         assert!(unit.keyframe);
         assert!(unit.has_sps());
+        assert_eq!(donl, Some(7));
         assert!(
-            !AccessUnit::depacketize(VideoCodec::Hevc, 1, 0, [IDR])
+            !AccessUnit::depacketize(VideoCodec::Hevc, 1, 0, 0, [&idr[..]])
                 .unwrap()
+                .0
                 .has_sps()
         );
     }

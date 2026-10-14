@@ -12,7 +12,8 @@
 //! - The server public key is saved to `~/.naru-probe/<host>.der`, and a later connection stops if it changed.
 //! - With a virtual display (`--display`) the session starts at the lock screen. `--unlock N` types the login password after N seconds to unlock it.
 //! - Play the saved file with `ffplay capture.h264`.
-//! - `--hevc` requests HEVC 4:4:4 instead of H.264, and `--out` then saves HEVC Annex-B.
+//! - `--hevc` requests HEVC 4:4:4 instead of H.264, and `--out` then saves HEVC Annex-B. The four bands go into the file
+//!   in decoding order, so `ffmpeg -i capture.hevc -f null -` checks that they decode, but a player shows them one by one.
 //! - `--local-ports audio,video` changes the local UDP ports, for when Apple's Screen Sharing holds 5900 and 5901 on the same Mac.
 use anyhow::{Context, Result, bail};
 use naru::auth::{KEY_REQUEST, MAX_MESSAGE_BYTES, ServerKey, VERSION};
@@ -176,6 +177,8 @@ async fn session(args: Args) -> Result<()> {
     let mut closing = false;
     let mut decoder: Option<DecoderConfig> = None;
     let (mut frames, mut keyframes, mut bytes) = (0u64, 0u64, 0usize);
+    let mut bands = [0u64; 4];
+    let mut last_frame = None;
     let mut largest_bytes = 0;
 
     loop {
@@ -236,6 +239,8 @@ async fn session(args: Args) -> Result<()> {
             Event::Frame(unit) => {
                 frames += 1;
                 keyframes += u64::from(unit.keyframe);
+                bands[usize::from(unit.band).min(3)] += 1;
+                last_frame = Some(at.clone());
                 bytes += unit.nals.iter().map(Vec::len).sum::<usize>();
 
                 if let Some(out) = out.as_mut() {
@@ -265,7 +270,8 @@ async fn session(args: Args) -> Result<()> {
     }
 
     println!(
-        "{frames} frames ({keyframes} keyframes), {} KiB, largest video datagram {largest_bytes} bytes",
+        "{frames} frames ({keyframes} keyframes, per band {bands:?}, last at {}), {} KiB, largest video datagram {largest_bytes} bytes",
+        last_frame.as_deref().unwrap_or("-").trim(),
         bytes >> 10
     );
     Ok(())

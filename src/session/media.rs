@@ -1,8 +1,6 @@
 use super::{Event, MediaStats};
 use crate::error::Result;
-use crate::media::{
-    Assembled, Assembler, AudioFrame, Priority, Routed, RtpPacket, SrtpContext, Streams, VideoCodec, rtcp,
-};
+use crate::media::{Assembled, AudioFrame, Group, Priority, Routed, RtpPacket, SrtpContext, Streams, VideoCodec, rtcp};
 use crate::offer::Offer;
 use socket2::{Domain, Socket, Type};
 use std::net::{IpAddr, SocketAddr};
@@ -61,13 +59,17 @@ impl Sockets {
         loop {
             interval.tick().await;
             let _ = self.audio.send_to(&[0], self.audio_address()).await;
-            let _ = self.video.send_to(&[0], (self.server, self.video_port)).await;
+            let _ = self.video.send_to(&[0], self.video_address()).await;
         }
     }
 
     // RTCP and the audio keepalive both go to the server's audio port.
     fn audio_address(&self) -> SocketAddr {
         (self.server, self.audio_port).into()
+    }
+
+    fn video_address(&self) -> SocketAddr {
+        (self.server, self.video_port).into()
     }
 }
 
@@ -85,7 +87,7 @@ pub struct Media {
     rtcp: SrtpContext,
     keepalive: SrtpContext,
     streams: Streams,
-    assembler: Option<Assembler>,
+    group: Option<Group>,
     keepalive_sequence: u16,
     keepalive_timestamp: u32,
     last_sender_report: Option<Instant>,
@@ -96,11 +98,14 @@ pub struct Media {
     fir_sequence: u8,
     // Keyframe requests sent since the last keyframe arrived
     unanswered: u32,
+    // Whether frames go out intact since the last keyframe, so the server may reference them. A loss or a decoder reset
+    // stops the acknowledgments until the next keyframe, since the frames between may decode wrong.
+    acknowledging: bool,
     // Counts for diagnosing why media did not start.
     datagrams: u64,
     authenticated: u64,
     largest_bytes: u32,
-    // Sequence numbers found missing, packets filled by previous assemblers, and unrecovered losses
+    // Sequence numbers found missing, packets filled by previous groups, and unrecovered losses
     missing: u64,
     filled: u64,
     losses: u64,
@@ -130,8 +135,8 @@ impl Media {
             audio_stream: None,
             rtcp: SrtpContext::new(&offer.keys.video_send),
             keepalive: SrtpContext::new(&offer.keys.audio_send),
-            streams: Streams::default(),
-            assembler: None,
+            streams: Streams::new(codec.bands()),
+            group: None,
             keepalive_sequence: 0,
             keepalive_timestamp: 0,
             last_sender_report: None,
@@ -139,6 +144,7 @@ impl Media {
             awaiting_keyframe: false,
             fir_sequence: 0,
             unanswered: 0,
+            acknowledging: false,
             datagrams: 0,
             authenticated: 0,
             largest_bytes: 0,
@@ -181,21 +187,22 @@ impl Media {
 
         let packets = match self.streams.route(packet, now) {
             Routed::Current(packet) => vec![packet],
-            Routed::Switched { ssrc, packets } => {
-                // A new SSRC is a new decoder generation. Wait for a new config and keyframe so it never mixes with the previous generation's references.
-                self.filled += self.assembler.as_ref().map_or(0, Assembler::filled);
-                self.assembler = Some(Assembler::new(self.codec, ssrc, self.priority));
+            Routed::Switched { base, packets } => {
+                // A new group is a new decoder generation. Wait for a new config and keyframe so it never mixes with the previous generation's references.
+                self.filled += self.group.as_ref().map_or(0, Group::filled);
+                self.group = Some(Group::new(self.codec, base, self.priority));
                 self.configured = false;
+                self.acknowledging = false;
                 packets
             }
             Routed::Held => return,
         };
 
-        let Some(assembler) = self.assembler.as_mut() else {
+        let Some(group) = self.group.as_mut() else {
             return;
         };
 
-        self.missing += packets.into_iter().map(|packet| assembler.push(packet)).sum::<u64>();
+        self.missing += packets.into_iter().map(|packet| group.push(packet)).sum::<u64>();
         self.drain(now, events).await;
     }
 
@@ -222,15 +229,15 @@ impl Media {
         events.push(Event::Audio(frame));
     }
 
-    /// Takes every available output from the assembler. Also called when the deadline for late packets passes.
+    /// Takes every available output from the group. Also called when the deadline for late packets passes.
     pub async fn drain(&mut self, now: Instant, events: &mut Vec<Event>) {
-        while let Some(output) = self.assembler.as_mut().and_then(|assembler| assembler.next(now)) {
+        while let Some(output) = self.group.as_mut().and_then(|group| group.next(now)) {
             match output {
                 Assembled::Config(config) => {
                     self.configured = true;
                     events.push(Event::DecoderConfig(config));
                 }
-                Assembled::Frame(unit) => {
+                Assembled::Frame { unit, donl } => {
                     self.last_frame = Some(now);
                     self.stall = Stall::default();
                     self.streams.mark_frame(now);
@@ -238,6 +245,12 @@ impl Media {
 
                     if unit.keyframe {
                         self.unanswered = 0;
+                        self.acknowledging = true;
+                    }
+
+                    // Only the top band is acknowledged, as Apple's client does.
+                    if let Some(donl) = donl.filter(|_| unit.band == 0 && self.acknowledging) {
+                        self.acknowledge(donl).await;
                     }
 
                     events.push(Event::Frame(unit));
@@ -245,6 +258,7 @@ impl Media {
                 Assembled::Lost => {
                     self.losses += 1;
                     self.awaiting_keyframe = true;
+                    self.acknowledging = false;
                 }
             }
         }
@@ -287,6 +301,7 @@ impl Media {
             && stalled >= threshold
         {
             self.stall.resets += 1;
+            self.acknowledging = false;
             events.push(Event::ResetDecoder);
             self.stall.last_request = None;
         }
@@ -314,13 +329,13 @@ impl Media {
             candidates: u32::try_from(self.streams.candidates()).unwrap_or(u32::MAX),
             offers,
             missing: self.missing,
-            filled: self.filled + self.assembler.as_ref().map_or(0, Assembler::filled),
+            filled: self.filled + self.group.as_ref().map_or(0, Group::filled),
             losses: self.losses,
         }
     }
 
     pub fn deadline(&self) -> Option<Instant> {
-        self.assembler.as_ref()?.deadline()
+        self.group.as_ref()?.deadline()
     }
 
     /// The audio keepalive and receiver report sent every 0.5 seconds, with an empty sender report prepended every 5 seconds.
@@ -343,9 +358,8 @@ impl Media {
 
         let sources: Vec<(u32, u32)> = self
             .streams
-            .current()
-            .and_then(|ssrc| Some((ssrc, self.receive.highest_received(ssrc)?)))
-            .into_iter()
+            .current_members()
+            .filter_map(|ssrc| Some((ssrc, self.receive.highest_received(ssrc)?)))
             .collect();
 
         let mut compound = Vec::new();
@@ -364,7 +378,8 @@ impl Media {
 
     /// Requests a keyframe, unless within the minimum interval, the server is quiet, or there is no stream yet.
     ///
-    /// - It does not decide whether to drop frames until the keyframe. The assembler decides after a loss, and the native layer after recreating the decoder.
+    /// - The request names the top band, the only one that carries keyframes.
+    /// - It does not decide whether to drop frames until the keyframe. The group decides after a loss, and the native layer after recreating the decoder.
     pub async fn request_keyframe(&mut self, now: Instant) {
         let recent = self
             .last_keyframe_request
@@ -388,6 +403,15 @@ impl Media {
     fn keyframe_interval(&self) -> Duration {
         let doublings = self.unanswered.saturating_sub(1).min(4);
         (KEYFRAME_INTERVAL * 2u32.pow(doublings)).min(KEYFRAME_BACKOFF_LIMIT)
+    }
+
+    async fn acknowledge(&mut self, donl: u16) {
+        let packet = rtcp::ltr_acknowledgment(self.video_ssrc, donl);
+
+        // The same SRTCP context as the other RTCP, so the index keeps rising across both ports and never repeats.
+        if let Some(packet) = self.rtcp.protect_rtcp(&packet) {
+            let _ = self.sockets.video.send_to(&packet, self.sockets.video_address()).await;
+        }
     }
 
     async fn send_rtcp(&mut self, compound: &[u8]) {

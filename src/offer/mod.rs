@@ -1,7 +1,7 @@
 //! The media offer (`0x1c`) and its answer.
 //!
 //! - The offer is one binary plist each for audio and video, holding a zlib-compressed protobuf (MediaBlob).
-//! - By default the video offer lists only codec bank 123 and requests one tile, which yields a single H.264 4:2:0 stream. Listing bank 100 makes the server send HEVC 4:4:4, which typical mobile hardware decoders can't decode.
+//! - By default the video offer lists only codec bank 123 and requests one tile, which yields a single H.264 4:2:0 stream. Listing bank 100 makes the server send HEVC 4:4:4 in four bands, which typical mobile hardware decoders can't decode.
 //! - The audio offer can't be omitted. To turn audio off, a low requested bitrate stops the server from sending it.
 //! - The client generates the SRTP master keys and sends them in the offer, so compromising the control channel also compromises the media.
 use crate::media::VideoCodec;
@@ -31,8 +31,7 @@ const MODE_AUDIO: i64 = 8;
 const H264_BANK: u32 = 123;
 const H264_FEATURES: &str = "FLS;MS:-1;LF:-1;CABAC;POS:0;EOD:1;HTS:2;RR:3;AR:16/9,5/8;XR:16/9,5/8;";
 
-// HEVC 4:4:4 uses the values Apple's client sends with LTR and feedback on, except that it requests one tile.
-// Apple's client receives four tiles, but four tiles stalled on moving content.
+// HEVC 4:4:4 uses the values Apple's client sends, with LTR and feedback on and four tiles.
 const HEVC_BANK: u32 = 100;
 const HEVC_FEATURES: &str = "FLS;LF:-1;POS:5;EOD:1;HTS:2;RR:3;POSE:4;AR:16/9,5/8;XR:16/9,5/8;";
 
@@ -174,7 +173,7 @@ impl Offer {
                 ssrc: Some(self.video_ssrc),
                 feedback: Some(ltr),
                 banks: vec![bank],
-                tiles: Some(1),
+                tiles: Some(u32::from(self.codec.bands())),
                 ltr: Some(ltr),
                 field_8: Some(63),
                 field_9: Some(1),
@@ -385,13 +384,13 @@ mod tests {
     }
 
     #[test]
-    fn hevc_offer_requests_a_single_tile_with_ltr() {
+    fn hevc_offer_requests_four_tiles_with_ltr() {
         let offer = Offer::new(false, VideoCodec::Hevc);
         let message = offer.encode();
         let audio_len = u16::from_be_bytes([message[0x0a], message[0x0b]]) as usize;
         let video = blob(&message[0x80 + audio_len + 92..]).video.unwrap();
 
-        assert_eq!((video.tiles, video.ltr, video.feedback), (Some(1), Some(1), Some(1)));
+        assert_eq!((video.tiles, video.ltr, video.feedback), (Some(4), Some(1), Some(1)));
         assert_eq!(video.banks.len(), 1);
         assert_eq!((video.banks[0].id, video.banks[0].field_4), (Some(100), Some(14)));
         assert_eq!(video.banks[0].resolutions.len(), 2);

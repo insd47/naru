@@ -341,7 +341,7 @@ async fn attempts(config: &Config, commands: &mut mpsc::UnboundedReceiver<Comman
     let result = attempt_session(config, config.codec, commands, events).await;
 
     // Video packets that arrived without a start mean a lossy path, which another attempt would not fix. No video at
-    // all under HEVC may be a Mac that does not take single-tile HEVC, so that one case retries with H.264.
+    // all under HEVC may be a Mac that does not send HEVC, so that one case retries with H.264.
     match result {
         Err(Error::NoMedia(stats)) if config.codec == VideoCodec::Hevc && stats.authenticated == 0 => {
             tokio::time::sleep(RETRY_DELAY).await;

@@ -12,6 +12,19 @@ pub enum VideoCodec {
     Hevc,
 }
 
+impl VideoCodec {
+    /// Number of horizontal bands the offer requests, each sent on its own SSRC.
+    ///
+    /// - HEVC takes four, like Apple's client: an LTR acknowledgment names a picture by its DONL, which only four bands carry.
+    /// - H.264 takes one, since bands that reference each other smear in an ordinary decoder.
+    pub fn bands(self) -> u8 {
+        match self {
+            Self::H264 => 1,
+            Self::Hevc => 4,
+        }
+    }
+}
+
 /// Configuration for creating a decoder.
 ///
 /// - H.264 takes it from the config packet's `avcC`; HEVC from the parameter sets that arrive in-stream with the keyframe.
@@ -42,6 +55,11 @@ impl DecoderConfig {
 pub struct AccessUnit {
     pub codec: VideoCodec,
     pub ssrc: u32,
+    /// Band the picture covers, counted from the top; always 0 for H.264
+    ///
+    /// - Each HEVC band is a picture of its own, a quarter of the height rounded up to a multiple of 16, and the bands stack
+    ///   from the top. Bands that did not change are not sent, so the picture last decoded for a band stays on screen.
+    pub band: u8,
     /// RTP timestamp (90 kHz)
     pub timestamp: u32,
     pub keyframe: bool,
@@ -50,33 +68,38 @@ pub struct AccessUnit {
 }
 
 impl AccessUnit {
-    /// Rebuilds an access unit from its RTP payloads in sequence order. Returns `None` if a fragment is missing or malformed.
+    /// Rebuilds an access unit from its RTP payloads in sequence order, with its DONL when the codec carries one.
+    /// Returns `None` if a fragment is missing or malformed.
     pub fn depacketize<'a>(
         codec: VideoCodec,
         ssrc: u32,
+        band: u8,
         timestamp: u32,
         payloads: impl IntoIterator<Item = &'a [u8]>,
-    ) -> Option<Self> {
-        let (nals, keyframe) = match codec {
+    ) -> Option<(Self, Option<u16>)> {
+        let (nals, keyframe, donl) = match codec {
             VideoCodec::H264 => {
                 let nals = h264::depacketize(payloads)?;
                 let keyframe = h264::is_keyframe(&nals);
-                (nals, keyframe)
+                (nals, keyframe, None)
             }
             VideoCodec::Hevc => {
-                let nals = hevc::depacketize(payloads)?;
+                let (nals, donl) = hevc::depacketize(payloads)?;
                 let keyframe = hevc::is_keyframe(&nals);
-                (nals, keyframe)
+                (nals, keyframe, Some(donl))
             }
         };
 
-        Some(Self {
+        let unit = Self {
             codec,
             ssrc,
+            band,
             timestamp,
             keyframe,
             nals,
-        })
+        };
+
+        Some((unit, donl))
     }
 
     /// Checks for an SPS NAL unit. If the access unit already has one, the config isn't prepended separately.
