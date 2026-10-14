@@ -4,7 +4,7 @@
 //!   first packet took to arrive than its RTP timestamp advanced, accumulated and fitted to a line. A queue filling up
 //!   tilts the line upward. A fixed delay, a change in how long the Mac takes to encode, and random loss do not, so none
 //!   of them lowers the estimate. Apple's client ignores the same things.
-//! - Once the queue is full its delay stops rising, and the packets it drops show instead. More than 15% of packets lost
+//! - Once the queue is full its delay stops rising, and the packets it drops show instead. More than 25% of packets lost
 //!   in the last second counts as congestion too. Apple's client kept its estimate through 10% random loss and lowered
 //!   it at 30% and more behind a bottleneck. Above 2% the estimate does not climb, as in WebRTC, since a full queue
 //!   still drops a few packets after the Mac has slowed down to nearly its rate.
@@ -22,7 +22,7 @@ const CEILING_KBPS: f64 = 60000.0;
 // The video RTP clock in ticks per millisecond. Every band of one instant shares a timestamp.
 const CLOCK_TICKS_PER_MS: f64 = 24.0;
 const RATE_WINDOW: Duration = Duration::from_secs(1);
-const CONGESTED_LOSS: f64 = 0.15;
+const CONGESTED_LOSS: f64 = 0.25;
 const HOLDING_LOSS: f64 = 0.02;
 
 // The trend line and its adaptive threshold take WebRTC's defaults: a line through the last 20 frames of the smoothed
