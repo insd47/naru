@@ -73,8 +73,10 @@ struct HomeView: View {
         } message: { failed in
             Text(message(failed.failure, host: failed.host))
         }
+        // A Mac running the iPad app does not pass the environment into the cover, so it is passed explicitly.
         .fullScreenCover(isPresented: $session.presented) {
             SessionView()
+                .environment(session)
         }
         .onChange(of: session.state) { _, state in react(state) }
         .focusedSceneValue(\.home, HomeActions(add: add, connect: connect))
