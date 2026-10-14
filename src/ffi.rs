@@ -118,6 +118,8 @@ pub enum Event {
     Frame {
         unit: AccessUnit,
     },
+    /// Every band of one instant has arrived as frames, so show the screen they make up. Only for HEVC, which comes in bands.
+    Present,
     /// Cursor shape as row-major RGBA with non-premultiplied alpha
     Cursor {
         width: u16,
@@ -174,6 +176,7 @@ impl From<crate::Event> for Event {
             crate::Event::InputSource(source) => Self::Source { source },
             crate::Event::Clipboard(text) => Self::Clipboard { text },
             crate::Event::ResetDecoder => Self::ResetDecoder,
+            crate::Event::Present => Self::Present,
             crate::Event::Stats(stats) => Self::Stats { stats },
             crate::Event::Closed(error) => Self::Closed {
                 failure: error.as_ref().map(Failure::from),

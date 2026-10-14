@@ -8,6 +8,10 @@ use std::time::{Duration, Instant};
 // only bounds a band that went quiet partway through a unit.
 const MAX_WAIT: Duration = Duration::from_secs(1);
 
+// How long after a band of an instant the instant counts as complete when no band below it follows. The bands of one
+// instant arrive within about 9 ms of each other, measured on Apple's client.
+const INSTANT_WAIT: Duration = Duration::from_millis(10);
+
 /// Output of a group.
 #[derive(Debug, PartialEq)]
 pub enum Assembled {
@@ -15,6 +19,8 @@ pub enum Assembled {
     Config(DecoderConfig),
     /// Access unit for the decoder, with its DONL if the codec carries one
     Frame { unit: AccessUnit, donl: Option<u16> },
+    /// Every band of one instant has gone out, so the screen they make up can be shown. Only for video in several bands.
+    Present,
     /// An access unit that couldn't be recovered in time was dropped. Request a keyframe.
     Lost,
 }
@@ -38,6 +44,8 @@ pub enum Priority {
 ///   one is still arriving on its band; the bands of one instant share an RTP timestamp and arrive top first.
 /// - A config goes out only when it differs from the last one. Each HEVC band repeats the same parameter sets, which
 ///   come in the same unit as the keyframe, so that unit emits the config first and then the unit.
+/// - With several bands, an instant ends when its bottom band goes out, a band of a later instant goes out, or no band
+///   follows for a moment. Showing each band as it decodes would show the top one ahead of the others.
 /// - [`Priority`] decides whether units whose reference was lost are emitted after a loss. A buffer overflow always waits for a keyframe.
 pub struct Group {
     codec: VideoCodec,
@@ -50,6 +58,8 @@ pub struct Group {
     config: Option<DecoderConfig>,
     awaiting_keyframe: bool,
     outputs: VecDeque<Assembled>,
+    // RTP timestamp of the instant whose bands are going out, and when the last of them went out
+    instant: Option<(u32, Instant)>,
 }
 
 struct Waiting {
@@ -75,6 +85,7 @@ impl Group {
             config: None,
             awaiting_keyframe: true,
             outputs: VecDeque::new(),
+            instant: None,
         }
     }
 
@@ -101,7 +112,13 @@ impl Group {
     /// When `next()` must be called again, or `None` when nothing is waiting
     pub fn deadline(&self) -> Option<Instant> {
         let waiting = self.waiting.values().map(|waiting| waiting.since + MAX_WAIT).min();
-        self.bands.iter().filter_map(Assembler::deadline).chain(waiting).min()
+        let instant = self.instant.map(|(_, since)| since + INSTANT_WAIT);
+        self.bands
+            .iter()
+            .filter_map(Assembler::deadline)
+            .chain(waiting)
+            .chain(instant)
+            .min()
     }
 
     fn collect(&mut self, now: Instant) {
@@ -109,7 +126,7 @@ impl Group {
             while let Some(output) = self.bands[band].next(now) {
                 match output {
                     Reassembled::Config(config) => self.announce(config),
-                    Reassembled::Unit(unit, None) => self.admit(unit, None),
+                    Reassembled::Unit(unit, None) => self.admit(unit, None, now),
                     Reassembled::Unit(unit, Some(donl)) => self.queue(unit, donl, now),
                     Reassembled::Lost => self.lose(false),
                     Reassembled::Overflow => self.lose(true),
@@ -118,6 +135,13 @@ impl Group {
         }
 
         self.release(now);
+
+        if self
+            .instant
+            .is_some_and(|(_, since)| now.duration_since(since) >= INSTANT_WAIT)
+        {
+            self.end_instant();
+        }
     }
 
     // A unit arriving after a later one already went ahead without it can no longer be decoded in order, so it counts as lost.
@@ -143,7 +167,7 @@ impl Group {
 
             let waiting = self.waiting.remove(&key).expect("the first key is present");
             self.released = Some(key);
-            self.admit(waiting.unit, Some(waiting.donl));
+            self.admit(waiting.unit, Some(waiting.donl), now);
         }
     }
 
@@ -157,7 +181,7 @@ impl Group {
         })
     }
 
-    fn admit(&mut self, unit: AccessUnit, donl: Option<u16>) {
+    fn admit(&mut self, unit: AccessUnit, donl: Option<u16>, now: Instant) {
         if !(self.config.is_some() || unit.has_sps()) || (self.awaiting_keyframe && !unit.keyframe) {
             return;
         }
@@ -170,7 +194,28 @@ impl Group {
             self.announce(config);
         }
 
+        if self.bands.len() == 1 {
+            self.outputs.push_back(Assembled::Frame { unit, donl });
+            return;
+        }
+
+        if self.instant.is_some_and(|(timestamp, _)| timestamp != unit.timestamp) {
+            self.end_instant();
+        }
+
+        let bottom = usize::from(unit.band) + 1 == self.bands.len();
+        self.instant = Some((unit.timestamp, now));
         self.outputs.push_back(Assembled::Frame { unit, donl });
+
+        if bottom {
+            self.end_instant();
+        }
+    }
+
+    fn end_instant(&mut self) {
+        if self.instant.take().is_some() {
+            self.outputs.push_back(Assembled::Present);
+        }
     }
 
     fn announce(&mut self, config: DecoderConfig) {
@@ -189,7 +234,7 @@ impl Group {
 
 #[cfg(test)]
 mod tests {
-    use super::{Assembled, Group, MAX_WAIT, Priority};
+    use super::{Assembled, Group, INSTANT_WAIT, MAX_WAIT, Priority};
     use crate::media::assembler::HOLD;
     use crate::media::{RtpPacket, VideoCodec};
     use std::time::Instant;
@@ -245,6 +290,7 @@ mod tests {
                 Assembled::Config(_) => "C".into(),
                 Assembled::Frame { unit, donl } => format!("{}:{}", unit.band, donl.unwrap_or_default()),
                 Assembled::Lost => "L".into(),
+                Assembled::Present => "|".into(),
             })
             .collect()
     }
@@ -329,7 +375,7 @@ mod tests {
         assert_eq!(summary(&drain(&mut group, now)), ["C", "0:10", "1:11"]);
 
         group.push(packet(102, 1, 90, true, &slice(12, false)));
-        assert_eq!(summary(&drain(&mut group, now)), ["2:12", "C", "3:13"]);
+        assert_eq!(summary(&drain(&mut group, now)), ["2:12", "C", "3:13", "|"]);
     }
 
     // A unit that never arrives does not hold the others back once its band has nothing in flight.
@@ -356,7 +402,23 @@ mod tests {
         group.push(packet(101, 0, 90, false, &[0x62, 0x01, 0x81, 0, 11, 1]));
         group.push(packet(102, 0, 90, true, &slice(12, false)));
         assert_eq!(summary(&drain(&mut group, now)), ["C", "0:10"]);
+        assert_eq!(summary(&drain(&mut group, now + INSTANT_WAIT)), ["|"]);
         assert_eq!(group.deadline(), Some(now + MAX_WAIT));
         assert_eq!(summary(&drain(&mut group, now + MAX_WAIT)), ["2:12"]);
+    }
+
+    // The top band of the next instant ends the one before, and an instant whose lower bands did not change ends on its own.
+    #[test]
+    fn instants_end_at_the_next_instant_or_after_a_moment() {
+        let now = Instant::now();
+        let mut group = Group::new(VideoCodec::Hevc, 100, Priority::Latency);
+        group.push(packet(100, 0, 90, false, &parameter_sets(10, 1)));
+        group.push(packet(100, 1, 90, true, &slice(10, true)));
+        group.push(packet(101, 0, 90, true, &slice(11, false)));
+        group.push(packet(100, 2, 180, true, &slice(12, false)));
+        assert_eq!(summary(&drain(&mut group, now)), ["C", "0:10", "1:11", "|", "0:12"]);
+        assert_eq!(group.deadline(), Some(now + INSTANT_WAIT));
+        assert_eq!(summary(&drain(&mut group, now + INSTANT_WAIT)), ["|"]);
+        assert_eq!(group.deadline(), None);
     }
 }

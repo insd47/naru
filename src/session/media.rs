@@ -255,6 +255,7 @@ impl Media {
 
                     events.push(Event::Frame(unit));
                 }
+                Assembled::Present => events.push(Event::Present),
                 Assembled::Lost => {
                     self.losses += 1;
                     self.awaiting_keyframe = true;

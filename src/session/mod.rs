@@ -121,6 +121,9 @@ pub enum Event {
     Audio(AudioFrame),
     /// Access unit for the decoder. Only arrives after a decoder config, and resumes from a keyframe after a loss.
     Frame(AccessUnit),
+    /// Every band of one instant has arrived as frames, so show the screen they make up. Only for video in several bands,
+    /// whose bands shown one by one as they decode would put the top band ahead of the others.
+    Present,
     /// Cursor shape, used as the pointer icon
     Cursor(Arc<CursorImage>),
     /// The Mac's computer name. Arrives once after authentication.
