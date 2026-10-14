@@ -267,8 +267,8 @@ impl Media {
                         self.acknowledging = true;
                     }
 
-                    // Like Apple's client, every band's pictures are acknowledged. The group lets out only intact ones.
-                    if let Some(donl) = donl.filter(|_| self.acknowledging) {
+                    // Like Apple's client, every band's intact pictures are acknowledged, and none predicted from a lost one.
+                    if let Some(donl) = donl.filter(|_| unit.intact && self.acknowledging) {
                         self.acknowledge(donl).await;
                     }
 

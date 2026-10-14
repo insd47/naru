@@ -75,6 +75,12 @@ pub struct AccessUnit {
     /// RTP timestamp, at 24 kHz
     pub timestamp: u32,
     pub keyframe: bool,
+    /// Whether the picture decodes intact: it arrived whole and so did everything it predicts from
+    ///
+    /// - A picture that is not still goes to the decoder, which keeps the pictures it holds in step with the server's,
+    ///   but is not shown: the band keeps its last intact picture, as Apple's decoder outputs nothing for it. Always
+    ///   true for H.264, whose references are not followed.
+    pub intact: bool,
     /// NAL units without start codes
     pub nals: Vec<Vec<u8>>,
 }
@@ -108,6 +114,7 @@ impl AccessUnit {
             band,
             timestamp,
             keyframe,
+            intact: true,
             nals,
         };
 

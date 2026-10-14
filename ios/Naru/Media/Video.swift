@@ -207,7 +207,12 @@ final class Video: @unchecked Sendable {
         }
 
         let started = ContinuousClock.now
+        let intact = unit.intact
         VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [], infoFlagsOut: nil) { [weak self] status, _, image, _, _ in
+            // A picture predicted from a lost one decodes wrong or fails, so its band keeps the last intact picture and
+            // the decoder is not rebuilt for it.
+            guard intact else { return }
+
             if status != noErr {
                 log.error("cannot decode a frame: \(status)")
             }

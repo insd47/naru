@@ -29,7 +29,7 @@ pub enum Assembled {
 
 /// What to favor after an unrecoverable loss in H.264. Each app picks it for its decoder; Screen Sharing's quality setting applies only to standard connections.
 ///
-/// - HEVC follows its references instead and drops only the pictures that cannot decode intact, like Apple's client.
+/// - HEVC follows its references instead and hides only the pictures that cannot decode intact, like Apple's client.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Enum)]
 pub enum Priority {
     /// Drops only the lost unit and keeps emitting frames. Parts of the screen may be corrupted until a keyframe arrives.
@@ -51,9 +51,8 @@ pub enum Priority {
 /// - With several bands, an instant ends when its bottom band goes out, a band of a later instant goes out, or no band
 ///   follows for a moment. Showing each band as it decodes would show the top one ahead of the others.
 /// - For H.264, [`Priority`] decides whether units whose reference was lost are emitted after a loss, and a buffer overflow always waits for a keyframe.
-/// - HEVC pictures that do not decode intact, because something they predict from was lost, are dropped, so a band keeps
-///   its last intact picture until the server's refresh arrives. Apple's decoder does the same by outputting nothing for
-///   them. Intact pictures predict only from intact ones, so the decoder never misses what it needs.
+/// - HEVC pictures that do not decode intact, because something they predict from was lost, are marked so on the unit
+///   and not shown, while a band keeps its last intact picture until the server's refresh arrives.
 pub struct Group {
     codec: VideoCodec,
     priority: Priority,
@@ -199,7 +198,7 @@ impl Group {
         })
     }
 
-    fn admit(&mut self, unit: AccessUnit, donl: Option<u16>, now: Instant) {
+    fn admit(&mut self, mut unit: AccessUnit, donl: Option<u16>, now: Instant) {
         if !(self.config.is_some() || unit.has_sps()) || (self.awaiting_keyframe && !unit.keyframe) {
             return;
         }
@@ -223,9 +222,7 @@ impl Group {
             *broken = !intact;
         }
 
-        if !intact {
-            return;
-        }
+        unit.intact = intact;
 
         if self.bands.len() == 1 {
             self.outputs.push_back(Assembled::Frame { unit, donl });

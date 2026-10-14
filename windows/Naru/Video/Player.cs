@@ -247,7 +247,11 @@ internal sealed class Player : IDisposable
 
             if (current.Band is { } band && config is { } stream)
             {
-                Guard("place a band", () => Stack(band, stream.Bands, picture));
+                // A picture predicted from a lost one decodes wrong, so its band keeps the last intact picture.
+                if (picture.Intact)
+                {
+                    Guard("place a band", () => Stack(band, stream.Bands, picture));
+                }
             }
             else if (index == pictures.Count - 1 && renderer is { } target)
             {
