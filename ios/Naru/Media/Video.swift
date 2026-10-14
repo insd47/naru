@@ -1,39 +1,101 @@
 import AVFoundation
 import VideoToolbox
+import os
 
-/// Draws the session's video into [layer].
+/// Decodes the session's video and draws it into [layer].
 ///
-/// - Create on the main thread, then call only from the session's event thread. The system hardware decoder handles decoding and display.
-/// - When the decoder config (SPS, PPS) changes or display fails, it flushes and enqueues nothing until a keyframe arrives.
-///   The request may not have reached the server, so frames arriving while waiting trigger a new request at a fixed interval.
-/// - Calls [firstFrame] when the first frame after a flush is enqueued. The screen stays blank until then.
+/// - Create on the main thread, then call only from the session's event thread, except [place], which belongs to the main thread.
+/// - A hardware decompression session decodes, and each band draws in a display layer of its own, stacked from the top.
+///   HEVC comes as four bands, each a picture of its own, and the Mac sends only bands that changed, so a band keeps its
+///   last picture until a new one replaces it. HEVC pictures wait for [present], so the bands of one instant show
+///   together like on Apple's client. H.264 is a single band covering the screen, shown as it decodes.
+/// - When the decoder config changes, the server asks for a new decoder, or decoding fails, a new decompression session
+///   starts and decodes nothing until a keyframe arrives. The request may not have reached the server, so frames arriving
+///   while waiting trigger a new request at a fixed interval.
+/// - Calls [firstFrame] when the first picture after that is drawn. The screen stays blank until then.
 /// - The codec follows the decoder config. HEVC 4:4:4 is requested only when [decodesHevc444] is true.
 final class Video: @unchecked Sendable {
-    let layer = AVSampleBufferDisplayLayer()
+    let layer = CALayer()
     var requestKeyframe: () -> Void = {}
-    // The layer belongs to the main thread, but its renderer accepts samples from any thread.
-    private let renderer: AVSampleBufferVideoRenderer
-    private let firstFrame: () -> Void
+    // The Mac's screen in its own pixels, scaled to fit. It crops the bottom band's padding.
+    private let screen = CALayer()
+    private let bands: [AVSampleBufferDisplayLayer]
+    // The layers belong to the main thread, but their renderers accept samples from any thread.
+    private let renderers: [AVSampleBufferVideoRenderer]
+    private let firstFrame: @Sendable () -> Void
     private var format: CMVideoFormatDescription?
+    private var session: VTDecompressionSession?
     private var awaitingKeyframe = true
     private var requestedAt: ContinuousClock.Instant?
-    private var shown = false
+    private let output = OSAllocatedUnfairLock(uncheckedState: Output())
+    // Main thread only: where to draw, the Mac's screen size in pixels, and the size of one band's picture
+    private var bounds = CGRect.zero
+    private var screenSize: CGSize?
+    private var bandSize: CGSize?
+
+    // HEVC's four bands; H.264 draws in the first.
+    private static let maxBands = 4
+
+    // Shared with the decoder's output handler, which may run on a thread of its own. The held samples are ready and
+    // never change, so the lock hands them between threads unchecked.
+    private struct Output {
+        var failed = false
+        var shown = false
+        // Whether pictures wait for [present], and the newest waiting picture of each band
+        var together = false
+        var held: [CMSampleBuffer?] = Array(repeating: nil, count: Video.maxBands)
+    }
 
     @MainActor
-    init(firstFrame: @escaping () -> Void) {
+    init(firstFrame: @escaping @Sendable () -> Void) {
         self.firstFrame = firstFrame
-        renderer = layer.sampleBufferRenderer
-        layer.videoGravity = .resizeAspect
+        bands = (0..<Self.maxBands).map { _ in AVSampleBufferDisplayLayer() }
+        renderers = bands.map(\.sampleBufferRenderer)
+        screen.masksToBounds = true
+        layer.addSublayer(screen)
+
+        for band in bands {
+            band.videoGravity = .resize
+            screen.addSublayer(band)
+        }
+    }
+
+    /// Fits the Mac's screen, `size` in its pixels, into `bounds`.
+    @MainActor
+    func place(in bounds: CGRect, screen size: CGSize?) {
+        self.bounds = bounds
+        screenSize = size
+        arrange()
     }
 
     func configure(_ config: DecoderConfig) {
         format = Self.format(config)
-        flush()
+        output.withLockUnchecked { $0.together = config.codec == .hevc }
+
+        if let format {
+            let size = CMVideoFormatDescriptionGetPresentationDimensions(format, usePixelAspectRatio: false, useCleanAperture: true)
+            DispatchQueue.main.async { [self] in
+                bandSize = size
+                arrange()
+            }
+        }
+
+        restart()
     }
 
     /// The server asked for the decoder to be recreated.
     func reset() {
-        flush()
+        restart()
+    }
+
+    /// Every band of one instant has been queued, so the bands decoded since the last call show together.
+    func present() {
+        let ready = output.withLockUnchecked { output in
+            defer { output.held = Array(repeating: nil, count: Self.maxBands) }
+            return output.held.enumerated().compactMap { band, picture in picture.map { (band, $0) } }
+        }
+
+        show(ready)
     }
 
     func queue(_ unit: AccessUnit) {
@@ -41,8 +103,14 @@ final class Video: @unchecked Sendable {
             return
         }
 
-        if renderer.status == .failed || renderer.requiresFlushToResumeDecoding {
-            flush()
+        let band = Int(unit.band)
+
+        if output.withLockUnchecked({ $0.failed }) {
+            restart()
+        }
+
+        if band < renderers.count, renderers[band].requiresFlushToResumeDecoding {
+            renderers[band].flush()
         }
 
         if awaitingKeyframe {
@@ -54,22 +122,76 @@ final class Video: @unchecked Sendable {
             awaitingKeyframe = false
         }
 
-        guard let sample = Self.sample(unit, format: format) else {
+        guard let session, band < renderers.count, let sample = Self.sample(unit, format: format) else {
             return
         }
 
-        renderer.enqueue(sample)
+        VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [], infoFlagsOut: nil) { [weak self] status, _, image, _, _ in
+            if status != noErr {
+                log.error("cannot decode a frame: \(status)")
+            }
 
-        if !shown {
-            shown = true
+            self?.draw(status == noErr ? image : nil, band: band)
+        }
+    }
+
+    private func draw(_ image: CVImageBuffer?, band: Int) {
+        guard let image else {
+            output.withLockUnchecked { $0.failed = true }
+            return
+        }
+
+        guard let picture = Self.picture(image) else {
+            return
+        }
+
+        let ready = output.withLockUnchecked { output in
+            guard output.together else {
+                return [(band, picture)]
+            }
+
+            output.held[band] = picture
+            return []
+        }
+
+        show(ready)
+    }
+
+    private func show(_ pictures: [(band: Int, picture: CMSampleBuffer)]) {
+        guard !pictures.isEmpty else {
+            return
+        }
+
+        for (band, picture) in pictures {
+            renderers[band].enqueue(picture)
+        }
+
+        let first = output.withLockUnchecked { output in
+            defer { output.shown = true }
+            return !output.shown
+        }
+
+        if first {
+            let (band, picture) = pictures[0]
+            let size = picture.imageBuffer.map { CGSize(width: CVPixelBufferGetWidth($0), height: CVPixelBufferGetHeight($0)) } ?? .zero
+            let renderer = renderers[band]
+            log.log("first picture \(Int(size.width))×\(Int(size.height)) in band \(band), display \(renderer.status.rawValue) \(renderer.error?.localizedDescription ?? "", privacy: .public)")
             firstFrame()
         }
     }
 
-    private func flush() {
-        renderer.flush()
+    // A new session for a new generation of references. The bands keep their pictures, since after a reset the Mac may
+    // resend only the top band.
+    private func restart() {
+        if let session {
+            VTDecompressionSessionInvalidate(session)
+        }
+
+        session = format.flatMap(Self.session)
         awaitingKeyframe = true
-        shown = false
+        output.withLockUnchecked { output in
+            output = Output(together: output.together)
+        }
         requestedAt = nil
         requestIfDue()
     }
@@ -83,6 +205,34 @@ final class Video: @unchecked Sendable {
         }
     }
 
+    @MainActor
+    private func arrange() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
+        layer.frame = bounds
+
+        guard let bandSize else {
+            return
+        }
+
+        let size = screenSize ?? bandSize
+
+        guard size.width > 0, size.height > 0 else {
+            return
+        }
+
+        let scale = min(bounds.width / size.width, bounds.height / size.height)
+        screen.bounds = CGRect(origin: .zero, size: size)
+        screen.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        screen.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
+
+        for (index, band) in bands.enumerated() {
+            band.frame = CGRect(origin: CGPoint(x: 0, y: CGFloat(index) * bandSize.height), size: bandSize)
+        }
+    }
+
     /// Whether this device's hardware decoder can decode the server's HEVC 4:4:4
     ///
     /// - `VTIsHardwareDecodeSupported` ignores the chroma format, so this tries to create a hardware-only session from 4:4:4 parameter sets the server sent.
@@ -93,9 +243,11 @@ final class Video: @unchecked Sendable {
 
         let specification = [kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder: true] as CFDictionary
         var session: VTDecompressionSession?
+        // A display layer shows only pictures backed by an IOSurface, which a software decoder does not use by itself.
+        let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary] as CFDictionary
         let status = VTDecompressionSessionCreate(
             allocator: nil, formatDescription: format, decoderSpecification: specification,
-            imageBufferAttributes: nil, outputCallback: nil, decompressionSessionOut: &session
+            imageBufferAttributes: attributes, outputCallback: nil, decompressionSessionOut: &session
         )
 
         if let session { VTDecompressionSessionInvalidate(session) }
@@ -163,7 +315,46 @@ final class Video: @unchecked Sendable {
             return nil
         }
 
-        // Displays frames immediately as they arrive, without timing.
+        return sample
+    }
+
+    // Hardware is preferred but not required: HEVC 4:4:4 is only requested where hardware decodes it, and H.264 may fall
+    // back to software, as in the simulator.
+    private static func session(_ format: CMVideoFormatDescription) -> VTDecompressionSession? {
+        let specification = [kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder: true] as CFDictionary
+        var session: VTDecompressionSession?
+        // A display layer shows only pictures backed by an IOSurface, which a software decoder does not use by itself.
+        let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary] as CFDictionary
+        let status = VTDecompressionSessionCreate(
+            allocator: nil, formatDescription: format, decoderSpecification: specification,
+            imageBufferAttributes: attributes, outputCallback: nil, decompressionSessionOut: &session
+        )
+
+        guard let session else {
+            log.error("cannot create the decoder: \(status)")
+            return nil
+        }
+
+        VTSessionSetProperty(session, key: kVTDecompressionPropertyKey_RealTime, value: kCFBooleanTrue)
+        return session
+    }
+
+    // Wraps a decoded picture for a display layer, to be shown as soon as it arrives.
+    private static func picture(_ image: CVImageBuffer) -> CMSampleBuffer? {
+        var format: CMVideoFormatDescription?
+        var sample: CMSampleBuffer?
+        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()), decodeTimeStamp: .invalid)
+
+        guard CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: image, formatDescriptionOut: &format) == noErr,
+              let format,
+              CMSampleBufferCreateReadyWithImageBuffer(
+                  allocator: nil, imageBuffer: image, formatDescription: format, sampleTiming: &timing, sampleBufferOut: &sample
+              ) == noErr,
+              let sample
+        else {
+            return nil
+        }
+
         if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true) as? [NSMutableDictionary] {
             attachments.first?[kCMSampleAttachmentKey_DisplayImmediately] = true
         }
@@ -171,6 +362,8 @@ final class Video: @unchecked Sendable {
         return sample
     }
 }
+
+private let log = Logger(subsystem: Diagnostics.subsystem, category: "Video")
 
 // HEVC 4:4:4 8-bit parameter sets a Mac sent for a 2420×1668 virtual display, used by [Video.decodesHevc444].
 private let hevcVps = Data([

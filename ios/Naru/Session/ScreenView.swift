@@ -99,7 +99,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        connection?.video.layer.frame = bounds
+        connection?.video.place(in: bounds, screen: layout?.pixels)
         placeCursor()
 
         if bounds.size != measured, bounds.width > 0, bounds.height > 0 {

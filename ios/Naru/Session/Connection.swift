@@ -53,7 +53,7 @@ final class Connection: SessionListener, @unchecked Sendable {
     // Video and audio arrive dozens of times a second, so they are neither passed to the UI nor logged.
     func onEvent(event: Event) {
         switch event {
-        case .frame, .audio, .stats:
+        case .frame, .present, .audio, .stats:
             break
         default:
             log.log("\(Self.describe(event), privacy: .public)")
@@ -66,6 +66,8 @@ final class Connection: SessionListener, @unchecked Sendable {
         switch event {
         case let .frame(unit):
             video.queue(unit)
+        case .present:
+            video.present()
         case let .audio(frame):
             audio?.play(frame)
         case .stats:
