@@ -19,15 +19,9 @@ const INSTANT_WAIT: Duration = Duration::from_millis(10);
 pub enum Assembled {
     /// New decoder config. The size may have changed, so reconfigure the decoder.
     Config(DecoderConfig),
-    /// Access unit for the decoder, with its DONL if the codec carries one, and whether it decodes intact: it arrived
-    /// whole and so did everything it predicts from.
-    Frame {
-        unit: AccessUnit,
-        donl: Option<u16>,
-        intact: bool,
-    },
-    /// Every band of one instant has gone out, so the screen they make up can be shown. Only for video in several bands,
-    /// and only while every band's latest picture is intact.
+    /// Access unit for the decoder, with its DONL if the codec carries one
+    Frame { unit: AccessUnit, donl: Option<u16> },
+    /// Every band of one instant has gone out, so the screen they make up can be shown. Only for video in several bands.
     Present,
     /// An access unit that couldn't be recovered in time was dropped. Request a keyframe.
     Lost,
@@ -35,7 +29,7 @@ pub enum Assembled {
 
 /// What to favor after an unrecoverable loss in H.264. Each app picks it for its decoder; Screen Sharing's quality setting applies only to standard connections.
 ///
-/// - HEVC follows its references instead and shows only intact screens, like Apple's client.
+/// - HEVC follows its references instead and drops only the pictures that cannot decode intact, like Apple's client.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Enum)]
 pub enum Priority {
     /// Drops only the lost unit and keeps emitting frames. Parts of the screen may be corrupted until a keyframe arrives.
@@ -57,8 +51,9 @@ pub enum Priority {
 /// - With several bands, an instant ends when its bottom band goes out, a band of a later instant goes out, or no band
 ///   follows for a moment. Showing each band as it decodes would show the top one ahead of the others.
 /// - For H.264, [`Priority`] decides whether units whose reference was lost are emitted after a loss, and a buffer overflow always waits for a keyframe.
-/// - After a loss in one band, the screen is not shown until that band has an intact picture again, as on Apple's client.
-///   The other bands keep decoding meanwhile, so the screen comes back whole rather than one band behind the others.
+/// - HEVC pictures that do not decode intact, because something they predict from was lost, are dropped, so a band keeps
+///   its last intact picture until the server's refresh arrives. Apple's decoder does the same by outputting nothing for
+///   them. Intact pictures predict only from intact ones, so the decoder never misses what it needs.
 pub struct Group {
     codec: VideoCodec,
     priority: Priority,
@@ -228,8 +223,12 @@ impl Group {
             *broken = !intact;
         }
 
+        if !intact {
+            return;
+        }
+
         if self.bands.len() == 1 {
-            self.outputs.push_back(Assembled::Frame { unit, donl, intact });
+            self.outputs.push_back(Assembled::Frame { unit, donl });
             return;
         }
 
@@ -239,7 +238,7 @@ impl Group {
 
         let bottom = usize::from(unit.band) + 1 == self.bands.len();
         self.instant = Some((unit.timestamp, now));
-        self.outputs.push_back(Assembled::Frame { unit, donl, intact });
+        self.outputs.push_back(Assembled::Frame { unit, donl });
 
         if bottom {
             self.end_instant();
@@ -247,7 +246,7 @@ impl Group {
     }
 
     fn end_instant(&mut self) {
-        if self.instant.take().is_some() && !self.recovering() {
+        if self.instant.take().is_some() {
             self.outputs.push_back(Assembled::Present);
         }
     }
@@ -260,8 +259,8 @@ impl Group {
     }
 
     // A unit of `band` was lost. When favoring quality, H.264 waits for a keyframe. HEVC keeps going: its references
-    // tell which pictures are broken, the screen waits for the band to be intact, and the server answers with pictures
-    // predicted from acknowledged ones, which waiting for a keyframe would throw away.
+    // tell which pictures are broken, and the server answers with pictures predicted from acknowledged ones, which
+    // waiting for a keyframe would throw away.
     fn lose(&mut self, band: usize, overflow: bool) {
         self.awaiting_keyframe |= self.references.is_none() && (overflow || self.priority == Priority::Quality);
 
@@ -328,7 +327,7 @@ mod tests {
             .iter()
             .map(|output| match output {
                 Assembled::Config(_) => "C".into(),
-                Assembled::Frame { unit, donl, .. } => format!("{}:{}", unit.band, donl.unwrap_or_default()),
+                Assembled::Frame { unit, donl } => format!("{}:{}", unit.band, donl.unwrap_or_default()),
                 Assembled::Lost => "L".into(),
                 Assembled::Present => "|".into(),
             })

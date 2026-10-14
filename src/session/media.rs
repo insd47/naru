@@ -256,7 +256,7 @@ impl Media {
                         .and_then(|(width, height)| Some((u16::try_from(width).ok()?, u16::try_from(height).ok()?)));
                     events.push(Event::DecoderConfig(config));
                 }
-                Assembled::Frame { unit, donl, intact } => {
+                Assembled::Frame { unit, donl } => {
                     self.last_frame = Some(now);
                     self.stall = Stall::default();
                     self.streams.mark_frame(now);
@@ -267,8 +267,8 @@ impl Media {
                         self.acknowledging = true;
                     }
 
-                    // Like Apple's client, every band's intact pictures are acknowledged, and none predicted from a lost one.
-                    if let Some(donl) = donl.filter(|_| intact && self.acknowledging) {
+                    // Like Apple's client, every band's pictures are acknowledged. The group lets out only intact ones.
+                    if let Some(donl) = donl.filter(|_| self.acknowledging) {
                         self.acknowledge(donl).await;
                     }
 
