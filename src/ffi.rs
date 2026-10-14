@@ -27,8 +27,11 @@ static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 /// Connection settings
 #[derive(uniffi::Record)]
 pub struct Config {
+    /// Host name or address. It is resolved to IPv4, and the same address is used for TCP and UDP.
     pub host: String,
+    /// The Mac's TCP port. Audio arrives on the UDP port with the same number and video on the next one.
     pub port: u16,
+    /// Account on the Mac
     pub username: String,
     pub password: String,
     /// Server public key (DER) saved from a previous connection. A mismatch stops the connection.
@@ -65,8 +68,10 @@ impl From<Config> for crate::Config {
 ///   kept. The actual size arrives as `Layout`.
 #[derive(uniffi::Record)]
 pub struct DisplayMode {
+    /// Logical size in points
     pub width: u32,
     pub height: u32,
+    /// Pixels per point. 2 is Retina.
     pub scale: f64,
 }
 
@@ -79,20 +84,14 @@ impl From<DisplayMode> for crate::DisplayConfig {
 /// An event the session reports
 #[derive(uniffi::Enum)]
 pub enum Event {
-    Progress {
-        stage: Stage,
-    },
+    /// This stage has started.
+    Progress { stage: Stage },
     /// Server public key (DER). On a first connection, save it and pass it as `known_key` next time.
-    ServerKey {
-        der: Vec<u8>,
-    },
-    Authenticated {
-        server_proof: bool,
-    },
+    ServerKey { der: Vec<u8> },
+    /// Authentication succeeded. `server_proof` tells whether the server's SRP proof (M2) was verified.
+    Authenticated { server_proof: bool },
     /// The Mac's computer name. Arrives once after authentication.
-    ServerName {
-        name: String,
-    },
+    ServerName { name: String },
     /// Display layout. Pointer coordinates are sent relative to the pixel size.
     Layout {
         logical_width: u16,
@@ -103,22 +102,14 @@ pub enum Event {
     // A variant named after the type it carries makes the generated Kotlin nested class shadow that type, so these two
     // are named differently.
     /// New decoder config. Recreate the decoder with it.
-    Decoder {
-        config: DecoderConfig,
-    },
+    Decoder { config: DecoderConfig },
     /// Audio decoder config (AudioSpecificConfig). Arrives before the first audio of each audio stream; recreate the
     /// audio decoder with it.
-    AudioConfig {
-        config: Vec<u8>,
-    },
+    AudioConfig { config: Vec<u8> },
     /// Audio access unit
-    Audio {
-        frame: AudioFrame,
-    },
+    Audio { frame: AudioFrame },
     /// Access unit for the decoder
-    Frame {
-        unit: AccessUnit,
-    },
+    Frame { unit: AccessUnit },
     /// Every band of one instant has arrived as frames, so show the screen they make up. Only for video in several
     /// bands, and not while any band's latest picture is lost or broken, so the screen never pairs bands from different
     /// moments.
@@ -132,18 +123,13 @@ pub enum Event {
         rgba: Vec<u8>,
     },
     /// The Mac's current input source. Pass the latest one to [`character`].
-    Source {
-        source: InputSource,
-    },
-    Clipboard {
-        text: String,
-    },
+    Source { source: InputSource },
+    /// The Mac's clipboard text
+    Clipboard { text: String },
     /// No frame has come out for too long. Recreate the decoder; the session requests the keyframe.
     ResetDecoder,
     /// Media reception stats. Arrives every 0.5 seconds after media negotiation.
-    Stats {
-        stats: MediaStats,
-    },
+    Stats { stats: MediaStats },
     /// The session ended. Both fields are absent when it was closed.
     Closed {
         failure: Option<Failure>,
