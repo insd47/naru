@@ -3,15 +3,15 @@
 //! - The video comes as four bands, and every structure carries a 2-byte DONL, each fragment of a split NAL included.
 //!   With one band requested the server sends the standard format without DONL, which this module does not read.
 //! - DONL counts pictures across all four bands in decoding order, and an LTR acknowledgment names a picture by it.
-//! - Parameter sets (VPS, SPS, PPS) arrive in-stream with the keyframe, not in a config packet.
+//! - Parameter sets (VPS, SPS, PPS) arrive in-stream with the keyframe, not in a config packet. They become the
+//!   decoder config and are taken out of the access units.
 use super::bits::Bits;
 use super::unit::{DecoderConfig, VideoCodec};
 use crate::reader::Reader;
 
 const NAL_VPS: u8 = 32;
-/// SPS NAL type
 pub const NAL_SPS: u8 = 33;
-const NAL_PPS: u8 = 34;
+pub const NAL_PPS: u8 = 34;
 const NAL_AP: u8 = 48;
 const NAL_FU: u8 = 49;
 
@@ -29,18 +29,13 @@ impl DecoderConfig {
             return None;
         }
 
-        // In the SPS profile_tier_level, general_profile_idc is the low 5 bits of the second byte and general_level_idc
-        // is the 13th byte.
-        let rbsp = rbsp(sps.first()?.get(2..)?, 13);
-        let profile = *rbsp.get(1)? & 0x1f;
-        let level = *rbsp.get(12)?;
+        let (width, height) = picture_size(sps.first()?)?;
 
         Some(Self {
             codec: VideoCodec::Hevc,
             bands: VideoCodec::Hevc.bands(),
-            profile,
-            compatibility: 0,
-            level,
+            width,
+            height,
             vps,
             sps,
             pps,
@@ -57,21 +52,7 @@ pub fn picture_size(sps: &[u8]) -> Option<(u32, u32)> {
     let sub_layers = bits.read(3)?;
     bits.skip(1)?;
 
-    // profile_tier_level: the general profile and level, the sub-layer presence flags padded to eight, then each
-    // sub-layer's profile (88 bits) and level (8 bits) when present.
-    bits.skip(96)?;
-    let present: Vec<(u32, u32)> = (0..sub_layers)
-        .map(|_| Some((bits.read(1)?, bits.read(1)?)))
-        .collect::<Option<_>>()?;
-
-    if sub_layers > 0 {
-        bits.skip(2 * (8 - sub_layers))?;
-    }
-
-    for (profile, level) in present {
-        bits.skip(profile * 88 + level * 8)?;
-    }
-
+    skip_profile_tier_level(&mut bits, sub_layers)?;
     bits.ue()?;
     let chroma_format = bits.ue()?;
 
@@ -102,6 +83,28 @@ pub fn picture_size(sps: &[u8]) -> Option<(u32, u32)> {
 /// Type from the NAL header, or `None` if the header is shorter than 2 bytes
 pub fn nal_type(nal: &[u8]) -> Option<u8> {
     (nal.len() >= 2).then(|| (nal[0] >> 1) & 0x3f)
+}
+
+/// Whether a NAL unit is a VPS, SPS, or PPS
+pub fn is_parameter_set(nal: &[u8]) -> bool {
+    nal_type(nal).is_some_and(|kind| (NAL_VPS..=NAL_PPS).contains(&kind))
+}
+
+/// Skips an SPS's profile_tier_level: the general profile and level, the sub-layer presence flags padded to eight,
+/// then each sub-layer's profile (88 bits) and level (8 bits) when present.
+pub fn skip_profile_tier_level(bits: &mut Bits, sub_layers: u32) -> Option<()> {
+    bits.skip(96)?;
+    let present: Vec<(u32, u32)> = (0..sub_layers)
+        .map(|_| Some((bits.read(1)?, bits.read(1)?)))
+        .collect::<Option<_>>()?;
+
+    if sub_layers > 0 {
+        bits.skip(2 * (8 - sub_layers))?;
+    }
+
+    present
+        .into_iter()
+        .try_for_each(|(profile, level)| bits.skip(profile * 88 + level * 8))
 }
 
 /// Turns one access unit's payloads back into NAL units and the unit's DONL. Returns `None` if a fragment is missing or
@@ -167,28 +170,6 @@ pub fn is_keyframe(nals: &[Vec<u8>]) -> bool {
         .any(|nal| nal_type(nal).is_some_and(|kind| IRAP.contains(&kind)))
 }
 
-// RBSP of the first `len` bytes, with emulation prevention bytes (the 03 in 00 00 03) removed.
-fn rbsp(bytes: &[u8], len: usize) -> Vec<u8> {
-    let mut out = Vec::with_capacity(len);
-    let mut zeros = 0;
-
-    for &byte in bytes {
-        if out.len() == len {
-            break;
-        }
-
-        if zeros >= 2 && byte == 3 {
-            zeros = 0;
-            continue;
-        }
-
-        zeros = if byte == 0 { zeros + 1 } else { 0 };
-        out.push(byte);
-    }
-
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::{depacketize, is_keyframe, picture_size};
@@ -201,7 +182,8 @@ mod tests {
     ];
     const SPS: &[u8] = &[
         0x42, 0x01, 0x01, 0x04, 0x08, 0x00, 0x00, 0x03, 0x00, 0xbe, 0x08, 0x00, 0x00, 0x03, 0x00, 0x00, 0x96, 0x90,
-        0x00, 0x26, 0x04, 0x00, 0xd2, 0x38, 0xd8, 0xdc, 0x40, 0x67, 0x72, 0x29, 0x0c, 0x5c, 0xfe, 0x27,
+        0x00, 0x26, 0x04, 0x00, 0xd2, 0x38, 0xd8, 0xdc, 0x40, 0x67, 0x72, 0x29, 0x0c, 0x5c, 0xfe, 0x27, 0xe1, 0x7f,
+        0x43, 0x7e,
     ];
     const PPS: &[u8] = &[0x44, 0x01, 0xc0, 0x72, 0xf0, 0x5b, 0x24];
     const IDR: &[u8] = &[0x28, 0x01, 0xaf, 0x01];
@@ -279,15 +261,13 @@ mod tests {
         assert!(!is_keyframe(&[SPS.to_vec()]));
     }
 
-    // The captured SPS profile_tier_level contains two emulation prevention bytes; without removing them the level
-    // offset is wrong.
     #[test]
     fn config_comes_from_in_band_parameter_sets() {
         let nals = [VPS.to_vec(), SPS.to_vec(), PPS.to_vec(), IDR.to_vec()];
         let config = DecoderConfig::from_hevc(&nals).unwrap();
 
         assert_eq!(config.codec, VideoCodec::Hevc);
-        assert_eq!((config.profile, config.level), (4, 150));
+        assert_eq!((config.width, config.height), (2420, 1668));
         assert_eq!(
             (config.vps, config.sps, config.pps),
             (vec![VPS.to_vec()], vec![SPS.to_vec()], vec![PPS.to_vec()])
@@ -298,19 +278,13 @@ mod tests {
     #[test]
     fn in_band_sps_is_detected() {
         let idr = [0x28, 0x01, 0, 8, 0xaf, 0x01];
-        let (unit, donl) = AccessUnit::depacketize(
-            VideoCodec::Hevc,
-            1,
-            0,
-            0,
-            [aggregate(&[VPS, SPS, PPS]).as_slice(), &idr],
-        )
-        .unwrap();
+        let (unit, donl) =
+            AccessUnit::depacketize(VideoCodec::Hevc, 0, 0, [aggregate(&[VPS, SPS, PPS]).as_slice(), &idr]).unwrap();
         assert!(unit.keyframe);
         assert!(unit.has_sps());
         assert_eq!(donl, Some(7));
         assert!(
-            !AccessUnit::depacketize(VideoCodec::Hevc, 1, 0, 0, [&idr[..]])
+            !AccessUnit::depacketize(VideoCodec::Hevc, 0, 0, [&idr[..]])
                 .unwrap()
                 .0
                 .has_sps()
@@ -319,14 +293,7 @@ mod tests {
 
     #[test]
     fn picture_size_reads_past_the_profile_and_level() {
-        // The SPS a Mac sent for a 2420×1668 virtual display, as in the iPad app's decoder check
-        let sps = [
-            0x42, 0x01, 0x01, 0x04, 0x08, 0x00, 0x00, 0x03, 0x00, 0xbe, 0x08, 0x00, 0x00, 0x03, 0x00, 0x00, 0x96, 0x90,
-            0x00, 0x26, 0x04, 0x00, 0xd2, 0x38, 0xd8, 0xdc, 0x40, 0x67, 0x72, 0x29, 0x0c, 0x5c, 0xfe, 0x27, 0xe1, 0x7f,
-            0x43, 0x7e,
-        ];
-
-        assert_eq!(picture_size(&sps), Some((2420, 1668)));
-        assert_eq!(picture_size(&sps[..20]), None);
+        assert_eq!(picture_size(SPS), Some((2420, 1668)));
+        assert_eq!(picture_size(&SPS[..20]), None);
     }
 }

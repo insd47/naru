@@ -32,7 +32,6 @@ pub enum Reassembled {
 /// - Emits every complete unit and reports each one it had to drop. Which units reach the decoder is the caller's call.
 pub struct Assembler {
     codec: VideoCodec,
-    ssrc: u32,
     band: u8,
     packets: BTreeMap<u64, RtpPacket>,
     // Next extended sequence number to assemble, and the highest one received so far
@@ -44,10 +43,9 @@ pub struct Assembler {
 }
 
 impl Assembler {
-    pub fn new(codec: VideoCodec, ssrc: u32, band: u8) -> Self {
+    pub fn new(codec: VideoCodec, band: u8) -> Self {
         Self {
             codec,
-            ssrc,
             band,
             packets: BTreeMap::new(),
             next: None,
@@ -184,7 +182,7 @@ impl Assembler {
 
         let payloads = packets.iter().map(|packet| packet.payload.as_slice());
 
-        match AccessUnit::depacketize(self.codec, self.ssrc, self.band, first.timestamp, payloads) {
+        match AccessUnit::depacketize(self.codec, self.band, first.timestamp, payloads) {
             Some((unit, donl)) => Reassembled::Unit(unit, donl),
             None => Reassembled::Lost,
         }
@@ -212,7 +210,11 @@ mod tests {
     }
 
     fn config() -> Vec<u8> {
-        let record = [1, 0x64, 0, 0x34, 0xff, 0xe1, 0, 2, 0x67, 0x64, 1, 0, 1, 0x68];
+        // x264's Baseline profile SPS for 1920×1080, and a PPS
+        let record = [
+            1, 0x42, 0xc0, 0x28, 0xff, 0xe1, 0, 26, 0x67, 0x42, 0xc0, 0x28, 0xd9, 0x00, 0x78, 0x02, 0x27, 0xe5, 0xc0,
+            0x44, 0x00, 0x00, 0x03, 0x00, 0x04, 0x00, 0x00, 0x03, 0x00, 0xc8, 0x3c, 0x60, 0xc9, 0x20, 1, 0, 1, 0x68,
+        ];
         let mut packet = vec![0x92, b'a', b'v', b'c', b'1'];
         packet.extend_from_slice(&((record.len() + 8) as u32).to_be_bytes());
         packet.extend_from_slice(b"avcC");
@@ -250,7 +252,7 @@ mod tests {
     #[test]
     fn ordered_stream_yields_config_then_units() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(VideoCodec::H264, SSRC, 0);
+        let mut assembler = Assembler::new(VideoCodec::H264, 0);
 
         for packet in stream(100) {
             assert_eq!(assembler.push(packet), 0);
@@ -269,7 +271,7 @@ mod tests {
     #[test]
     fn sequence_wrap_and_reordering_are_absorbed() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(VideoCodec::H264, SSRC, 0);
+        let mut assembler = Assembler::new(VideoCodec::H264, 0);
         let mut packets = stream(65_533);
         packets.swap(1, 2);
         packets.swap(3, 4);
@@ -287,7 +289,7 @@ mod tests {
     #[test]
     fn gap_is_counted_once_and_filled_by_a_late_packet_in_time() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(VideoCodec::H264, SSRC, 0);
+        let mut assembler = Assembler::new(VideoCodec::H264, 0);
         let mut packets = stream(10);
         let late = packets.remove(2);
 
@@ -310,7 +312,7 @@ mod tests {
     #[test]
     fn unrecovered_gap_drops_the_unit_through_the_next_marker() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(VideoCodec::H264, SSRC, 0);
+        let mut assembler = Assembler::new(VideoCodec::H264, 0);
 
         for packet in stream(10) {
             assembler.push(packet);
@@ -329,7 +331,7 @@ mod tests {
     #[test]
     fn late_duplicate_is_ignored() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(VideoCodec::H264, SSRC, 0);
+        let mut assembler = Assembler::new(VideoCodec::H264, 0);
 
         for packet in stream(10) {
             assembler.push(packet);
@@ -343,7 +345,7 @@ mod tests {
     #[test]
     fn hevc_unit_carries_its_band_and_don() {
         let now = Instant::now();
-        let mut assembler = Assembler::new(VideoCodec::Hevc, SSRC, 2);
+        let mut assembler = Assembler::new(VideoCodec::Hevc, 2);
         assembler.push(packet(10, 0, false, &[0x62, 0x01, 0x81, 0, 9, 1]));
         assembler.push(packet(11, 0, true, &[0x62, 0x01, 0x41, 0, 9, 2]));
 

@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Handler
 import android.view.Surface
 import dev.insd.naru.core.AccessUnit
+import dev.insd.naru.core.DecoderConfig
 import java.nio.BufferOverflowException
 import java.nio.ByteBuffer
 
@@ -16,9 +17,9 @@ import java.nio.ByteBuffer
  *
  * - Uses only the OS's built-in hardware decoders. Construction fails if there is none.
  * - Runs in async mode: input is queued as buffers free up and output is rendered as it comes. Codec callbacks arrive on [handler]'s thread, so call this object only on that thread.
- * - On a new SPS (resolution change, new SSRC), [release] and create a new one, since mixing with the previous generation's references corrupts output.
+ * - On a new config, [release] and create a new one, since mixing with the previous generation's references corrupts output.
  */
-class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface, handler: Handler, private val listener: Listener) {
+class Decoder(config: DecoderConfig, surface: Surface, handler: Handler, private val listener: Listener) {
     val info: MediaCodecInfo = hardwareDecoder() ?: error("no hardware H.264 decoder")
 
     private val codec = MediaCodec.createByCodecName(info.name)
@@ -37,10 +38,9 @@ class Decoder(sps: ByteArray, pps: ByteArray, surface: Surface, handler: Handler
     }
 
     init {
-        val config = Sps.parse(sps)
-        val format = MediaFormat.createVideoFormat(MIME, config.width, config.height).apply {
-            setByteBuffer("csd-0", ByteBuffer.wrap(START_CODE + sps))
-            setByteBuffer("csd-1", ByteBuffer.wrap(START_CODE + pps))
+        val format = MediaFormat.createVideoFormat(MIME, config.width.toInt(), config.height.toInt()).apply {
+            setByteBuffer("csd-0", ByteBuffer.wrap(START_CODE + config.sps.first()))
+            setByteBuffer("csd-1", ByteBuffer.wrap(START_CODE + config.pps.first()))
             setInteger(MediaFormat.KEY_PRIORITY, 0)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&

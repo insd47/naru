@@ -60,8 +60,7 @@ The Windows app builds its `ThirdPartyNotices.txt` from these notices and the li
 package licensed only by an SPDX expression takes its text from `windows/Naru/Licenses/`, and the build fails when
 that text is missing.
 
-For app changes, also build the app you touched. The Android JVM tests run with
-`./gradlew :app:testDebugUnitTest` from `android/`.
+For app changes, also build the app you touched.
 
 ## Testing against a Mac
 

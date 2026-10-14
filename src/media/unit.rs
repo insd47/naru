@@ -35,10 +35,9 @@ pub struct DecoderConfig {
     pub codec: VideoCodec,
     /// Number of horizontal bands each screen comes in. Every frame is a picture of one band, numbered from the top.
     pub bands: u8,
-    pub profile: u8,
-    /// H.264 profile_compatibility; 0 for HEVC
-    pub compatibility: u8,
-    pub level: u8,
+    /// Picture size the SPS describes, after its cropping: the whole screen for H.264 and one band for HEVC
+    pub width: u32,
+    pub height: u32,
     /// VPS NAL units without start codes; empty for H.264
     pub vps: Vec<Vec<u8>>,
     /// SPS NAL units without start codes
@@ -52,23 +51,12 @@ impl DecoderConfig {
     pub fn annex_b(&self) -> Vec<u8> {
         annex_b(self.vps.iter().chain(&self.sps).chain(&self.pps))
     }
-
-    /// The picture size its SPS describes: the whole screen for H.264 and one band for HEVC
-    pub fn picture_size(&self) -> Option<(u32, u32)> {
-        let sps = self.sps.first()?;
-
-        match self.codec {
-            VideoCodec::H264 => h264::picture_size(sps),
-            VideoCodec::Hevc => hevc::picture_size(sps),
-        }
-    }
 }
 
 /// A complete access unit ready for the decoder.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct AccessUnit {
     pub codec: VideoCodec,
-    pub ssrc: u32,
     /// Band the picture covers, counted from the top; always 0 for H.264
     ///
     /// - Each HEVC band is a picture of its own, a quarter of the height rounded up to a multiple of 16, and the bands
@@ -93,7 +81,6 @@ impl AccessUnit {
     /// Returns `None` if a fragment is missing or malformed.
     pub fn depacketize<'a>(
         codec: VideoCodec,
-        ssrc: u32,
         band: u8,
         timestamp: u32,
         payloads: impl IntoIterator<Item = &'a [u8]>,
@@ -113,7 +100,6 @@ impl AccessUnit {
 
         let unit = Self {
             codec,
-            ssrc,
             band,
             timestamp,
             keyframe,
@@ -124,7 +110,7 @@ impl AccessUnit {
         Some((unit, donl))
     }
 
-    /// Checks for an SPS NAL unit. If the access unit already has one, the config isn't prepended separately.
+    /// Checks for an SPS NAL unit, which in HEVC comes with the keyframe and makes the decoder config.
     pub fn has_sps(&self) -> bool {
         self.nals.iter().any(|nal| match self.codec {
             VideoCodec::H264 => nal.first().is_some_and(|header| header & 0x1f == h264::NAL_SPS),

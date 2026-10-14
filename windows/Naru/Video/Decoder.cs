@@ -16,7 +16,7 @@ internal readonly record struct Picture(IMFSample Sample, ID3D11Texture2D Textur
 /// <remarks>
 /// <list type="bullet">
 /// <item>Uses Windows' synchronous decoder for the codec, which decodes on the GPU when handed a Direct3D device. Construction fails without that.</item>
-/// <item>Each access unit goes in as Annex B. H.264 keyframes get the SPS and PPS in front; HEVC keyframes already carry the VPS, SPS, and PPS.</item>
+/// <item>Each access unit goes in as Annex B, and keyframes get the config's parameter sets in front.</item>
 /// <item>H.264 comes out as NV12 and HEVC 4:4:4 as AYUV. The renderer's video processor converts either.</item>
 /// <item>With several bands, each picture covers one band of the screen, a picture of its own the size of <see cref="Band"/>.</item>
 /// <item>On a new config, dispose and create a new one, since mixing with the previous generation's references corrupts output.</item>
@@ -44,7 +44,8 @@ internal sealed class Decoder : IDisposable
         var hevc = config.Codec == VideoCodec.Hevc;
         bands = Math.Max(config.Bands, (byte)1);
         var sps = config.Sps.FirstOrDefault() ?? throw new InvalidOperationException("no SPS");
-        parameters = hevc ? [] : [.. StartCode, .. Sps.WithoutReordering(sps), .. StartCode, .. config.Pps.FirstOrDefault() ?? throw new InvalidOperationException("no PPS")];
+        byte[][] sets = hevc ? [.. config.Vps, .. config.Sps, .. config.Pps] : [Sps.WithoutReordering(sps), .. config.Pps];
+        parameters = [.. sets.SelectMany(nal => StartCode.Concat(nal))];
         output = hevc ? Mf.Ayuv : Mf.Nv12;
 
         transform = Create(hevc ? Mf.Hevc : Mf.H264, out var name);
@@ -290,7 +291,7 @@ internal sealed class Decoder : IDisposable
                 }
             }
 
-            var config = new DecoderConfig(VideoCodec.Hevc, 1, 4, 0, 150, [MacVps], [MacSps], [MacPps]);
+            var config = new DecoderConfig(VideoCodec.Hevc, 1, 2420, 1668, [MacVps], [MacSps], [MacPps]);
             using var decoder = new Decoder(graphics, config);
             Log.Info($"HEVC 4:4:4: supported by {decoder.Name}");
             return true;

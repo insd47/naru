@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
  * Draws the session's video to a Surface.
  *
  * - The decoder and its callbacks live on one dedicated thread. Calls from any thread are posted there and handled in order.
- * - A decoder exists only while both a config (SPS, PPS) and a Surface exist. When either changes, a new one is created and fed from a keyframe.
+ * - A decoder exists only while both a config and a Surface exist. When either changes, a new one is created and fed from a keyframe.
  * - A keyframe is requested through [requestKeyframe] when the Surface changed, the decoder failed, or input backed up.
  *   The session repeats the request until one arrives, and a new config comes with its keyframe.
  * - Each new decoder calls [onFirstFrame] once it draws its first frame. The screen is blank until then.
@@ -27,8 +27,7 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
     private val handler = Handler(thread.looper)
 
     private var surface: Surface? = null
-    private var sps: ByteArray? = null
-    private var pps: ByteArray? = null
+    private var config: DecoderConfig? = null
     private var decoder: Decoder? = null
     private var shown = false
     private var released = false
@@ -85,8 +84,7 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
 
     fun configure(config: DecoderConfig) {
         handler.post {
-            sps = config.sps.firstOrNull() ?: return@post
-            pps = config.pps.firstOrNull() ?: return@post
+            this.config = config
             rebuild(keyframe = false)
         }
     }
@@ -168,10 +166,9 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
         if (released) return
 
         val target = surface?.takeIf { it.isValid } ?: return
-        val sps = sps ?: return
-        val pps = pps ?: return
+        val config = config ?: return
 
-        decoder = runCatching { Decoder(sps, pps, target, handler, listener) }
+        decoder = runCatching { Decoder(config, target, handler, listener) }
             .onSuccess { Log.i(TAG, "Decoder: ${it.info.name}") }
             .onFailure { Log.e(TAG, "Cannot create the decoder", it) }
             .getOrNull()

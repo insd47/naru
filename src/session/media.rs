@@ -99,8 +99,9 @@ pub struct Media {
     last_refresh_request: Option<Instant>,
     // Missing sequence numbers counted when the last refresh was asked for
     refreshed_missing: u64,
-    // Picture size from the latest decoder config, which refresh requests name
-    picture_size: Option<(u16, u16)>,
+    // Picture size from the latest decoder config, which refresh requests name. Before the first it is not known yet
+    // and goes out as 0.
+    picture_size: (u16, u16),
     // Counts for diagnosing why media did not start.
     datagrams: u64,
     authenticated: u64,
@@ -140,7 +141,7 @@ impl Media {
             unanswered: 0,
             last_refresh_request: None,
             refreshed_missing: 0,
-            picture_size: None,
+            picture_size: (0, 0),
             datagrams: 0,
             authenticated: 0,
             largest_bytes: 0,
@@ -246,9 +247,10 @@ impl Media {
             match output {
                 Assembled::Config(config) => {
                     self.configured = true;
-                    self.picture_size = config
-                        .picture_size()
-                        .and_then(|(width, height)| Some((u16::try_from(width).ok()?, u16::try_from(height).ok()?)));
+                    self.picture_size = (
+                        u16::try_from(config.width).unwrap_or(u16::MAX),
+                        u16::try_from(config.height).unwrap_or(u16::MAX),
+                    );
                     events.push(Event::DecoderConfig(config));
                 }
                 Assembled::Frame { unit, donl } => {
@@ -438,9 +440,7 @@ impl Media {
         self.last_refresh_request = Some(now);
         self.refreshed_missing = self.missing;
 
-        // Before the first decoder config the size is not known yet and goes out as 0.
-        let size = self.picture_size.unwrap_or((0, 0));
-        self.send_video_rtcp(&rtcp::refresh_request(self.video_ssrc, size))
+        self.send_video_rtcp(&rtcp::refresh_request(self.video_ssrc, self.picture_size))
             .await;
     }
 

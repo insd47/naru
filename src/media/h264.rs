@@ -34,29 +34,22 @@ impl DecoderConfig {
         let size = u32::from_be_bytes(payload.get(at.checked_sub(4)?..at)?.try_into().ok()?) as usize;
         let record = payload.get(at + 4..at - 4 + size)?;
 
-        Self::read(&mut Reader::new(record, "avcC"))
-            .ok()
-            .filter(|config| !config.sps.is_empty() && !config.pps.is_empty())
-    }
+        // configurationVersion and the profile, compatibility, and level the SPS repeats come before the lists.
+        let mut reader = Reader::new(record, "avcC");
+        reader.skip(5).ok()?;
+        let sps_count = reader.u8().ok()? & 0x1f;
+        let sps = units(&mut reader, sps_count).ok()?;
+        let pps_count = reader.u8().ok()?;
+        let pps = units(&mut reader, pps_count).ok()?;
 
-    fn read(reader: &mut Reader) -> Result<Self> {
-        reader.skip(1)?;
-        let profile = reader.u8()?;
-        let compatibility = reader.u8()?;
-        let level = reader.u8()?;
-        reader.skip(1)?;
+        let (width, height) = picture_size(sps.first()?)?;
+        (!pps.is_empty()).then_some(())?;
 
-        let sps_count = reader.u8()? & 0x1f;
-        let sps = units(reader, sps_count)?;
-        let pps_count = reader.u8()?;
-        let pps = units(reader, pps_count)?;
-
-        Ok(Self {
+        Some(Self {
             codec: VideoCodec::H264,
             bands: VideoCodec::H264.bands(),
-            profile,
-            compatibility,
-            level,
+            width,
+            height,
             vps: Vec::new(),
             sps,
             pps,
@@ -257,7 +250,11 @@ mod tests {
     use super::{depacketize, is_keyframe, picture_size};
     use crate::media::unit::{AccessUnit, DecoderConfig, VideoCodec};
 
-    const SPS: &[u8] = &[0x67, 0x64, 0x00, 0x34, 0xac];
+    // x264's Baseline profile SPS for 1920×1080
+    const SPS: &[u8] = &[
+        0x67, 0x42, 0xc0, 0x28, 0xd9, 0x00, 0x78, 0x02, 0x27, 0xe5, 0xc0, 0x44, 0x00, 0x00, 0x03, 0x00, 0x04, 0x00,
+        0x00, 0x03, 0x00, 0xc8, 0x3c, 0x60, 0xc9, 0x20,
+    ];
     const PPS: &[u8] = &[0x68, 0xee, 0x3c, 0x80];
 
     // Config packet: the marker, an arbitrary header, then the `avc1` entry containing the `avcC` box.
@@ -280,7 +277,7 @@ mod tests {
     #[test]
     fn config_packet_yields_sps_and_pps_for_the_decoder() {
         let config = DecoderConfig::from_h264(&config_packet()).unwrap();
-        assert_eq!((config.profile, config.level), (0x64, 0x34));
+        assert_eq!((config.width, config.height), (1920, 1080));
         assert_eq!(config.sps, [SPS]);
         assert_eq!(config.pps, [PPS]);
         assert_eq!(config.annex_b(), [&[0, 0, 0, 1], SPS, &[0, 0, 0, 1], PPS].concat());
@@ -333,8 +330,8 @@ mod tests {
 
     #[test]
     fn in_band_sps_is_detected() {
-        let (with_sps, _) = AccessUnit::depacketize(VideoCodec::H264, 1, 0, 0, [SPS, &[0x65][..]]).unwrap();
-        let (idr, donl) = AccessUnit::depacketize(VideoCodec::H264, 1, 0, 0, [&[0x65][..]]).unwrap();
+        let (with_sps, _) = AccessUnit::depacketize(VideoCodec::H264, 0, 0, [SPS, &[0x65][..]]).unwrap();
+        let (idr, donl) = AccessUnit::depacketize(VideoCodec::H264, 0, 0, [&[0x65][..]]).unwrap();
         assert!(with_sps.has_sps());
         assert!(!idr.has_sps());
         assert!(idr.keyframe);
@@ -344,18 +341,14 @@ mod tests {
 
     #[test]
     fn picture_size_applies_the_frame_cropping() {
-        // x264's High profile SPS for 2800×1752, which crops 8 rows off 110 macroblocks, and Baseline for 1920×1080
+        // x264's High profile SPS for 2800×1752, which crops 8 rows off 110 macroblocks
         let high = [
             0x67, 0x64, 0x00, 0x32, 0xac, 0xd9, 0x40, 0x2b, 0xc0, 0xdd, 0xf9, 0x70, 0x11, 0x00, 0x00, 0x03, 0x00, 0x01,
             0x00, 0x00, 0x03, 0x00, 0x32, 0x0f, 0x18, 0x31, 0x96,
         ];
-        let baseline = [
-            0x67, 0x42, 0xc0, 0x28, 0xd9, 0x00, 0x78, 0x02, 0x27, 0xe5, 0xc0, 0x44, 0x00, 0x00, 0x03, 0x00, 0x04, 0x00,
-            0x00, 0x03, 0x00, 0xc8, 0x3c, 0x60, 0xc9, 0x20,
-        ];
 
         assert_eq!(picture_size(&high), Some((2800, 1752)));
-        assert_eq!(picture_size(&baseline), Some((1920, 1080)));
+        assert_eq!(picture_size(SPS), Some((1920, 1080)));
         assert_eq!(picture_size(&high[..6]), None);
     }
 }

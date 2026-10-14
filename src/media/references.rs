@@ -8,11 +8,10 @@
 //!   the client acknowledged, so intact pictures resume without a keyframe.
 //! - Long-term references are not read, since the Mac's SPS turns them off.
 use super::bits::Bits;
+use super::hevc::{NAL_PPS, NAL_SPS, nal_type, skip_profile_tier_level};
 
 const NAL_IDR_W_RADL: u8 = 19;
 const NAL_IDR_N_LP: u8 = 20;
-const NAL_SPS: u8 = 33;
-const NAL_PPS: u8 = 34;
 
 /// Follows a stream's pictures in decoding order and tells which decode intact.
 #[derive(Default)]
@@ -326,27 +325,6 @@ impl Rps {
     fn deltas(&self) -> Vec<(i32, bool)> {
         self.before.iter().chain(&self.after).copied().collect()
     }
-}
-
-fn nal_type(nal: &[u8]) -> Option<u8> {
-    (nal.len() >= 2).then(|| (nal[0] >> 1) & 0x3f)
-}
-
-// profile_tier_level: the general profile and level, the sub-layer presence flags padded to eight, then each
-// sub-layer's profile (88 bits) and level (8 bits) when present.
-fn skip_profile_tier_level(bits: &mut Bits, sub_layers: u32) -> Option<()> {
-    bits.skip(96)?;
-    let present: Vec<(u32, u32)> = (0..sub_layers)
-        .map(|_| Some((bits.read(1)?, bits.read(1)?)))
-        .collect::<Option<_>>()?;
-
-    if sub_layers > 0 {
-        bits.skip(2 * (8 - sub_layers))?;
-    }
-
-    present
-        .into_iter()
-        .try_for_each(|(profile, level)| bits.skip(profile * 88 + level * 8))
 }
 
 // scaling_list_data: for each size and matrix, either a reference to another matrix or its coefficients.

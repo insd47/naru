@@ -6,7 +6,6 @@ lifecycle = "2.10.0"
 composeBom = "2025.11.00"
 # The Material 3 Expressive API is public from 1.5, so only material3 is pinned ahead of the BOM.
 material3 = "1.5.0-beta01"
-junit = "4.13.2"
 jna = "5.17.0"
 aboutLibraries = "15.3.0"
 
@@ -22,7 +21,6 @@ androidx-compose-material-icons-extended = { group = "androidx.compose.material"
 
 jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
 
-junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

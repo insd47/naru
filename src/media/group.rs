@@ -1,8 +1,8 @@
 use super::RtpPacket;
 use super::assembler::{Assembler, Reassembled};
 use super::references::References;
-use super::sequence;
 use super::unit::{AccessUnit, DecoderConfig, VideoCodec};
+use super::{hevc, sequence};
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -36,7 +36,7 @@ pub enum Assembled {
 /// - Bands assemble independently, so units are put back in DONL order. A unit waits for an earlier one only while that
 ///   one is still arriving on its band; the bands of one instant share an RTP timestamp and arrive top first.
 /// - A config goes out only when it differs from the last one. Each HEVC band repeats the same parameter sets, which
-///   come in the same unit as the keyframe, so that unit emits the config first and then the unit.
+///   come in the same unit as the keyframe, so that unit emits the config first and then the unit without them.
 /// - With several bands, an instant ends when its bottom band goes out, a band of a later instant goes out, or no band
 ///   follows for a moment. Showing each band as it decodes would show the top one ahead of the others.
 /// - H.264 drops only a lost unit and keeps emitting, so parts of the screen may be corrupted until a keyframe arrives;
@@ -54,7 +54,7 @@ pub struct Group {
     config: Option<DecoderConfig>,
     awaiting_keyframe: bool,
     // Which pictures decode intact (HEVC only)
-    references: Option<References>,
+    references: References,
     // Bands whose latest picture was lost or does not decode intact
     broken: Vec<bool>,
     outputs: VecDeque<Assembled>,
@@ -71,10 +71,7 @@ struct Waiting {
 impl Group {
     /// Starts a group whose top band is `base`, with as many bands as the codec takes.
     pub fn new(codec: VideoCodec, base: u32) -> Self {
-        let bands: Vec<Assembler> = (0..codec.bands())
-            .map(|band| Assembler::new(codec, base.wrapping_add(u32::from(band)), band))
-            .collect();
-        let references = (codec == VideoCodec::Hevc).then(References::default);
+        let bands: Vec<Assembler> = (0..codec.bands()).map(|band| Assembler::new(codec, band)).collect();
 
         Self {
             codec,
@@ -83,7 +80,7 @@ impl Group {
             released: None,
             config: None,
             awaiting_keyframe: true,
-            references,
+            references: References::default(),
             broken: vec![false; bands.len()],
             bands,
             outputs: VecDeque::new(),
@@ -192,21 +189,19 @@ impl Group {
 
         self.awaiting_keyframe = false;
 
-        if self.codec == VideoCodec::Hevc
-            && let Some(config) = DecoderConfig::from_hevc(&unit.nals)
-        {
-            self.announce(config);
+        // HEVC parameter sets come with the keyframe. They make the config and tell the references how to read slice
+        // headers, and the decoder gets them through the config only. A picture whose headers cannot be read counts as
+        // intact, so headers the parser does not know never stop the screen.
+        if self.codec == VideoCodec::Hevc {
+            if let Some(config) = DecoderConfig::from_hevc(&unit.nals) {
+                self.announce(config);
+            }
+
+            unit.intact = self.references.intact(&unit.nals).unwrap_or(true);
+            unit.nals.retain(|nal| !hevc::is_parameter_set(nal));
         }
 
-        // A picture whose headers cannot be read counts as intact, so headers the parser does not know never stop the
-        // screen.
-        let intact = self
-            .references
-            .as_mut()
-            .is_none_or(|references| references.intact(&unit.nals).unwrap_or(true));
-
-        unit.intact = intact;
-        self.broken[usize::from(unit.band)] = !intact;
+        self.broken[usize::from(unit.band)] = !unit.intact;
 
         if self.bands.len() == 1 {
             self.outputs.push_back(Assembled::Frame { unit, donl });
@@ -246,7 +241,7 @@ impl Group {
     // the screen waits for the band to be intact, and the server answers with pictures predicted from acknowledged
     // ones, which waiting for a keyframe would throw away.
     fn lose(&mut self, band: usize, overflow: bool) {
-        self.awaiting_keyframe |= overflow && self.references.is_none();
+        self.awaiting_keyframe |= overflow && self.codec == VideoCodec::H264;
         self.broken[band] = true;
 
         self.outputs.push_back(Assembled::Lost);
@@ -262,15 +257,23 @@ mod tests {
     const IDR: &[u8] = &[0x65, 0x88];
     const P_SLICE: &[u8] = &[0x41, 0x9a];
 
-    // HEVC parameter sets as an aggregation packet with DONL `donl`. `level` tells configs apart.
-    fn parameter_sets(donl: u16, level: u8) -> Vec<u8> {
-        let vps: &[u8] = &[0x40, 0x01, 0x0c];
-        let sps: &[u8] = &[0x42, 0x01, 0x01, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, level];
-        let pps: &[u8] = &[0x44, 0x01, 0xc0];
+    // HEVC parameter sets as an aggregation packet with DONL `donl`: a Mac's VPS and SPS, and a PPS of `version` zero
+    // bytes, which tells configs apart and leaves slice headers unread, so every picture counts as intact.
+    fn parameter_sets(donl: u16, version: u8) -> Vec<u8> {
+        let vps: &[u8] = &[
+            0x40, 0x01, 0x0c, 0x01, 0xff, 0xff, 0x04, 0x08, 0x00, 0x00, 0x03, 0x00, 0xbe, 0x08, 0x00, 0x00, 0x03, 0x00,
+            0x00, 0x96, 0x0c, 0xc0, 0x90,
+        ];
+        let sps: &[u8] = &[
+            0x42, 0x01, 0x01, 0x04, 0x08, 0x00, 0x00, 0x03, 0x00, 0xbe, 0x08, 0x00, 0x00, 0x03, 0x00, 0x00, 0x96, 0x90,
+            0x00, 0x26, 0x04, 0x00, 0xd2, 0x38, 0xd8, 0xdc, 0x40, 0x67, 0x72, 0x29, 0x0c, 0x5c, 0xfe, 0x27, 0xe1, 0x7f,
+            0x43, 0x7e,
+        ];
+        let pps = [&[0x44, 0x01][..], &vec![0; usize::from(version)]].concat();
         let mut packet = vec![0x60, 0x01];
         packet.extend_from_slice(&donl.to_be_bytes());
 
-        for nal in [vps, sps, pps] {
+        for nal in [vps, sps, &pps] {
             packet.extend_from_slice(&(nal.len() as u16).to_be_bytes());
             packet.extend_from_slice(nal);
         }
@@ -316,7 +319,11 @@ mod tests {
     }
 
     fn h264_config() -> Vec<u8> {
-        let record = [1, 0x64, 0, 0x34, 0xff, 0xe1, 0, 2, 0x67, 0x64, 1, 0, 1, 0x68];
+        // x264's Baseline profile SPS for 1920×1080, and a PPS
+        let record = [
+            1, 0x42, 0xc0, 0x28, 0xff, 0xe1, 0, 26, 0x67, 0x42, 0xc0, 0x28, 0xd9, 0x00, 0x78, 0x02, 0x27, 0xe5, 0xc0,
+            0x44, 0x00, 0x00, 0x03, 0x00, 0x04, 0x00, 0x00, 0x03, 0x00, 0xc8, 0x3c, 0x60, 0xc9, 0x20, 1, 0, 1, 0x68,
+        ];
         let mut packet = vec![0x92, b'a', b'v', b'c', b'1'];
         packet.extend_from_slice(&((record.len() + 8) as u32).to_be_bytes());
         packet.extend_from_slice(b"avcC");
@@ -378,6 +385,18 @@ mod tests {
 
         group.push(packet(102, 1, 90, true, &slice(12, false)));
         assert_eq!(summary(&drain(&mut group, now)), ["2:12", "C", "3:13", "|"]);
+    }
+
+    #[test]
+    fn hevc_parameter_sets_go_to_the_config_and_not_the_decoder() {
+        let now = Instant::now();
+        let mut group = Group::new(VideoCodec::Hevc, 100);
+        group.push(packet(100, 0, 90, false, &parameter_sets(10, 1)));
+        group.push(packet(100, 1, 90, true, &slice(10, true)));
+        let outputs = drain(&mut group, now);
+
+        assert!(matches!(&outputs[0], Assembled::Config(config) if config.sps.len() == 1));
+        assert!(matches!(&outputs[1], Assembled::Frame { unit, .. } if unit.keyframe && unit.nals.len() == 1));
     }
 
     // A unit that never arrives does not hold the others back once its band has nothing in flight.

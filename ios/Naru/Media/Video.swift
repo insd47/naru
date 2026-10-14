@@ -371,7 +371,7 @@ final class Video: @unchecked Sendable {
     ///
     /// - `VTIsHardwareDecodeSupported` ignores the chroma format, so this tries to create a hardware-only session from 4:4:4 parameter sets the server sent.
     static let decodesHevc444: Bool = {
-        guard let format = format(DecoderConfig(codec: .hevc, bands: 1, profile: 4, compatibility: 0, level: 150, vps: [hevcVps], sps: [hevcSps], pps: [hevcPps])) else {
+        guard let format = format(DecoderConfig(codec: .hevc, bands: 1, width: 2420, height: 1668, vps: [hevcVps], sps: [hevcSps], pps: [hevcPps])) else {
             return false
         }
 
@@ -415,21 +415,11 @@ final class Video: @unchecked Sendable {
         return status == noErr ? format : nil
     }
 
-    // Parameter sets live in the format description, so they are removed from samples. H.264 uses SPS (7) and PPS (8); HEVC uses VPS (32), SPS (33), and PPS (34).
-    private static func isParameterSet(_ nal: Data, codec: VideoCodec) -> Bool {
-        let header = nal[nal.startIndex]
-
-        return switch codec {
-        case .h264: [7, 8].contains(header & 0x1f)
-        case .hevc: (32...34).contains((header >> 1) & 0x3f)
-        }
-    }
-
     // Converts a NAL unit without a start code to the 4-byte length-prefixed format.
     private static func sample(_ unit: AccessUnit, format: CMVideoFormatDescription) -> CMSampleBuffer? {
         var data = Data()
 
-        for nal in unit.nals where !nal.isEmpty && !isParameterSet(nal, codec: unit.codec) {
+        for nal in unit.nals where !nal.isEmpty {
             withUnsafeBytes(of: UInt32(nal.count).bigEndian) { data.append(contentsOf: $0) }
             data.append(nal)
         }

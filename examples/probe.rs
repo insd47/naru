@@ -231,8 +231,8 @@ async fn session(args: Args) -> Result<()> {
             ),
             Event::DecoderConfig(config) => {
                 println!(
-                    "[{at}] decoder config: {:?}, profile {}, level {}",
-                    config.codec, config.profile, config.level
+                    "[{at}] decoder config: {:?}, {}x{}",
+                    config.codec, config.width, config.height
                 );
                 decoder = Some(config);
             }
@@ -244,10 +244,9 @@ async fn session(args: Args) -> Result<()> {
                 bytes += unit.nals.iter().map(Vec::len).sum::<usize>();
 
                 if let Some(out) = out.as_mut() {
-                    // The decoder config arrives out of band, so SPS and PPS go before keyframes for the file to play
-                    // on its own.
+                    // The parameter sets come only in the decoder config, so they go before keyframes for the file to
+                    // play on its own.
                     if unit.keyframe
-                        && !unit.has_sps()
                         && let Some(config) = &decoder
                     {
                         out.write_all(&config.annex_b())?;
