@@ -9,32 +9,6 @@
 		<dict>
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
-			<key>Title</key>
-			<string>Quality</string>
-			<key>FooterText</key>
-			<string>When displaying a remote screen with a standard connection. Takes effect the next time you connect.</string>
-		</dict>
-		<dict>
-			<key>Type</key>
-			<string>PSRadioGroupSpecifier</string>
-			<key>Key</key>
-			<string>priority</string>
-			<key>DefaultValue</key>
-			<string>latency</string>
-			<key>Titles</key>
-			<array>
-				<string>Adapt quality to network conditions (faster)</string>
-				<string>Show the screen at full quality (more detailed)</string>
-			</array>
-			<key>Values</key>
-			<array>
-				<string>latency</string>
-				<string>quality</string>
-			</array>
-		</dict>
-		<dict>
-			<key>Type</key>
-			<string>PSGroupSpecifier</string>
 		</dict>
 		<dict>
 			<key>Type</key>

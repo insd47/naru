@@ -80,9 +80,10 @@ final class SessionController {
         shown = false
         codec = nil
 
+        // After a loss the Mac refers the next picture to one acknowledged intact, so passing every unit on recovers without a keyframe.
         let config = Config(
             host: host.address, port: UInt16(host.port), username: credentials.username, password: credentials.password,
-            knownKey: ServerKeys.find(host), display: display, audio: true, priority: preferences.priority,
+            knownKey: ServerKeys.find(host), display: display, audio: true, priority: .latency,
             codec: Video.decodesHevc444 ? .hevc : .h264
         )
 

@@ -26,7 +26,7 @@ pub enum Assembled {
     Lost,
 }
 
-/// What to favor after an unrecoverable loss. This is the same choice as the Screen Sharing app's quality setting.
+/// What to favor after an unrecoverable loss. Each app picks it for its decoder; Screen Sharing's quality setting applies only to standard connections.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Enum)]
 pub enum Priority {
     /// Drops only the lost unit and keeps emitting frames. Parts of the screen may be corrupted until a keyframe arrives.

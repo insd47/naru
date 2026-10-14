@@ -27,7 +27,7 @@ public partial class App : Application
         Log.ToFile();
         Hosts = new Hosts();
         Preferences = new Preferences();
-        Sessions = new Sessions(Hosts, Preferences);
+        Sessions = new Sessions(Hosts);
         Sessions.Failed += OnFailed;
         // The check opens a Direct3D device and a decoder, so it runs once in the background rather than on the first connect.
         _ = Task.Run(Video.Decoder.SupportsHevc444);

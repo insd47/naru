@@ -40,7 +40,7 @@ internal sealed class Running
 /// <item>A session window opens once authentication succeeds, and closing it disconnects.</item>
 /// </list>
 /// </remarks>
-internal sealed class Sessions(Hosts hosts, Preferences preferences)
+internal sealed class Sessions(Hosts hosts)
 {
     private readonly DispatcherQueue queue = DispatcherQueue.GetForCurrentThread();
     private readonly Dictionary<string, Running> running = [];
@@ -72,7 +72,8 @@ internal sealed class Sessions(Hosts hosts, Preferences preferences)
             KnownKey: ServerKeys.Find(host),
             Display: display,
             Audio: true,
-            Priority: preferences.Priority,
+            // After a loss the Mac refers the next picture to one acknowledged intact, so drawing on recovers without a keyframe.
+            Priority: Priority.Latency,
             Codec: Video.Decoder.SupportsHevc444() ? VideoCodec.Hevc : VideoCodec.H264);
 
         Running? session = null;

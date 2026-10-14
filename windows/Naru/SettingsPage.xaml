@@ -80,31 +80,8 @@
                 </Grid>
             </Border>
 
-            <TextBlock Text="Quality" Style="{StaticResource Section}" />
-            <Border Style="{StaticResource Card}">
-                <RadioButtons x:Name="Quality" SelectionChanged="OnQuality">
-                    <!-- The header's margin stays even without a header; the section title above is the header. -->
-                    <RadioButtons.Resources>
-                        <Thickness x:Key="RadioButtonsTopHeaderMargin">0</Thickness>
-                    </RadioButtons.Resources>
-                    <RadioButton>
-                        <StackPanel>
-                            <TextBlock Text="Adapt to network conditions" />
-                            <TextBlock Text="Keeps the screen moving when packets are lost. Parts of it may look broken briefly." Style="{StaticResource Detail}" />
-                        </StackPanel>
-                    </RadioButton>
-                    <RadioButton>
-                        <StackPanel>
-                            <TextBlock Text="Show the screen at full quality" />
-                            <TextBlock Text="Pauses on the last clean picture until the Mac sends a fresh one." Style="{StaticResource Detail}" />
-                        </StackPanel>
-                    </RadioButton>
-                </RadioButtons>
-            </Border>
-            <StackPanel Margin="0,8,0,0" Spacing="4">
-                <TextBlock x:Name="Codec" Style="{StaticResource Detail}" />
-                <TextBlock Text="Changes apply from the next connection." Style="{StaticResource Detail}" />
-            </StackPanel>
+            <TextBlock Text="Video" Style="{StaticResource Section}" />
+            <TextBlock x:Name="Codec" Style="{StaticResource Detail}" />
 
             <TextBlock Text="Help" Style="{StaticResource Section}" />
             <Border Style="{StaticResource Card}">

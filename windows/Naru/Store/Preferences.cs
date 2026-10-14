@@ -1,4 +1,3 @@
-using Naru.Core;
 using Windows.Storage;
 
 namespace Naru.Store;
@@ -18,13 +17,6 @@ internal enum WindowsKeys
 internal sealed class Preferences
 {
     private readonly ApplicationDataContainer store = ApplicationData.Current.LocalSettings;
-
-    /// <summary>Whether to favor latency or quality when packets are lost. Latency comes first, as in Screen Sharing.</summary>
-    public Priority Priority
-    {
-        get => Read("priority", "latency") == "quality" ? Priority.Quality : Priority.Latency;
-        set => Write("priority", value == Priority.Quality ? "quality" : "latency");
-    }
 
     /// <summary>Whether Alt sends Command and the Windows key sends Option, matching the keys on a Mac keyboard.</summary>
     public bool SwapCommandOption

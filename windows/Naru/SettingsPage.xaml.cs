@@ -24,7 +24,6 @@ public sealed partial class SettingsPage : Page
         SyncLanguage.IsOn = preferences.SyncKeyboardLanguage;
         WindowsKeys.SelectedIndex = (int)preferences.WindowsKeys;
         Clipboard.IsOn = preferences.SharedClipboard;
-        Quality.SelectedIndex = preferences.Priority == Priority.Quality ? 1 : 0;
 
         var version = Package.Current.Id.Version;
         Version.Text = $"Cross over to your Mac. Version {version.Major}.{version.Minor}.{version.Build}";
@@ -103,14 +102,6 @@ public sealed partial class SettingsPage : Page
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or COMException)
         {
             Log.Error("Cannot open the third-party notices", error);
-        }
-    }
-
-    private void OnQuality(object sender, SelectionChangedEventArgs e)
-    {
-        if (loaded)
-        {
-            preferences.Priority = Quality.SelectedIndex == 1 ? Priority.Quality : Priority.Latency;
         }
     }
 }
