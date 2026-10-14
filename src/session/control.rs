@@ -78,12 +78,13 @@ impl Control {
         Ok((std::mem::take(&mut self.early), self.opened()?))
     }
 
-    /// Returns the bodies of records completed by the next read, or `Closed` when the server closed the connection.
+    /// Returns the bodies of records completed by the next read, or `Disconnected` when the server closed the
+    /// connection.
     pub async fn receive(&mut self, buffer: &mut [u8]) -> Result<Vec<Vec<u8>>> {
         let read = self.stream.read(buffer).await?;
 
         if read == 0 {
-            return Err(Error::Closed);
+            return Err(Error::Disconnected);
         }
 
         self.opener.push(&buffer[..read]);
@@ -161,7 +162,7 @@ async fn authenticate(stream: &mut TcpStream, key: &ServerKey, config: &Config) 
     let password = config.password.clone();
     let proof = tokio::task::spawn_blocking(move || challenge.respond(&password))
         .await
-        .map_err(|_| Error::Closed)?;
+        .map_err(std::io::Error::other)?;
 
     stream.write_all(&proof.packet).await?;
 
@@ -208,7 +209,7 @@ async fn prelude(mut stream: TcpStream, wrap_key: &[u8; 16], config: &Config, ev
         let read = stream.read(&mut buffer).await?;
 
         if read == 0 {
-            return Err(Error::Closed);
+            return Err(Error::Disconnected);
         }
 
         messages.push(&buffer[..read]);
@@ -264,7 +265,7 @@ async fn session_prompt(stream: &mut TcpStream) -> Result<Vec<u8>> {
         let mut byte = [0; 1];
 
         match timeout(PROMPT_WAIT, stream.read(&mut byte)).await {
-            Ok(Ok(0)) => return Err(Error::Closed),
+            Ok(Ok(0)) => return Err(Error::Disconnected),
             Ok(Ok(_)) => head.push(byte[0]),
             Ok(Err(error)) => return Err(error.into()),
             Err(_) => return Ok(head),

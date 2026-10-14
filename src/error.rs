@@ -8,6 +8,8 @@
 pub enum Error {
     #[error("a network error occurred")]
     Io(#[from] std::io::Error),
+    #[error("the server closed the connection")]
+    Disconnected,
     #[error("no IPv4 address found for {0}")]
     Resolve(String),
     #[error("the server timed out")]
