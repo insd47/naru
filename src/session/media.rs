@@ -11,14 +11,6 @@ use tokio::net::UdpSocket;
 const RECEIVE_BUFFER_BYTES: usize = 4 << 20;
 const PUNCH_INTERVAL: Duration = Duration::from_millis(100);
 
-// The audio keepalive uses payload type 101 and advances the timestamp as if one packet went out every 20 ms (480 samples).
-const KEEPALIVE_PAYLOAD_TYPE: u8 = 101;
-const KEEPALIVE_PAYLOAD: [u8; 4] = [0x00, 0x68, 0x34, 0x00];
-const KEEPALIVE_TIMESTAMP_STEP: u32 = 480;
-
-// How often an empty sender report is prepended to the receiver report.
-const SENDER_REPORT_INTERVAL: Duration = Duration::from_secs(5);
-
 // Minimum interval between keyframe requests. A server quiet for longer than `QUIET_AFTER` is idling on a still screen, so no request is sent.
 // A request still unanswered is repeated at doubling intervals up to `KEYFRAME_BACKOFF_LIMIT`: each answer is the largest
 // frame there is, and on a lossy path asking again before it can arrive only adds keyframes that are lost the same way.
@@ -66,7 +58,6 @@ impl Sockets {
         }
     }
 
-    // RTCP and the audio keepalive both go to the server's audio port.
     fn audio_address(&self) -> SocketAddr {
         (self.server, self.audio_port).into()
     }
@@ -83,17 +74,15 @@ pub struct Media {
     priority: Priority,
     video_ssrc: u32,
     audio_ssrc: u32,
-    receive: SrtpContext,
-    audio: SrtpContext,
+    video_receive: SrtpContext,
+    audio_receive: SrtpContext,
     // SSRC of the audio stream whose decoder config was announced. The server restarts audio with a new SSRC on resize.
     audio_stream: Option<u32>,
-    rtcp: SrtpContext,
-    keepalive: SrtpContext,
+    // Video RTCP goes out with the video key and audio RTCP with the audio key, as the server checks each port with its own.
+    video_send: SrtpContext,
+    audio_send: SrtpContext,
     streams: Streams,
     group: Option<Group>,
-    keepalive_sequence: u16,
-    keepalive_timestamp: u32,
-    last_sender_report: Option<Instant>,
     last_keyframe_request: Option<Instant>,
     // A unit was lost and no keyframe has arrived since. Frames after a loss reference what was lost, so keyframe
     // requests repeat until one arrives rather than going out once and possibly being swallowed by the rate limit.
@@ -136,16 +125,13 @@ impl Media {
             priority,
             video_ssrc: offer.video_ssrc,
             audio_ssrc: offer.audio_ssrc,
-            receive: SrtpContext::new(&offer.keys.video_receive),
-            audio: SrtpContext::new(&offer.keys.audio_receive),
+            video_receive: SrtpContext::new(&offer.keys.video_receive),
+            audio_receive: SrtpContext::new(&offer.keys.audio_receive),
             audio_stream: None,
-            rtcp: SrtpContext::new(&offer.keys.video_send),
-            keepalive: SrtpContext::new(&offer.keys.audio_send),
+            video_send: SrtpContext::new(&offer.keys.video_send),
+            audio_send: SrtpContext::new(&offer.keys.audio_send),
             streams: Streams::new(codec.bands()),
             group: None,
-            keepalive_sequence: 0,
-            keepalive_timestamp: 0,
-            last_sender_report: None,
             last_keyframe_request: None,
             awaiting_keyframe: false,
             fir_sequence: 0,
@@ -182,7 +168,7 @@ impl Media {
         }
 
         let Some(packet) = self
-            .receive
+            .video_receive
             .unprotect_rtp(datagram)
             .as_deref()
             .and_then(RtpPacket::parse)
@@ -221,7 +207,12 @@ impl Media {
             return;
         }
 
-        let Some(packet) = self.audio.unprotect_rtp(datagram).as_deref().and_then(RtpPacket::parse) else {
+        let Some(packet) = self
+            .audio_receive
+            .unprotect_rtp(datagram)
+            .as_deref()
+            .and_then(RtpPacket::parse)
+        else {
             return;
         };
 
@@ -335,7 +326,7 @@ impl Media {
             authenticated: self.authenticated,
             largest_bytes: self.largest_bytes,
             ssrc,
-            highest: ssrc.and_then(|ssrc| self.receive.highest_received(ssrc)),
+            highest: ssrc.and_then(|ssrc| self.video_receive.highest_received(ssrc)),
             candidates: u32::try_from(self.streams.candidates()).unwrap_or(u32::MAX),
             offers,
             missing: self.missing,
@@ -348,42 +339,29 @@ impl Media {
         self.group.as_ref()?.deadline()
     }
 
-    /// The audio keepalive and receiver report sent every 0.5 seconds, with an empty sender report prepended every 5 seconds.
-    pub async fn tick(&mut self, now: Instant) {
-        let keepalive = RtpPacket {
-            marker: false,
-            payload_type: KEEPALIVE_PAYLOAD_TYPE,
-            sequence: self.keepalive_sequence,
-            timestamp: self.keepalive_timestamp,
-            ssrc: self.audio_ssrc,
-            payload: KEEPALIVE_PAYLOAD.to_vec(),
-        };
+    /// The receiver reports, sent every 0.5 seconds.
+    ///
+    /// - As in Apple's client, the video report goes to the video port from the video SSRC, and the audio report to the
+    ///   audio port from the audio SSRC. Apple's client sends no RTP, and the server rejects any.
+    pub async fn tick(&mut self) {
+        // Apple's client reports the top band only.
+        let video = self
+            .streams
+            .current()
+            .and_then(|ssrc| Some((ssrc, self.video_receive.highest_received(ssrc)?)));
+        let mut report = rtcp::receiver_report(self.video_ssrc, video.as_slice());
+        report.extend(rtcp::source_description(self.video_ssrc));
+        self.send_video_rtcp(&report).await;
 
-        self.keepalive_sequence = self.keepalive_sequence.wrapping_add(1);
-        self.keepalive_timestamp = self.keepalive_timestamp.wrapping_add(KEEPALIVE_TIMESTAMP_STEP);
+        let audio = self
+            .audio_stream
+            .and_then(|ssrc| Some((ssrc, self.audio_receive.highest_received(ssrc)?)));
+        let mut report = rtcp::receiver_report(self.audio_ssrc, audio.as_slice());
+        report.extend(rtcp::source_description(self.audio_ssrc));
 
-        if let Some(packet) = self.keepalive.protect_rtp(&keepalive.encode()) {
+        if let Some(packet) = self.audio_send.protect_rtcp(&report) {
             let _ = self.sockets.audio.send_to(&packet, self.sockets.audio_address()).await;
         }
-
-        let sources: Vec<(u32, u32)> = self
-            .streams
-            .current_members()
-            .filter_map(|ssrc| Some((ssrc, self.receive.highest_received(ssrc)?)))
-            .collect();
-
-        let mut compound = Vec::new();
-
-        if self
-            .last_sender_report
-            .is_none_or(|last| now.duration_since(last) >= SENDER_REPORT_INTERVAL)
-        {
-            self.last_sender_report = Some(now);
-            compound.extend(rtcp::sender_report(self.video_ssrc));
-        }
-
-        compound.extend(rtcp::receiver_report(self.video_ssrc, &sources));
-        self.send_rtcp(&compound).await;
     }
 
     /// Sends the receiver feedback, every 50 ms once video has arrived.
@@ -432,7 +410,7 @@ impl Media {
 
         self.last_keyframe_request = Some(now);
         self.unanswered += 1;
-        self.send_rtcp(&rtcp::keyframe_request(self.video_ssrc, target, self.fir_sequence))
+        self.send_video_rtcp(&rtcp::keyframe_request(self.video_ssrc, target, self.fir_sequence))
             .await;
     }
 
@@ -447,16 +425,9 @@ impl Media {
             .await;
     }
 
-    // The same SRTCP context as the other RTCP, so the index keeps rising across both ports and never repeats.
     async fn send_video_rtcp(&mut self, packet: &[u8]) {
-        if let Some(packet) = self.rtcp.protect_rtcp(packet) {
+        if let Some(packet) = self.video_send.protect_rtcp(packet) {
             let _ = self.sockets.video.send_to(&packet, self.sockets.video_address()).await;
-        }
-    }
-
-    async fn send_rtcp(&mut self, compound: &[u8]) {
-        if let Some(packet) = self.rtcp.protect_rtcp(compound) {
-            let _ = self.sockets.audio.send_to(&packet, self.sockets.audio_address()).await;
         }
     }
 }

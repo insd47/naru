@@ -1,11 +1,12 @@
 //! RTCP packets the client sends. All of them go out encrypted with SRTCP, the reports and requests as compound packets.
 //!
-//! - The sender SSRC is the client video SSRC negotiated in the offer. With any other SSRC, the server cuts the stream after about 30 seconds.
+//! - The sender SSRC is the client SSRC of the stream the packet is about, negotiated in the offer. With any other SSRC,
+//!   the server cuts the stream after about 30 seconds.
 //! - Loss, jitter, LSR, and DLSR are sent as 0; the server keeps the session alive regardless.
 //! - No retransmission requests (NACK): the server answers none, to Apple's client or to this one, and Apple's client sends none.
 
 const RECEIVER_REPORT: u8 = 201;
-const SENDER_REPORT: u8 = 200;
+const SOURCE_DESCRIPTION: u8 = 202;
 const FEEDBACK_PAYLOAD: u8 = 206;
 const LEGACY_FIR: u8 = 192;
 const APPLICATION: u8 = 204;
@@ -35,11 +36,12 @@ pub fn receiver_report(sender: u32, sources: &[(u32, u32)]) -> Vec<u8> {
     packet
 }
 
-/// Builds an empty sender report (SR). It goes in front of the receiver report every 5 seconds to pass the server's liveness check.
-pub fn sender_report(sender: u32) -> Vec<u8> {
-    let mut packet = header(0, SENDER_REPORT, 6);
+/// Builds a source description (SDES) with an empty CNAME, which Apple's client sends after each receiver report.
+pub fn source_description(sender: u32) -> Vec<u8> {
+    let mut packet = header(1, SOURCE_DESCRIPTION, 2);
     packet.extend_from_slice(&sender.to_be_bytes());
-    packet.extend_from_slice(&[0; 20]);
+    // CNAME of length 0, then the end of the item list and padding to the word
+    packet.extend_from_slice(&[1, 0, 0, 0]);
     packet
 }
 
@@ -69,7 +71,6 @@ pub fn keyframe_request(sender: u32, target: u32, sequence: u8) -> Vec<u8> {
 ///
 /// - After a loss the server references the acknowledged picture instead of sending a keyframe. It silently ignores any
 ///   other counter in place of the DONL.
-/// - Unlike the other packets here, it goes to the server's video port.
 pub fn ltr_acknowledgment(sender: u32, donl: u16) -> Vec<u8> {
     let mut packet = header(0, APPLICATION, 3);
     packet.extend_from_slice(&sender.to_be_bytes());
@@ -99,7 +100,6 @@ pub struct Feedback {
 ///   A wrong count reads as heavy loss, and a wrong timestamp fails the lookup.
 /// - The field after the clock is sent as 0. Apple's client sends 0 at the start and small numbers later; a fixed 20
 ///   kept the bitrate from rising.
-/// - Like the LTR acknowledgment, it goes to the server's video port.
 pub fn rate_feedback(sender: u32, feedback: &Feedback) -> Vec<u8> {
     let mut packet = header(0, APPLICATION, 7);
     packet.extend_from_slice(&sender.to_be_bytes());
@@ -124,7 +124,7 @@ fn header(count: u8, kind: u8, words: usize) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Feedback, keyframe_request, ltr_acknowledgment, rate_feedback, receiver_report, sender_report};
+    use super::{Feedback, keyframe_request, ltr_acknowledgment, rate_feedback, receiver_report, source_description};
 
     // Splits a compound packet into (type, format, length). The split reaches the end only if every length field is correct.
     fn split(mut compound: &[u8]) -> Vec<(u8, u8, usize)> {
@@ -148,8 +148,12 @@ mod tests {
     }
 
     #[test]
-    fn empty_sender_report_is_28_bytes() {
-        assert_eq!(split(&sender_report(1)), [(200, 0, 28)]);
+    fn report_and_empty_cname_match_apples_audio_report() {
+        let mut compound = receiver_report(0x18b9_6cbc, &[(0x30bf_8263, 0xe549)]);
+        compound.extend(source_description(0x18b9_6cbc));
+
+        assert_eq!(split(&compound), [(201, 1, 32), (202, 1, 12)]);
+        assert_eq!(&compound[32..], [0x81, 0xca, 0, 2, 0x18, 0xb9, 0x6c, 0xbc, 1, 0, 0, 0]);
     }
 
     #[test]

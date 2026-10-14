@@ -120,11 +120,6 @@ impl Streams {
         self.current
     }
 
-    /// SSRCs of the current group, from the top band down
-    pub fn current_members(&self) -> impl Iterator<Item = u32> {
-        self.current.into_iter().flat_map(|base| self.members(base))
-    }
-
     /// Number of other SSRCs being watched as switch candidates
     pub fn candidates(&self) -> usize {
         self.held.len()
@@ -192,7 +187,7 @@ mod tests {
             [0xffff_ffff, 0xffff_ffff, 0xffff_ffff, 0, 1, 1, 1, 2, 2, 2]
         );
         assert_eq!(streams.route(packet(2, 3), now), Routed::Current(packet(2, 3)));
-        assert_eq!(streams.current_members().collect::<Vec<_>>(), [0xffff_ffff, 0, 1, 2]);
+        assert_eq!(streams.current(), Some(0xffff_ffff));
     }
 
     #[test]

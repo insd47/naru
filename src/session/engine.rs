@@ -241,7 +241,7 @@ impl Engine {
     }
 
     async fn tick(&mut self, now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
-        self.media.tick(now).await;
+        self.media.tick().await;
 
         let Some(answered) = self.negotiation.answered() else {
             return Ok(());
