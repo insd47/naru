@@ -25,7 +25,6 @@ import dev.insd.naru.core.Config
 import dev.insd.naru.core.DisplayMode
 import dev.insd.naru.core.Event
 import dev.insd.naru.core.Failure
-import dev.insd.naru.core.Stage
 import dev.insd.naru.core.VideoCodec
 import dev.insd.naru.home.Host
 import dev.insd.naru.naru
@@ -64,14 +63,14 @@ class SessionService : Service() {
             return START_NOT_STICKY
         }
 
-        val host = session?.host
+        // A service started for the foreground must enter it even when its session already ended, or the system stops the app.
+        val title = intent?.getStringExtra(EXTRA_TITLE).orEmpty()
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(title), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
 
-        if (host == null) {
+        if (session == null) {
             stopSelf()
-            return START_NOT_STICKY
         }
 
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(host), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         return START_NOT_STICKY
     }
 
@@ -89,7 +88,7 @@ class SessionService : Service() {
     /** Opens a session with this Mac, closing any session already open. */
     fun open(host: Host, credentials: Credentials, display: DisplayMode?) {
         session?.connection?.disconnect()
-        state = State.Connecting(host, Stage.WARMUP)
+        state = State.Connecting(host)
 
         val config = Config(
             host = host.address,
@@ -106,7 +105,7 @@ class SessionService : Service() {
         val relay = Relay()
         val connection = Connection(config, relay)
         session = Running(host, credentials, display, connection, Clipboard(this, connection)).also { relay.owner = it }
-        ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java))
+        ContextCompat.startForegroundService(this, Intent(this, SessionService::class.java).putExtra(EXTRA_TITLE, host.title))
     }
 
     /** Clears a failure after it has been shown. */
@@ -163,7 +162,6 @@ class SessionService : Service() {
             is Event.Clipboard -> running.clipboard.onServer(event.text)
             is Event.Layout -> running.layout = event
             is Event.Cursor -> running.cursor = event
-            is Event.Progress -> if (state is State.Connecting) state = State.Connecting(running.host, event.stage)
             is Event.Closed -> end(running, event)
             else -> Unit
         }
@@ -213,7 +211,7 @@ class SessionService : Service() {
         stopSelf()
     }
 
-    private fun notification(host: Host): Notification {
+    private fun notification(title: String): Notification {
         val open = PendingIntent.getActivity(
             this,
             0,
@@ -229,7 +227,7 @@ class SessionService : Service() {
 
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(host.title)
+            .setContentTitle(title)
             .setContentText("Sharing this Mac's screen")
             .setContentIntent(open)
             .addAction(Notification.Action.Builder(null, "Disconnect", disconnect).build())
@@ -241,7 +239,7 @@ class SessionService : Service() {
     sealed interface State {
         val host: Host
 
-        data class Connecting(override val host: Host, val stage: Stage) : State
+        data class Connecting(override val host: Host) : State
 
         /** Authentication succeeded. The video may still be getting ready. */
         data class Connected(override val host: Host) : State
@@ -286,5 +284,6 @@ class SessionService : Service() {
         private const val CHANNEL = "session"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_DISCONNECT = "dev.insd.naru.DISCONNECT"
+        private const val EXTRA_TITLE = "title"
     }
 }
