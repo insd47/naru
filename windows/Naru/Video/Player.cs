@@ -22,8 +22,10 @@ namespace Naru.Video;
 /// </remarks>
 internal sealed class Player : IDisposable
 {
-    // Access units waiting on the video thread before they are dropped, about 0.5 s at 60 fps.
-    private const int Backlog = 30;
+    // How long an access unit may wait on the video thread before the waiting ones are dropped. Measured in time, since
+    // the count per second depends on the frame rate and the number of bands. Decoding catches up far faster than real
+    // time, while a drop costs a keyframe, so this tolerates passing hiccups such as a new decoder.
+    private static readonly TimeSpan Backlog = TimeSpan.FromSeconds(0.5);
 
     // Interval between keyframe re-requests while waiting. The session also enforces a minimum interval between requests.
     private static readonly TimeSpan KeyframeRetry = TimeSpan.FromSeconds(1);
@@ -46,8 +48,6 @@ internal sealed class Player : IDisposable
     // After a new decoder is created, nothing is decoded until a keyframe arrives.
     private bool awaitingKeyframe = true;
     private long requestedAt;
-
-    private int pending;
 
     // Stats arrive every half second; one line per 10 s keeps the log readable for the rest of the session.
     private const int ReportsPerLine = 20;
@@ -109,8 +109,8 @@ internal sealed class Player : IDisposable
 
     public void Queue(AccessUnit unit)
     {
-        Interlocked.Increment(ref pending);
-        Post(() => Decode(unit));
+        var queued = Stopwatch.GetTimestamp();
+        Post(() => Decode(unit, queued));
     }
 
     /// <summary>Every band of one instant has been queued, so the canvas they went into is shown.</summary>
@@ -185,9 +185,8 @@ internal sealed class Player : IDisposable
         }
     }
 
-    private void Decode(AccessUnit unit)
+    private void Decode(AccessUnit unit, long queued)
     {
-        var waiting = Interlocked.Decrement(ref pending);
         frames += 1;
 
         if (unit.Keyframe)
@@ -202,7 +201,7 @@ internal sealed class Player : IDisposable
         }
 
         // Rendering fell behind the network: drop the backlog and resume from a keyframe.
-        if (waiting >= Backlog && !unit.Keyframe)
+        if (Stopwatch.GetElapsedTime(queued) >= Backlog && !unit.Keyframe)
         {
             if (!awaitingKeyframe)
             {
