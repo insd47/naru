@@ -339,6 +339,16 @@ mod tests {
         assert_eq!(donl, None);
     }
 
+    // The SPS a Mac sent for a 1280×800 display at 2x
+    #[test]
+    fn picture_size_reads_a_macs_sps() {
+        let sps = [
+            0x27, 0x64, 0x00, 0x33, 0xac, 0x13, 0x14, 0x30, 0x02, 0x80, 0x0c, 0x9a, 0x6e, 0x18, 0x1a, 0x02, 0x04,
+        ];
+
+        assert_eq!(picture_size(&sps), Some((2560, 1600)));
+    }
+
     #[test]
     fn picture_size_applies_the_frame_cropping() {
         // x264's High profile SPS for 2800×1752, which crops 8 rows off 110 macroblocks
