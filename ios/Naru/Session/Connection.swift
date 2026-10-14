@@ -11,7 +11,6 @@ final class Connection: SessionListener, @unchecked Sendable {
     private var audio: Audio?
     private var session: Session!
     private let announce: @Sendable (Event) -> Void
-    private let log = Logger(subsystem: Diagnostics.subsystem, category: "Connection")
     private let latestSource = OSAllocatedUnfairLock<InputSource?>(uncheckedState: nil)
 
     /// The Mac's latest input source, which decides what keys type there
@@ -110,3 +109,5 @@ final class Connection: SessionListener, @unchecked Sendable {
         }
     }
 }
+
+private let log = Logger(subsystem: Diagnostics.subsystem, category: "Connection")

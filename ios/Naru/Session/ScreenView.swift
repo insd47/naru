@@ -379,7 +379,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         }
     }
 
-    // Unlike standard RFB, the server's button bits are 2 for right and 4 for middle. The pencil is the left button.
+    // The pencil is the left button.
     private func point(_ touches: Set<UITouch>, event: UIEvent?, released: Bool = false) {
         guard let touch = touches.first(where: { $0.type == .indirectPointer || $0.type == .pencil }) else {
             return

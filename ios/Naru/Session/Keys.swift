@@ -20,16 +20,19 @@ struct Keys {
     /// Whether the key types or edits text rather than triggering a shortcut, moving, or being a modifier. Such keys also go to the text system,
     /// which reports their repeats.
     static func isTyping(_ key: UIKey) -> Bool {
-        let code = key.keyCode.rawValue
-        return key.modifierFlags.isDisjoint(with: [.command, .control, .alternate]) && (special[code] == nil || editing.contains(code))
+        key.modifierFlags.isDisjoint(with: shortcut) && (special[key.keyCode.rawValue] == nil || editing.contains(key.keyCode))
     }
 
-    // Return, keypad Enter, Backspace, Tab, and Space. Arrows get no repeats from the text system, so they stay out of it.
-    private static let editing: Set<Int> = [40, 88, 42, 43, 44]
+    // Arrows get no repeats from the text system, so they stay out of it.
+    private static let editing: Set<UIKeyboardHIDUsage> = [
+        .keyboardReturnOrEnter, .keypadEnter, .keyboardDeleteOrBackspace, .keyboardTab, .keyboardSpacebar,
+    ]
+
+    private static let shortcut: UIKeyModifierFlags = [.command, .control, .alternate]
 
     /// Whether the key is an arrow, Home, End, Page Up, Page Down, or forward delete, without a shortcut modifier
     static func isNavigation(_ key: UIKey) -> Bool {
-        (74...82).contains(key.keyCode.rawValue) && key.modifierFlags.isDisjoint(with: [.command, .control, .alternate])
+        (74...82).contains(key.keyCode.rawValue) && key.modifierFlags.isDisjoint(with: shortcut)
     }
 
     /// The keysym for a pressed key, or `nil` for a key that is not sent.
@@ -57,24 +60,25 @@ struct Keys {
     }
 
     private static func keysym(_ key: UIKey, language: String?, switched: Bool, source: InputSource?) -> UInt32? {
-        if let special = special[key.keyCode.rawValue] {
+        let usage = key.keyCode.rawValue
+
+        if let special = special[usage] {
             return special
         }
-
-        let usage = key.keyCode.rawValue
 
         guard isTyping(key) else {
             return latin(usage, shifted: false).map { keysym($0.value) }
         }
 
-        if let latin = latin(usage, shifted: key.modifierFlags.contains(.shift)), let language,
-           let typed = character(latin: keysym(latin.value), language: language, source: source) {
+        let position = latin(usage, shifted: key.modifierFlags.contains(.shift)).map { keysym($0.value) }
+
+        if let position, let language, let typed = character(latin: position, language: language, source: source) {
             return typed
         }
 
         // Right after a switch to a language typed in Latin, the key's characters are still the old language's.
-        if switched, let latin = latin(usage, shifted: key.modifierFlags.contains(.shift)) {
-            return keysym(latin.value)
+        if switched, let position {
+            return position
         }
 
         let scalars = key.characters.unicodeScalars

@@ -50,38 +50,27 @@ final class Discovery {
         defer { connection.cancel() }
 
         return await withCheckedContinuation { continuation in
-            let resumed = Resumed()
-
+            // The handler goes once it resumes, since the cancel on the way out reports a state too.
             connection.stateUpdateHandler = { state in
+                var address: String?
+
                 switch state {
                 case .ready:
-                    var address: String?
-
                     // The string form carries an interface suffix like `%en0`, so this formats the four bytes instead.
                     if case let .hostPort(.ipv4(ipv4), _) = connection.currentPath?.remoteEndpoint {
                         address = ipv4.rawValue.map(String.init).joined(separator: ".")
                     }
-
-                    resumed.once { continuation.resume(returning: address) }
                 case .failed, .cancelled:
-                    resumed.once { continuation.resume(returning: nil) }
-                default:
                     break
+                default:
+                    return
                 }
+
+                connection.stateUpdateHandler = nil
+                continuation.resume(returning: address)
             }
 
             connection.start(queue: .main)
         }
-    }
-}
-
-// Lets the continuation resume only once even if the state callback fires several times.
-private final class Resumed: @unchecked Sendable {
-    private var done = false
-
-    func once(_ action: () -> Void) {
-        guard !done else { return }
-        done = true
-        action()
     }
 }

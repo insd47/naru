@@ -17,7 +17,8 @@ import os
 ///   display layer per band would pick its own refresh. A single band shows as it decodes.
 /// - When the decoder config changes, the session resets the decoder, or decoding fails, a new decompression session
 ///   starts and decodes nothing until a keyframe arrives. A new config comes with its keyframe and the session asks for
-///   one before a reset, so only a failure asks here; the session repeats the request until a keyframe arrives.
+///   one before a reset, so only a failure or a dropped backlog asks here; the session repeats the request until a
+///   keyframe arrives.
 /// - Calls [firstFrame] when the first picture after that is drawn. The screen stays blank until then.
 /// - The codec follows the decoder config. HEVC 4:4:4 is requested only when [decodesHevc444] is true.
 final class Video: @unchecked Sendable {
