@@ -37,6 +37,9 @@ An app opens a session with `Session::connect(config, listener)` and gets events
   letting frames pile up in memory, so listeners hand heavy work to another thread.
 - Video arrives as a `Decoder` config followed by `Frame` access units. The app recreates its decoder on every new
   config, and calls `request_keyframe` whenever it drops frames or rebuilds the decoder.
+- HEVC comes in four horizontal bands, as it does to Apple's client. Each frame is a picture of one band, numbered from
+  the top; the app stacks them, keeps a band's last picture until a new one replaces it, and shows the screen at each
+  `Present`, which follows the last band of an instant. H.264 is a single band and has no `Present`.
 - Pointer coordinates are in the pixels of the latest `Layout`. Keys are X11 keysyms of what the Mac should type, and
   a release repeats the keysym of its press. The Mac does not repeat held keys, so key repeat is the app's to send.
 - Scrolls follow a Mac trackpad's phases: `MayBegin` when fingers rest, `Began` with the first movement, `Changed`,
@@ -62,9 +65,10 @@ the TCP handshake, sign-in (`auth`), and the switch to the encrypted record laye
 runs one loop over three inputs: control messages from the Mac, UDP datagrams, and commands from the app.
 
 - `negotiation` sends the media offer and resends it if the Mac does not answer.
-- `media` decrypts SRTP, picks the active video stream (`media::Streams`), and reassembles access units
-  (`media::Assembler`). The Mac does not retransmit, so a gap waits only for
-  late packets and otherwise trades latency for quality according to the `Priority` the user chose.
+- `media` decrypts SRTP, picks the active group of video SSRCs, one per band (`media::Streams`), and reassembles access
+  units in decoding order (`media::Group`). The Mac does not retransmit, so a gap waits only for late packets and
+  otherwise trades latency for quality according to the `Priority` the user chose. For HEVC it acknowledges each
+  intact top-band picture (LTR), which tells the Mac what it may reference; without them it stops sending moving video.
 - The engine watches for stalled video and asks for a keyframe, or tells the app to rebuild its decoder, only while the
   Mac is actually sending.
 - `input` turns pointer, scroll, momentum, and magnify input into protocol events. Keys go out unchanged.
