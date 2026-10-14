@@ -246,9 +246,9 @@ internal sealed class Player : IDisposable
         {
             var picture = pictures[index];
 
-            if (current.Band is { } band)
+            if (current.Band is { } band && config is { } stream)
             {
-                Guard("place a band", () => Stack(band, picture));
+                Guard("place a band", () => Stack(band, stream.Bands, picture));
             }
             else if (index == pictures.Count - 1 && renderer is { } target)
             {
@@ -260,12 +260,10 @@ internal sealed class Player : IDisposable
         }
     }
 
-    // The canvas is as many bands tall as the Mac's screen needs, and is replaced when the band size changes. It outlives
-    // a decoder reset, since the Mac may resend only the top band after one.
-    private void Stack((uint Width, uint Height) band, Picture picture)
+    // The canvas is replaced when the band size or count changes. It outlives a decoder reset, since the Mac may resend
+    // only the top band after one.
+    private void Stack((uint Width, uint Height) band, uint rows, Picture picture)
     {
-        var rows = visibleHeight == 0 ? 4 : (visibleHeight + band.Height - 1) / band.Height;
-
         if (canvas is not { } existing || existing.Band != band || existing.Rows != rows)
         {
             canvas?.Dispose();

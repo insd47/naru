@@ -49,6 +49,7 @@ impl DecoderConfig {
 
         Ok(Self {
             codec: VideoCodec::H264,
+            bands: VideoCodec::H264.bands(),
             profile,
             compatibility,
             level,

@@ -18,7 +18,7 @@ internal readonly record struct Picture(IMFSample Sample, ID3D11Texture2D Textur
 /// <item>Uses Windows' synchronous decoder for the codec, which decodes on the GPU when handed a Direct3D device. Construction fails without that.</item>
 /// <item>Each access unit goes in as Annex B. H.264 keyframes get the SPS and PPS in front; HEVC keyframes already carry the VPS, SPS, and PPS.</item>
 /// <item>H.264 comes out as NV12 and HEVC 4:4:4 as AYUV. The renderer's video processor converts either.</item>
-/// <item>Each HEVC picture covers one band of the screen, a picture of its own the size of <see cref="Band"/>; each H.264 picture covers all of it.</item>
+/// <item>With several bands, each picture covers one band of the screen, a picture of its own the size of <see cref="Band"/>.</item>
 /// <item>On a new config, dispose and create a new one, since mixing with the previous generation's references corrupts output.</item>
 /// <item>Call only on the video thread.</item>
 /// </list>
@@ -31,16 +31,18 @@ internal sealed class Decoder : IDisposable
     private readonly byte[] parameters;
     private readonly Guid output;
     private bool studioRange = true;
+    private readonly byte bands;
     private long decoded;
 
     public string Name { get; }
 
-    /// <summary>Coded size of one HEVC band, or null for H.264.</summary>
+    /// <summary>Coded size of one band, or null when one picture covers the screen.</summary>
     public (uint Width, uint Height)? Band { get; }
 
     public Decoder(Graphics graphics, DecoderConfig config)
     {
         var hevc = config.Codec == VideoCodec.Hevc;
+        bands = Math.Max(config.Bands, (byte)1);
         var sps = config.Sps.FirstOrDefault() ?? throw new InvalidOperationException("no SPS");
         parameters = hevc ? [] : [.. StartCode, .. Sps.WithoutReordering(sps), .. StartCode, .. config.Pps.FirstOrDefault() ?? throw new InvalidOperationException("no PPS")];
         output = hevc ? Mf.Ayuv : Mf.Nv12;
@@ -60,7 +62,7 @@ internal sealed class Decoder : IDisposable
         using (var type = InputType(hevc, sps, out var band))
         {
             transform.SetInputType(0, type, 0);
-            Band = band;
+            Band = bands > 1 ? band : null;
         }
 
         ChooseOutput();
@@ -77,7 +79,7 @@ internal sealed class Decoder : IDisposable
     /// <summary>
     /// Decodes one access unit and returns the pictures it completed. The caller releases each picture's sample.
     /// </summary>
-    /// <remarks>The band goes in the low two bits of the sample time, which the decoder copies to the picture it completes.</remarks>
+    /// <remarks>The band goes into the sample time, which the decoder copies to the picture it completes.</remarks>
     public List<Picture> Decode(AccessUnit unit)
     {
         var prefix = unit.Keyframe ? parameters.Length : 0;
@@ -115,7 +117,7 @@ internal sealed class Decoder : IDisposable
 
         using var sample = MediaFactory.MFCreateSample();
         sample.AddBuffer(buffer);
-        sample.SampleTime = (++decoded << 2) | unit.Band;
+        sample.SampleTime = ++decoded * bands + unit.Band;
         transform.ProcessInput(0, sample, 0);
 
         return Drain();
@@ -166,7 +168,7 @@ internal sealed class Decoder : IDisposable
             using var media = sample.GetBufferByIndex(0);
             using var surface = media.QueryInterface<IMFDXGIBuffer>();
             var texture = new ID3D11Texture2D(surface.GetResource(typeof(ID3D11Texture2D).GUID));
-            pictures.Add(new Picture(sample, texture, surface.SubresourceIndex, studioRange, (byte)(sample.SampleTime & 3)));
+            pictures.Add(new Picture(sample, texture, surface.SubresourceIndex, studioRange, (byte)(sample.SampleTime % bands)));
         }
     }
 
@@ -288,7 +290,7 @@ internal sealed class Decoder : IDisposable
                 }
             }
 
-            var config = new DecoderConfig(VideoCodec.Hevc, 4, 0, 150, [MacVps], [MacSps], [MacPps]);
+            var config = new DecoderConfig(VideoCodec.Hevc, 1, 4, 0, 150, [MacVps], [MacSps], [MacPps]);
             using var decoder = new Decoder(graphics, config);
             Log.Info($"HEVC 4:4:4: supported by {decoder.Name}");
             return true;

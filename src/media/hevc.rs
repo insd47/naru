@@ -34,6 +34,7 @@ impl DecoderConfig {
 
         Some(Self {
             codec: VideoCodec::Hevc,
+            bands: VideoCodec::Hevc.bands(),
             profile,
             compatibility: 0,
             level,

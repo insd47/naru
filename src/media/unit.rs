@@ -31,6 +31,8 @@ impl VideoCodec {
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct DecoderConfig {
     pub codec: VideoCodec,
+    /// Number of horizontal bands each screen comes in. Every frame is a picture of one band, numbered from the top.
+    pub bands: u8,
     pub profile: u8,
     /// H.264 profile_compatibility; 0 for HEVC
     pub compatibility: u8,
