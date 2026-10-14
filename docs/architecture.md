@@ -39,7 +39,8 @@ An app opens a session with `Session::connect(config, listener)` and gets events
   config, and calls `request_keyframe` whenever it drops frames or rebuilds the decoder.
 - HEVC comes in four horizontal bands, as it does to Apple's client. Each frame is a picture of one band, numbered from
   the top; the app stacks them, keeps a band's last picture until a new one replaces it, and shows the screen at each
-  `Present`, which follows the last band of an instant. H.264 is a single band and has no `Present`.
+  `Present`, which follows the last band of an instant. While any band's latest picture is lost or broken, no
+  `Present` comes, so the screen never pairs bands from different moments. H.264 is a single band and has no `Present`.
 - Pointer coordinates are in the pixels of the latest `Layout`. Keys are X11 keysyms of what the Mac should type, and
   a release repeats the keysym of its press. The Mac does not repeat held keys, so key repeat is the app's to send.
 - Scrolls follow a Mac trackpad's phases: `MayBegin` when fingers rest, `Began` with the first movement, `Changed`,
@@ -71,8 +72,8 @@ runs one loop over three inputs: control messages from the Mac, UDP datagrams, a
   each picture's reference set (`media::References`) to tell which pictures decode intact, as Apple's client does:
   it acknowledges (LTR) only intact pictures, which tells the Mac what it may predict from, and asks for a refresh
   about once a frame while packets go missing. Every picture still goes to the decoder, marked `AccessUnit::intact`; the
-  apps show only intact ones, so a broken band keeps its last intact picture until the Mac answers with a picture
-  predicted from acknowledged ones, and the screen recovers without a keyframe.
+  apps show only intact ones, and the screen holds while any band is broken until the Mac answers with pictures
+  predicted from acknowledged ones, so it recovers whole and without a keyframe.
 - Every 50 ms `media` also sends the receiver feedback Apple's client sends (`RCTL`): what arrived, and the bandwidth
   it allows. The Mac raises the bitrate from its 20.8 Mbps floor only on this feedback, and keeps it at or below that
   bandwidth. `media::Bandwidth` estimates it from the trend of one-way delay and from heavy loss, as Apple's client

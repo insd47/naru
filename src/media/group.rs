@@ -21,7 +21,8 @@ pub enum Assembled {
     Config(DecoderConfig),
     /// Access unit for the decoder, with its DONL if the codec carries one
     Frame { unit: AccessUnit, donl: Option<u16> },
-    /// Every band of one instant has gone out, so the screen they make up can be shown. Only for video in several bands.
+    /// Every band of one instant has gone out, so the screen they make up can be shown. Only for video in several bands,
+    /// and only while every band's latest picture is intact.
     Present,
     /// An access unit that couldn't be recovered in time was dropped. Request a keyframe.
     Lost,
@@ -52,7 +53,8 @@ pub enum Priority {
 ///   follows for a moment. Showing each band as it decodes would show the top one ahead of the others.
 /// - For H.264, [`Priority`] decides whether units whose reference was lost are emitted after a loss, and a buffer overflow always waits for a keyframe.
 /// - HEVC pictures that do not decode intact, because something they predict from was lost, are marked so on the unit
-///   and not shown, while a band keeps its last intact picture until the server's refresh arrives.
+///   and not shown. While any band's latest picture is lost or not intact, the screen is not shown either, so it never
+///   pairs bands from different moments; Apple's client likewise shows bands only as a whole screen during losses.
 pub struct Group {
     codec: VideoCodec,
     priority: Priority,
@@ -65,6 +67,8 @@ pub struct Group {
     awaiting_keyframe: bool,
     // Which pictures decode intact (HEVC only)
     references: Option<References>,
+    // Bands whose latest picture was lost or does not decode intact
+    broken: Vec<bool>,
     outputs: VecDeque<Assembled>,
     // RTP timestamp of the instant whose bands are going out, and when the last of them went out
     instant: Option<(u32, Instant)>,
@@ -93,6 +97,7 @@ impl Group {
             config: None,
             awaiting_keyframe: true,
             references,
+            broken: vec![false; bands.len()],
             bands,
             outputs: VecDeque::new(),
             instant: None,
@@ -138,8 +143,8 @@ impl Group {
                     Reassembled::Config(config) => self.announce(config),
                     Reassembled::Unit(unit, None) => self.admit(unit, None, now),
                     Reassembled::Unit(unit, Some(donl)) => self.queue(unit, donl, now),
-                    Reassembled::Lost => self.lose(false),
-                    Reassembled::Overflow => self.lose(true),
+                    Reassembled::Lost => self.lose(band, false),
+                    Reassembled::Overflow => self.lose(band, true),
                 }
             }
         }
@@ -170,7 +175,7 @@ impl Group {
         let key = sequence::extend(donl, highest);
 
         if self.released.is_some_and(|released| key <= released) {
-            self.lose(false);
+            self.lose(usize::from(unit.band), false);
             return;
         }
 
@@ -221,6 +226,7 @@ impl Group {
             .is_none_or(|references| references.intact(&unit.nals).unwrap_or(true));
 
         unit.intact = intact;
+        self.broken[usize::from(unit.band)] = !intact;
 
         if self.bands.len() == 1 {
             self.outputs.push_back(Assembled::Frame { unit, donl });
@@ -241,7 +247,7 @@ impl Group {
     }
 
     fn end_instant(&mut self) {
-        if self.instant.take().is_some() {
+        if self.instant.take().is_some() && !self.broken.contains(&true) {
             self.outputs.push_back(Assembled::Present);
         }
     }
@@ -253,11 +259,12 @@ impl Group {
         }
     }
 
-    // A unit was lost. When favoring quality, H.264 waits for a keyframe. HEVC keeps going: its references
-    // tell which pictures are broken, and the server answers with pictures predicted from acknowledged ones, which
+    // A unit of `band` was lost. When favoring quality, H.264 waits for a keyframe. HEVC keeps going: its references
+    // tell which pictures are broken, the screen waits for the band to be intact, and the server answers with pictures predicted from acknowledged ones, which
     // waiting for a keyframe would throw away.
-    fn lose(&mut self, overflow: bool) {
+    fn lose(&mut self, band: usize, overflow: bool) {
         self.awaiting_keyframe |= self.references.is_none() && (overflow || self.priority == Priority::Quality);
+        self.broken[band] = true;
 
         self.outputs.push_back(Assembled::Lost);
     }
@@ -452,5 +459,36 @@ mod tests {
         assert_eq!(group.deadline(), Some(now + INSTANT_WAIT));
         assert_eq!(summary(&drain(&mut group, now + INSTANT_WAIT)), ["|"]);
         assert_eq!(group.deadline(), None);
+    }
+
+    // A band whose picture was lost holds the screen until it has an intact picture again, while the others go on decoding.
+    #[test]
+    fn a_lost_band_holds_the_screen_until_it_is_intact_again() {
+        let now = Instant::now();
+        let mut group = Group::new(VideoCodec::Hevc, 100, Priority::Latency);
+        group.push(packet(100, 0, 90, false, &parameter_sets(10, 1)));
+        group.push(packet(100, 1, 90, true, &slice(10, true)));
+        group.push(packet(101, 0, 90, true, &slice(11, false)));
+        assert_eq!(summary(&drain(&mut group, now)), ["C", "0:10", "1:11"]);
+
+        // Band 1 skips a sequence number and gives up on the unit it fell in.
+        group.push(packet(101, 2, 180, true, &slice(13, false)));
+        let mut later = now;
+        let mut outputs = Vec::new();
+
+        while let Some(deadline) = group.deadline() {
+            later = deadline;
+            outputs.extend(drain(&mut group, later));
+        }
+
+        assert_eq!(summary(&outputs), ["|", "L"]);
+
+        group.push(packet(100, 2, 270, true, &slice(14, false)));
+        group.push(packet(100, 3, 360, true, &slice(15, false)));
+        assert_eq!(summary(&drain(&mut group, later)), ["0:14", "0:15"]);
+
+        group.push(packet(101, 3, 360, true, &slice(16, false)));
+        assert_eq!(summary(&drain(&mut group, later)), ["1:16"]);
+        assert_eq!(summary(&drain(&mut group, later + INSTANT_WAIT)), ["|"]);
     }
 }
