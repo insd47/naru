@@ -69,6 +69,9 @@ runs one loop over three inputs: control messages from the Mac, UDP datagrams, a
   units in decoding order (`media::Group`). The Mac does not retransmit, so a gap waits only for late packets and
   otherwise trades latency for quality according to the `Priority` the user chose. For HEVC it acknowledges each
   intact top-band picture (LTR), which tells the Mac what it may reference; without them it stops sending moving video.
+- Every 50 ms `media` also sends the receiver feedback Apple's client sends (`RCTL`): what arrived, and the bandwidth
+  it allows. The Mac raises the bitrate from its 20.8 Mbps floor only on this feedback, and keeps it at or below that
+  bandwidth. The core reports the 60 Mbps cap, as Apple's client does on a clear path.
 - The engine watches for stalled video and asks for a keyframe, or tells the app to rebuild its decoder, only while the
   Mac is actually sending.
 - `input` turns pointer, scroll, momentum, and magnify input into protocol events. Keys go out unchanged.

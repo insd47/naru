@@ -14,6 +14,8 @@ use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
 
 const TICK: Duration = Duration::from_millis(500);
+// The receiver feedback interval, as in Apple's client. The server raises its bitrate one step per feedback.
+const FEEDBACK: Duration = Duration::from_millis(50);
 
 // If no decoder config arrives this long after the answer, the session gives up, about as long as Apple's client waits.
 // On a lossy path the first keyframe often arrives incomplete, and the keyframes asked for meanwhile are more chances.
@@ -44,6 +46,7 @@ enum Wake {
     Video(std::io::Result<(usize, SocketAddr)>),
     Audio(std::io::Result<(usize, SocketAddr)>),
     Tick,
+    Feedback,
     Retry,
     Deadline,
     Switched,
@@ -78,6 +81,8 @@ impl Engine {
 
         let mut ticker = tokio::time::interval(TICK);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut feedback = tokio::time::interval(FEEDBACK);
+        feedback.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         let mut tcp_buffer = vec![0; 64 << 10];
         let mut video_buffer = vec![0; 2048];
@@ -94,6 +99,7 @@ impl Engine {
                 received = video.recv_from(&mut video_buffer) => Wake::Video(received),
                 received = audio.recv_from(&mut audio_buffer) => Wake::Audio(received),
                 _ = ticker.tick() => Wake::Tick,
+                _ = feedback.tick() => Wake::Feedback,
                 _ = sleep_until(retry) => Wake::Retry,
                 _ = sleep_until(deadline) => Wake::Deadline,
                 _ = sleep_until(switched) => Wake::Switched,
@@ -113,6 +119,7 @@ impl Engine {
                     self.media.receive_audio(&audio_buffer[..len], from, &mut outgoing);
                 }
                 Wake::Tick => self.tick(now, &mut outgoing).await?,
+                Wake::Feedback => self.media.feedback(now).await,
                 Wake::Retry => self.retry(now).await?,
                 Wake::Deadline => self.media.drain(now, &mut outgoing).await,
                 Wake::Switched => self.switched().await?,

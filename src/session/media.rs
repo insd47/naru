@@ -31,6 +31,9 @@ const STALL_KEYFRAME: Duration = Duration::from_secs(3);
 const STALL_KEYFRAME_REPEAT: Duration = Duration::from_millis(1500);
 const STALL_RESETS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(15)];
 
+// The server's bitrate cap. Apple's client reports it as its bandwidth whenever no bottleneck holds the video back.
+const BANDWIDTH_CEILING_KBPS: u16 = 60000;
+
 /// Audio (P) and video (P+1) UDP sockets, opened before authentication.
 #[derive(Clone)]
 pub struct Sockets {
@@ -110,6 +113,9 @@ pub struct Media {
     filled: u64,
     losses: u64,
     last_packet: Option<Instant>,
+    last_timestamp: u32,
+    // When the first receiver feedback went out, the start of its clock
+    feedback_started: Option<Instant>,
     last_frame: Option<Instant>,
     configured: bool,
     stall: Stall,
@@ -152,6 +158,8 @@ impl Media {
             filled: 0,
             losses: 0,
             last_packet: None,
+            last_timestamp: 0,
+            feedback_started: None,
             last_frame: None,
             configured: false,
             stall: Stall::default(),
@@ -184,6 +192,7 @@ impl Media {
 
         self.authenticated += 1;
         self.last_packet = Some(now);
+        self.last_timestamp = packet.timestamp;
 
         let packets = match self.streams.route(packet, now) {
             Routed::Current(packet) => vec![packet],
@@ -377,6 +386,33 @@ impl Media {
         self.send_rtcp(&compound).await;
     }
 
+    /// Sends the receiver feedback, every 50 ms once video has arrived.
+    pub async fn feedback(&mut self, now: Instant) {
+        let Some(last_packet) = self.last_packet else {
+            return;
+        };
+
+        let started = *self.feedback_started.get_or_insert(now);
+        let feedback = rtcp::Feedback {
+            timestamp: self.last_timestamp,
+            idle_ms: u16::try_from(now.duration_since(last_packet).as_millis()).unwrap_or(u16::MAX),
+            // Only the low 16 bits go out, so the clock wraps about every 64 seconds as Apple's does.
+            clock: (now.duration_since(started).as_millis() * 1024 / 1000) as u16,
+            received: self.authenticated,
+            bandwidth_kbps: self.bandwidth_kbps(),
+        };
+
+        self.send_video_rtcp(&rtcp::rate_feedback(self.video_ssrc, &feedback))
+            .await;
+    }
+
+    // The bandwidth reported in the feedback. The server holds its target bitrate at the highest of its steps, from 20.8
+    // to 58.4 Mbps, that does not exceed it. Apple's client drops it near the rate of a queueing bottleneck within seconds
+    // and ignores random loss and fixed delay; this client reports the ceiling and leaves the bitrate to the server.
+    fn bandwidth_kbps(&self) -> u16 {
+        BANDWIDTH_CEILING_KBPS
+    }
+
     /// Requests a keyframe, unless within the minimum interval, the server is quiet, or there is no stream yet.
     ///
     /// - The request names the top band, the only one that carries keyframes.
@@ -407,10 +443,13 @@ impl Media {
     }
 
     async fn acknowledge(&mut self, donl: u16) {
-        let packet = rtcp::ltr_acknowledgment(self.video_ssrc, donl);
+        self.send_video_rtcp(&rtcp::ltr_acknowledgment(self.video_ssrc, donl))
+            .await;
+    }
 
-        // The same SRTCP context as the other RTCP, so the index keeps rising across both ports and never repeats.
-        if let Some(packet) = self.rtcp.protect_rtcp(&packet) {
+    // The same SRTCP context as the other RTCP, so the index keeps rising across both ports and never repeats.
+    async fn send_video_rtcp(&mut self, packet: &[u8]) {
+        if let Some(packet) = self.rtcp.protect_rtcp(packet) {
             let _ = self.sockets.video.send_to(&packet, self.sockets.video_address()).await;
         }
     }
