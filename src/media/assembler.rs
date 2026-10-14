@@ -1,12 +1,13 @@
 use super::RtpPacket;
 use super::h264::CONFIG_MARKER;
+use super::sequence;
 use super::unit::{AccessUnit, DecoderConfig, VideoCodec};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 // How long an access unit with a sequence gap waits for the missing packets. The server does not retransmit, so only
 // packets that arrive out of order fill a gap, and those are milliseconds late.
-pub const HOLD: Duration = Duration::from_millis(75);
+const HOLD: Duration = Duration::from_millis(75);
 
 // Beyond this many buffered packets, everything is treated as lost and dropped.
 const MAX_BUFFERED: usize = 4096;
@@ -67,7 +68,7 @@ impl Assembler {
 
     /// Pushes one packet and returns how many sequence numbers it showed to be missing.
     pub fn push(&mut self, packet: RtpPacket) -> u64 {
-        let sequence = extend(packet.sequence, self.highest);
+        let sequence = sequence::extend(packet.sequence, self.highest);
 
         if self.next.is_some_and(|next| sequence < next) || self.packets.contains_key(&sequence) {
             return 0;
@@ -186,20 +187,6 @@ impl Assembler {
             None => Reassembled::Lost,
         }
     }
-}
-
-/// Maps a 16-bit counter to the extended value closest to `reference`, the highest one seen so far.
-pub fn extend(value: u16, reference: Option<u64>) -> u64 {
-    let Some(reference) = reference else {
-        return (1 << 32) + u64::from(value);
-    };
-
-    let candidate = (reference & !0xffff) | u64::from(value);
-
-    [candidate - 0x1_0000, candidate, candidate + 0x1_0000]
-        .into_iter()
-        .min_by_key(|candidate| candidate.abs_diff(reference))
-        .expect("there is a candidate")
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 //! HEVC RTP payload (RFC 7798 with a decoding order number).
 //!
 //! - The video comes as four bands, and every structure carries a 2-byte DONL, each fragment of a split NAL included.
-//!   With one band requested the server sends the standard format without DONL, which this module no longer reads.
+//!   With one band requested the server sends the standard format without DONL, which this module does not read.
 //! - DONL counts pictures across all four bands in decoding order, and an LTR acknowledgment names a picture by it.
 //! - Parameter sets (VPS, SPS, PPS) arrive in-stream with the keyframe, not in a config packet.
 use super::unit::{DecoderConfig, VideoCodec};

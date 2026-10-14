@@ -248,7 +248,7 @@ impl Media {
                         self.acknowledging = true;
                     }
 
-                    // Only the top band is acknowledged, as Apple's client does.
+                    // The server takes acknowledgments for pictures of the top band only.
                     if let Some(donl) = donl.filter(|_| unit.band == 0 && self.acknowledging) {
                         self.acknowledge(donl).await;
                     }

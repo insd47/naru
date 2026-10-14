@@ -77,7 +77,7 @@ internal sealed class Decoder : IDisposable
     /// <summary>
     /// Decodes one access unit and returns the pictures it completed. The caller releases each picture's sample.
     /// </summary>
-    /// <remarks>The band rides in the low bits of the sample time, which the decoder carries over to the picture.</remarks>
+    /// <remarks>The band goes in the low two bits of the sample time, which the decoder copies to the picture it completes.</remarks>
     public List<Picture> Decode(AccessUnit unit)
     {
         var prefix = unit.Keyframe ? parameters.Length : 0;

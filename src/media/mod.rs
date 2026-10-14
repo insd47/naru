@@ -12,6 +12,7 @@ mod h264;
 mod hevc;
 pub mod rtcp;
 mod rtp;
+mod sequence;
 mod srtp;
 mod streams;
 mod unit;

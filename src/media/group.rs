@@ -1,5 +1,6 @@
 use super::RtpPacket;
-use super::assembler::{Assembler, Reassembled, extend};
+use super::assembler::{Assembler, Reassembled};
+use super::sequence;
 use super::unit::{AccessUnit, DecoderConfig, VideoCodec};
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -147,7 +148,7 @@ impl Group {
     // A unit arriving after a later one already went ahead without it can no longer be decoded in order, so it counts as lost.
     fn queue(&mut self, unit: AccessUnit, donl: u16, now: Instant) {
         let highest = self.waiting.last_key_value().map(|(&key, _)| key).max(self.released);
-        let key = extend(donl, highest);
+        let key = sequence::extend(donl, highest);
 
         if self.released.is_some_and(|released| key <= released) {
             self.lose(false);
@@ -175,7 +176,7 @@ impl Group {
     fn preceded(&self, unit: &AccessUnit) -> bool {
         self.bands.iter().enumerate().any(|(band, assembler)| {
             assembler.incomplete().is_some_and(|timestamp| {
-                let earlier = (unit.timestamp.wrapping_sub(timestamp) as i32) > 0;
+                let earlier = unit.timestamp.wrapping_sub(timestamp).cast_signed() > 0;
                 earlier || (timestamp == unit.timestamp && band < usize::from(unit.band))
             })
         })
@@ -235,7 +236,6 @@ impl Group {
 #[cfg(test)]
 mod tests {
     use super::{Assembled, Group, INSTANT_WAIT, MAX_WAIT, Priority};
-    use crate::media::assembler::HOLD;
     use crate::media::{RtpPacket, VideoCodec};
     use std::time::Instant;
 
@@ -332,7 +332,8 @@ mod tests {
         group.push(packet(7, 15, 9000, true, IDR));
         assert!(drain(&mut group, now).is_empty());
 
-        let outputs = drain(&mut group, now + HOLD);
+        let deadline = group.deadline().unwrap();
+        let outputs = drain(&mut group, deadline);
         assert_eq!(outputs[0], Assembled::Lost);
         assert!(matches!(&outputs[1..], [Assembled::Frame { unit, .. }] if unit.timestamp == 9000));
     }
@@ -349,7 +350,8 @@ mod tests {
         group.push(packet(7, 14, 6000, true, P_SLICE));
         assert!(drain(&mut group, now).is_empty());
 
-        let outputs = drain(&mut group, now + HOLD);
+        let deadline = group.deadline().unwrap();
+        let outputs = drain(&mut group, deadline);
         assert_eq!(outputs[0], Assembled::Lost);
         assert!(matches!(&outputs[1..], [Assembled::Frame { unit, .. }] if unit.timestamp == 6000));
     }
