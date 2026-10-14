@@ -1,6 +1,8 @@
 use super::{Event, MediaStats};
 use crate::error::Result;
-use crate::media::{Assembled, AudioFrame, Group, Priority, Routed, RtpPacket, SrtpContext, Streams, VideoCodec, rtcp};
+use crate::media::{
+    Assembled, AudioFrame, Bandwidth, Group, Priority, Routed, RtpPacket, SrtpContext, Streams, VideoCodec, rtcp,
+};
 use crate::offer::Offer;
 use socket2::{Domain, Socket, Type};
 use std::net::{IpAddr, SocketAddr};
@@ -22,9 +24,6 @@ const QUIET_AFTER: Duration = Duration::from_millis(1500);
 const STALL_KEYFRAME: Duration = Duration::from_secs(3);
 const STALL_KEYFRAME_REPEAT: Duration = Duration::from_millis(1500);
 const STALL_RESETS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(15)];
-
-// The server's bitrate cap. Apple's client reports it as its bandwidth whenever no bottleneck holds the video back.
-const BANDWIDTH_CEILING_KBPS: u16 = 60000;
 
 /// Audio (P) and video (P+1) UDP sockets, opened before authentication.
 #[derive(Clone)]
@@ -103,6 +102,7 @@ pub struct Media {
     losses: u64,
     last_packet: Option<Instant>,
     last_timestamp: u32,
+    bandwidth: Bandwidth,
     // When the first receiver feedback went out, the start of its clock
     feedback_started: Option<Instant>,
     last_frame: Option<Instant>,
@@ -145,6 +145,7 @@ impl Media {
             losses: 0,
             last_packet: None,
             last_timestamp: 0,
+            bandwidth: Bandwidth::default(),
             feedback_started: None,
             last_frame: None,
             configured: false,
@@ -179,6 +180,7 @@ impl Media {
         self.authenticated += 1;
         self.last_packet = Some(now);
         self.last_timestamp = packet.timestamp;
+        self.bandwidth.observe(now, packet.timestamp, datagram.len());
 
         let packets = match self.streams.route(packet, now) {
             Routed::Current(packet) => vec![packet],
@@ -197,7 +199,12 @@ impl Media {
             return;
         };
 
-        self.missing += packets.into_iter().map(|packet| group.push(packet)).sum::<u64>();
+        let missing = packets.into_iter().map(|packet| group.push(packet)).sum::<u64>();
+        self.missing += missing;
+
+        if missing > 0 {
+            self.bandwidth.lose(now, missing);
+        }
         self.drain(now, events).await;
     }
 
@@ -377,18 +384,11 @@ impl Media {
             // Only the low 16 bits go out, so the clock wraps about every 64 seconds as Apple's does.
             clock: (now.duration_since(started).as_millis() * 1024 / 1000) as u16,
             received: self.authenticated,
-            bandwidth_kbps: self.bandwidth_kbps(),
+            bandwidth_kbps: self.bandwidth.kbps(now),
         };
 
         self.send_video_rtcp(&rtcp::rate_feedback(self.video_ssrc, &feedback))
             .await;
-    }
-
-    // The bandwidth reported in the feedback. The server holds its target bitrate at the highest of its steps, from 20.8
-    // to 58.4 Mbps, that does not exceed it. Apple's client drops it near the rate of a queueing bottleneck within seconds
-    // and ignores random loss and fixed delay; this client reports the ceiling and leaves the bitrate to the server.
-    fn bandwidth_kbps(&self) -> u16 {
-        BANDWIDTH_CEILING_KBPS
     }
 
     /// Requests a keyframe, unless within the minimum interval, the server is quiet, or there is no stream yet.

@@ -71,7 +71,9 @@ runs one loop over three inputs: control messages from the Mac, UDP datagrams, a
   intact top-band picture (LTR), which tells the Mac what it may reference; without them it stops sending moving video.
 - Every 50 ms `media` also sends the receiver feedback Apple's client sends (`RCTL`): what arrived, and the bandwidth
   it allows. The Mac raises the bitrate from its 20.8 Mbps floor only on this feedback, and keeps it at or below that
-  bandwidth. The core reports the 60 Mbps cap, as Apple's client does on a clear path.
+  bandwidth. `media::Bandwidth` estimates it from the trend of one-way delay and from heavy loss, as Apple's client
+  appears to: the 60 Mbps cap on a clear path, near the bottleneck's rate within seconds when a queue builds, and
+  unchanged by random loss or a fixed delay.
 - The engine watches for stalled video and asks for a keyframe, or tells the app to rebuild its decoder, only while the
   Mac is actually sending.
 - `input` turns pointer, scroll, momentum, and magnify input into protocol events. Keys go out unchanged.

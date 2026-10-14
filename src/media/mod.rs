@@ -1,4 +1,5 @@
 pub use audio::AudioFrame;
+pub use bandwidth::Bandwidth;
 pub use group::{Assembled, Group, Priority};
 pub use rtp::RtpPacket;
 pub use srtp::SrtpContext;
@@ -7,6 +8,7 @@ pub use unit::{AccessUnit, DecoderConfig, VideoCodec};
 
 mod assembler;
 mod audio;
+mod bandwidth;
 mod group;
 mod h264;
 mod hevc;
