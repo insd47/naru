@@ -1,3 +1,4 @@
+import GameController
 import OSLog
 import UIKit
 
@@ -10,9 +11,15 @@ enum Diagnostics {
     static let subsystem = "dev.insd.naru"
     static let input = Logger(subsystem: subsystem, category: "Input")
 
-    /// Records key window changes, since keys reach only the key window.
+    /// Records key window changes, since keys reach only the key window, and hardware keyboards coming and going.
     @MainActor
     static func start() {
+        for (name, label) in [(Notification.Name.GCKeyboardDidConnect, "connected"), (.GCKeyboardDidDisconnect, "disconnected")] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                input.log("Hardware keyboard \(label, privacy: .public)")
+            }
+        }
+
         for (name, label) in [(UIWindow.didBecomeKeyNotification, "became"), (UIWindow.didResignKeyNotification, "is no longer")] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
                 // Delivered on the main queue, where the window belongs.

@@ -171,7 +171,7 @@ final class SessionController {
             "HEVC 4:4:4 hardware decoding: \(Video.decodesHevc444 ? "supported" : "unsupported")",
             "Session codec: \(codec.map { $0 == .hevc ? "HEVC 4:4:4" : "H.264" } ?? "no session")",
             "Last session ended: \(closedDetail ?? "none")",
-            "Input modes: \(UITextInputMode.activeInputModes.compactMap(\.primaryLanguage).joined(separator: ", "))",
+            "Input modes: \(UITextInputMode.activeInputModes.compactMap(\.primaryLanguage).joined(separator: ", ")), system language \(Locale.preferredLanguages.first ?? "none")",
         ]
 
         guard let file = try? Diagnostics.export(header: header),

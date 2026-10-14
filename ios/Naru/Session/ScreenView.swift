@@ -148,12 +148,12 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     var hasText: Bool { false }
 
     func insertText(_ text: String) {
-        Diagnostics.input.log("Text input: insert, in the key window: \(self.window?.isKeyWindow == true)")
+        Diagnostics.input.log("Text input: insert, in the key window: \(self.window?.isKeyWindow == true), key held: \(!self.typing.isEmpty)")
         repeatHeld()
     }
 
     func deleteBackward() {
-        Diagnostics.input.log("Text input: delete")
+        Diagnostics.input.log("Text input: delete, key held: \(!self.typing.isEmpty)")
         repeatHeld()
     }
 
