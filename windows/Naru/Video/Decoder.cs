@@ -7,8 +7,8 @@ using Vortice.MediaFoundation;
 
 namespace Naru.Video;
 
-/// <summary>A decoded picture: a slice of a texture the decoder owns until the sample is released.</summary>
-internal readonly record struct Picture(IMFSample Sample, ID3D11Texture2D Texture, uint Slice, bool StudioRange);
+/// <summary>A decoded picture: a slice of a texture the decoder owns until the sample is released, and the band it covers.</summary>
+internal readonly record struct Picture(IMFSample Sample, ID3D11Texture2D Texture, uint Slice, bool StudioRange, byte Band);
 
 /// <summary>
 /// One Media Foundation decoder for H.264 or HEVC 4:4:4, accelerated through the session's Direct3D device.
@@ -18,6 +18,7 @@ internal readonly record struct Picture(IMFSample Sample, ID3D11Texture2D Textur
 /// <item>Uses Windows' synchronous decoder for the codec, which decodes on the GPU when handed a Direct3D device. Construction fails without that.</item>
 /// <item>Each access unit goes in as Annex B. H.264 keyframes get the SPS and PPS in front; HEVC keyframes already carry the VPS, SPS, and PPS.</item>
 /// <item>H.264 comes out as NV12 and HEVC 4:4:4 as AYUV. The renderer's video processor converts either.</item>
+/// <item>Each HEVC picture covers one band of the screen, a picture of its own the size of <see cref="Band"/>; each H.264 picture covers all of it.</item>
 /// <item>On a new config, dispose and create a new one, since mixing with the previous generation's references corrupts output.</item>
 /// <item>Call only on the video thread.</item>
 /// </list>
@@ -30,8 +31,12 @@ internal sealed class Decoder : IDisposable
     private readonly byte[] parameters;
     private readonly Guid output;
     private bool studioRange = true;
+    private long decoded;
 
     public string Name { get; }
+
+    /// <summary>Coded size of one HEVC band, or null for H.264.</summary>
+    public (uint Width, uint Height)? Band { get; }
 
     public Decoder(Graphics graphics, DecoderConfig config)
     {
@@ -52,9 +57,10 @@ internal sealed class Decoder : IDisposable
         attributes.Set(Mf.LowLatency, 1u);
         transform.ProcessMessage(TMessageType.MessageSetD3DManager, (nuint)graphics.Manager.NativePointer);
 
-        using (var type = InputType(hevc, sps))
+        using (var type = InputType(hevc, sps, out var band))
         {
             transform.SetInputType(0, type, 0);
+            Band = band;
         }
 
         ChooseOutput();
@@ -71,7 +77,7 @@ internal sealed class Decoder : IDisposable
     /// <summary>
     /// Decodes one access unit and returns the pictures it completed. The caller releases each picture's sample.
     /// </summary>
-    /// <remarks>RTP timestamps are 90 kHz. They only order output, so wraparound does not matter.</remarks>
+    /// <remarks>The band rides in the low bits of the sample time, which the decoder carries over to the picture.</remarks>
     public List<Picture> Decode(AccessUnit unit)
     {
         var prefix = unit.Keyframe ? parameters.Length : 0;
@@ -109,7 +115,7 @@ internal sealed class Decoder : IDisposable
 
         using var sample = MediaFactory.MFCreateSample();
         sample.AddBuffer(buffer);
-        sample.SampleTime = unit.Timestamp * 1000L / 9;
+        sample.SampleTime = (++decoded << 2) | unit.Band;
         transform.ProcessInput(0, sample, 0);
 
         return Drain();
@@ -160,7 +166,7 @@ internal sealed class Decoder : IDisposable
             using var media = sample.GetBufferByIndex(0);
             using var surface = media.QueryInterface<IMFDXGIBuffer>();
             var texture = new ID3D11Texture2D(surface.GetResource(typeof(ID3D11Texture2D).GUID));
-            pictures.Add(new Picture(sample, texture, surface.SubresourceIndex, studioRange));
+            pictures.Add(new Picture(sample, texture, surface.SubresourceIndex, studioRange, (byte)(sample.SampleTime & 3)));
         }
     }
 
@@ -190,8 +196,9 @@ internal sealed class Decoder : IDisposable
     }
 
     // HEVC declares the 4:4:4 profile and the frame size up front, or the decoder offers no 4:4:4 output.
-    private static IMFMediaType InputType(bool hevc, byte[] sps)
+    private static IMFMediaType InputType(bool hevc, byte[] sps, out (uint Width, uint Height)? band)
     {
+        band = null;
         var type = MediaFactory.MFCreateMediaType();
         type.Set(Mf.MajorType, Mf.Video);
         type.Set(Mf.Subtype, hevc ? Mf.Hevc : Mf.H264);
@@ -212,6 +219,7 @@ internal sealed class Decoder : IDisposable
             }
 
             MediaFactory.MFSetAttributeSize(type, Mf.FrameSize, parsed.Width, parsed.Height);
+            band = (parsed.Width, parsed.Height);
             type.Set(Mf.VideoProfile, Mf.HevcMain444);
         }
 

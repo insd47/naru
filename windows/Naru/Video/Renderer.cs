@@ -97,23 +97,23 @@ internal sealed class Renderer : IDisposable
         Scale(scale);
     }
 
-    /// <summary>Draws a picture, cropped to the visible size the Mac reports, placed by <see cref="Fit"/> with black around it.</summary>
-    public void Render(Picture picture, uint visibleWidth, uint visibleHeight)
+    /// <summary>Draws a slice of a texture, cropped to the visible size the Mac reports, placed by <see cref="Fit"/> with black around it.</summary>
+    public void Render(ID3D11Texture2D source, uint slice, bool studioRange, uint visibleWidth, uint visibleHeight)
     {
-        var texture = picture.Texture.Description;
+        var texture = source.Description;
         var sourceWidth = Math.Min(visibleWidth == 0 ? texture.Width : visibleWidth, texture.Width);
         var sourceHeight = Math.Min(visibleHeight == 0 ? texture.Height : visibleHeight, texture.Height);
         Prepare(texture.Width, texture.Height);
 
-        var key = (picture.Texture.NativePointer, picture.Slice);
+        var key = (source.NativePointer, slice);
 
         if (!inputs.TryGetValue(key, out var input))
         {
-            input = videoDevice.CreateVideoProcessorInputView(picture.Texture, enumerator!, new VideoProcessorInputViewDescription
+            input = videoDevice.CreateVideoProcessorInputView(source, enumerator!, new VideoProcessorInputViewDescription
             {
                 FourCC = 0,
                 ViewDimension = VideoProcessorInputViewDimension.Texture2D,
-                Texture2D = new Texture2DVideoProcessorInputView { MipSlice = 0, ArraySlice = picture.Slice },
+                Texture2D = new Texture2DVideoProcessorInputView { MipSlice = 0, ArraySlice = slice },
             });
             inputs[key] = input;
         }
@@ -130,7 +130,7 @@ internal sealed class Renderer : IDisposable
         var left = (int)fit.Left;
         var top = (int)fit.Top;
 
-        videoContext.VideoProcessorSetStreamColorSpace1(processor!, 0, picture.StudioRange ? ColorSpaceType.YcbcrStudioG22LeftP709 : ColorSpaceType.YcbcrFullG22LeftP709);
+        videoContext.VideoProcessorSetStreamColorSpace1(processor!, 0, studioRange ? ColorSpaceType.YcbcrStudioG22LeftP709 : ColorSpaceType.YcbcrFullG22LeftP709);
         videoContext.VideoProcessorSetOutputColorSpace1(processor!, ColorSpaceType.RgbFullG22NoneP709);
         videoContext.VideoProcessorSetStreamFrameFormat(processor!, 0, VideoFrameFormat.Progressive);
         videoContext.VideoProcessorSetStreamAutoProcessingMode(processor!, 0, false);
