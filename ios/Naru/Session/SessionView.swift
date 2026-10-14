@@ -1,29 +1,99 @@
 import SwiftUI
 
-/// The session screen. Shows the Mac's screen edge to edge, with a loading state until the first frame arrives.
+/// The session screen. Shows the Mac's screen under a title bar, with a loading state until the first frame arrives.
 ///
-/// - Returning to the connection list and disconnecting live in the menu bar. With a finger, swipe down from the top of the screen to open it.
+/// - The title bar follows Screen Sharing's toolbar: the way back to the connections, the Mac's name, and the Mac's
+///   window shortcuts. It shows while the app is in a window and hides with the status bar when the app fills the
+///   screen, where the menu bar still opens from the top edge.
 struct SessionView: View {
     @Environment(SessionController.self) private var session
+    @State private var fillsScreen = false
 
     var body: some View {
-        ZStack {
-            Screen(connection: session.connection, layout: session.layout, cursor: session.cursor, syncsLanguage: session.syncsKeyboardLanguage) { mode in
-                session.resize(mode)
-            }
-            .ignoresSafeArea()
+        NavigationStack {
+            ZStack {
+                Screen(connection: session.connection, layout: session.layout, cursor: session.cursor, syncsLanguage: session.syncsKeyboardLanguage) { mode in
+                    session.resize(mode)
+                }
+                .ignoresSafeArea(edges: fillsScreen ? .all : [.horizontal, .bottom])
 
-            if !session.shown {
-                ProgressView()
-                    .controlSize(.large)
-                    .accessibilityLabel("Preparing Screen")
-                    .foregroundStyle(.white)
-                    .tint(.white)
+                if !session.shown {
+                    ProgressView()
+                        .controlSize(.large)
+                        .accessibilityLabel("Preparing Screen")
+                        .foregroundStyle(.white)
+                        .tint(.white)
+                }
+            }
+            .background(.black)
+            .navigationTitle(session.state?.host.title ?? "")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbar }
+            .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)
+        }
+        .statusBarHidden(fillsScreen)
+        // Hidden only when filling the screen, since in a window it also hides the window's controls.
+        .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
+        .background {
+            ScreenFill { fills in
+                withAnimation(.snappy) { fillsScreen = fills }
             }
         }
-        .background(.black)
-        .statusBarHidden()
-        .persistentSystemOverlays(.hidden)
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button("Connections", systemImage: "chevron.backward") { session.presented = false }
+        }
+
+        // The Mac's default shortcuts: Control-Up Arrow, Control-Down Arrow, F11
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button("Mission Control", systemImage: "rectangle.3.group") { session.press([0xffe3, 0xff52]) }
+            Button("App Windows", systemImage: "macwindow.on.rectangle") { session.press([0xffe3, 0xff54]) }
+            Button("Desktop", systemImage: "menubar.dock.rectangle") { session.press([0xffc8]) }
+            Menu("More", systemImage: "ellipsis") {
+                Button("Disconnect", systemImage: "xmark", role: .destructive) { session.close() }
+            }
+        }
+    }
+}
+
+// Reports whether the window fills its screen. iPadOS has no property for it, so the window and screen sizes are
+// compared, either way round for rotation.
+private struct ScreenFill: UIViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    // It lies behind the title bar, so it must not take the touches that drag the window.
+    func makeUIView(context: Context) -> FillView {
+        let view = FillView()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: FillView, context: Context) {
+        view.onChange = onChange
+    }
+
+    final class FillView: UIView {
+        var onChange: ((Bool) -> Void)?
+        private var fills: Bool?
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+
+            guard let window, let screen = window.windowScene?.screen.bounds.size else {
+                return
+            }
+
+            let size = window.bounds.size
+            let now = size == screen || size == CGSize(width: screen.height, height: screen.width)
+
+            if fills != now {
+                fills = now
+                onChange?(now)
+            }
+        }
     }
 }
 
