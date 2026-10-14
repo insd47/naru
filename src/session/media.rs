@@ -20,6 +20,10 @@ const KEYFRAME_INTERVAL: Duration = Duration::from_millis(250);
 const KEYFRAME_BACKOFF_LIMIT: Duration = Duration::from_secs(2);
 const QUIET_AFTER: Duration = Duration::from_millis(1500);
 
+// While a band recovers from a loss, Apple's client asks for a refresh about once a frame. Each answer is a small
+// picture predicted from ones it acknowledged, so asking often costs little.
+const REFRESH_INTERVAL: Duration = Duration::from_millis(16);
+
 // Frame stall recovery. The server sends no video for a still screen, so recovery only runs when packets arrived recently.
 const STALL_KEYFRAME: Duration = Duration::from_secs(3);
 const STALL_KEYFRAME_REPEAT: Duration = Duration::from_millis(1500);
@@ -83,15 +87,17 @@ pub struct Media {
     streams: Streams,
     group: Option<Group>,
     last_keyframe_request: Option<Instant>,
-    // A unit was lost and no keyframe has arrived since. Frames after a loss reference what was lost, so keyframe
-    // requests repeat until one arrives rather than going out once and possibly being swallowed by the rate limit.
+    last_refresh_request: Option<Instant>,
+    // An H.264 unit was lost and no keyframe has arrived since. H.264 recovers only from a keyframe, so requests repeat
+    // until one arrives rather than going out once and possibly being swallowed by the rate limit.
     awaiting_keyframe: bool,
-    // Picture size from the latest decoder config, which keyframe requests name
-    picture_size: Option<(u16, u16)>,
+    fir_sequence: u8,
     // Keyframe requests sent since the last keyframe arrived
     unanswered: u32,
-    // Whether frames go out intact since the last keyframe, so the server may reference them. A loss or a decoder reset
-    // stops the acknowledgments until the next keyframe, since the frames between may decode wrong.
+    // Picture size from the latest decoder config, which refresh requests name
+    picture_size: Option<(u16, u16)>,
+    // Whether the app's decoder holds the pictures the server may reference. A decoder reset stops the
+    // acknowledgments until the next keyframe.
     acknowledging: bool,
     // Counts for diagnosing why media did not start.
     datagrams: u64,
@@ -134,9 +140,11 @@ impl Media {
             streams: Streams::new(codec.bands()),
             group: None,
             last_keyframe_request: None,
+            last_refresh_request: None,
             awaiting_keyframe: false,
-            picture_size: None,
+            fir_sequence: 0,
             unanswered: 0,
+            picture_size: None,
             acknowledging: false,
             datagrams: 0,
             authenticated: 0,
@@ -248,7 +256,7 @@ impl Media {
                         .and_then(|(width, height)| Some((u16::try_from(width).ok()?, u16::try_from(height).ok()?)));
                     events.push(Event::DecoderConfig(config));
                 }
-                Assembled::Frame { unit, donl } => {
+                Assembled::Frame { unit, donl, intact } => {
                     self.last_frame = Some(now);
                     self.stall = Stall::default();
                     self.streams.mark_frame(now);
@@ -259,8 +267,8 @@ impl Media {
                         self.acknowledging = true;
                     }
 
-                    // The server takes acknowledgments for pictures of the top band only.
-                    if let Some(donl) = donl.filter(|_| unit.band == 0 && self.acknowledging) {
+                    // Like Apple's client, every band's intact pictures are acknowledged, and none predicted from a lost one.
+                    if let Some(donl) = donl.filter(|_| intact && self.acknowledging) {
                         self.acknowledge(donl).await;
                     }
 
@@ -269,15 +277,19 @@ impl Media {
                 Assembled::Present => events.push(Event::Present),
                 Assembled::Lost => {
                     self.losses += 1;
-                    self.awaiting_keyframe = true;
-                    self.acknowledging = false;
+                    self.awaiting_keyframe |= self.codec == VideoCodec::H264;
                 }
             }
         }
 
-        // Asked on every drain until a keyframe arrives. The rate limit spaces the requests out.
+        // Asked on every drain until a keyframe arrives, or until every band is intact again. The intervals space the
+        // requests out.
         if self.awaiting_keyframe {
             self.request_keyframe(now).await;
+        }
+
+        if self.group.as_ref().is_some_and(Group::recovering) {
+            self.request_refresh(now).await;
         }
     }
 
@@ -375,7 +387,7 @@ impl Media {
         }
     }
 
-    /// Sends the receiver feedback, every 50 ms once video has arrived.
+    /// Sends the receiver feedback, every 50 ms once video has arrived, and a refresh request while a band recovers.
     pub async fn feedback(&mut self, now: Instant) {
         let Some(last_packet) = self.last_packet else {
             return;
@@ -393,6 +405,11 @@ impl Media {
 
         self.send_video_rtcp(&rtcp::rate_feedback(self.video_ssrc, &feedback))
             .await;
+
+        // A still screen sends nothing to drain, so a band that broke on it is asked for here.
+        if self.group.as_ref().is_some_and(Group::recovering) {
+            self.request_refresh(now).await;
+        }
     }
 
     /// Requests a keyframe, unless within the minimum interval, the server is quiet, or there is no stream yet.
@@ -402,16 +419,39 @@ impl Media {
         let recent = self
             .last_keyframe_request
             .is_some_and(|last| now.duration_since(last) < self.keyframe_interval());
-        if recent || self.streams.current().is_none() || !self.active(now) {
+        let Some(target) = self.streams.current().filter(|_| !recent && self.active(now)) else {
             return;
+        };
+
+        // A repeat keeps the FIR sequence number, so it reads as the same request rather than a new one (RFC 5104).
+        if self.unanswered == 0 {
+            self.fir_sequence = self.fir_sequence.wrapping_add(1);
         }
 
         self.last_keyframe_request = Some(now);
         self.unanswered += 1;
+        let request = rtcp::keyframe_request(self.video_ssrc, target, self.fir_sequence);
+
+        // The audio port is where the server has answered this bundle with keyframes.
+        if let Some(packet) = self.video_send.protect_rtcp(&request) {
+            let _ = self.sockets.audio.send_to(&packet, self.sockets.audio_address()).await;
+        }
+    }
+
+    // Asks for a picture that predicts only from intact ones, at most once a frame. It goes out on a still screen too,
+    // where nothing else would ever replace the band that broke.
+    async fn request_refresh(&mut self, now: Instant) {
+        if self
+            .last_refresh_request
+            .is_some_and(|last| now.duration_since(last) < REFRESH_INTERVAL)
+        {
+            return;
+        }
 
         // Before the first decoder config the size is not known yet and goes out as 0.
         let size = self.picture_size.unwrap_or((0, 0));
-        self.send_video_rtcp(&rtcp::keyframe_request(self.video_ssrc, size))
+        self.last_refresh_request = Some(now);
+        self.send_video_rtcp(&rtcp::refresh_request(self.video_ssrc, size))
             .await;
     }
 

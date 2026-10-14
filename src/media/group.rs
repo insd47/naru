@@ -1,5 +1,6 @@
 use super::RtpPacket;
 use super::assembler::{Assembler, Reassembled};
+use super::references::References;
 use super::sequence;
 use super::unit::{AccessUnit, DecoderConfig, VideoCodec};
 use std::collections::{BTreeMap, VecDeque};
@@ -18,9 +19,15 @@ const INSTANT_WAIT: Duration = Duration::from_millis(10);
 pub enum Assembled {
     /// New decoder config. The size may have changed, so reconfigure the decoder.
     Config(DecoderConfig),
-    /// Access unit for the decoder, with its DONL if the codec carries one
-    Frame { unit: AccessUnit, donl: Option<u16> },
-    /// Every band of one instant has gone out, so the screen they make up can be shown. Only for video in several bands.
+    /// Access unit for the decoder, with its DONL if the codec carries one, and whether it decodes intact: it arrived
+    /// whole and so did everything it predicts from.
+    Frame {
+        unit: AccessUnit,
+        donl: Option<u16>,
+        intact: bool,
+    },
+    /// Every band of one instant has gone out, so the screen they make up can be shown. Only for video in several bands,
+    /// and only while every band's latest picture is intact.
     Present,
     /// An access unit that couldn't be recovered in time was dropped. Request a keyframe.
     Lost,
@@ -48,6 +55,8 @@ pub enum Priority {
 /// - With several bands, an instant ends when its bottom band goes out, a band of a later instant goes out, or no band
 ///   follows for a moment. Showing each band as it decodes would show the top one ahead of the others.
 /// - [`Priority`] decides whether units whose reference was lost are emitted after a loss. A buffer overflow always waits for a keyframe.
+/// - After a loss in one band, the screen is not shown until that band has an intact picture again, as on Apple's client.
+///   The other bands keep decoding meanwhile, so the screen comes back whole rather than one band behind the others.
 pub struct Group {
     codec: VideoCodec,
     priority: Priority,
@@ -58,6 +67,9 @@ pub struct Group {
     released: Option<u64>,
     config: Option<DecoderConfig>,
     awaiting_keyframe: bool,
+    // Which pictures decode intact (HEVC only), and per band whether its latest picture does not
+    references: Option<References>,
+    broken: Vec<bool>,
     outputs: VecDeque<Assembled>,
     // RTP timestamp of the instant whose bands are going out, and when the last of them went out
     instant: Option<(u32, Instant)>,
@@ -72,19 +84,22 @@ struct Waiting {
 impl Group {
     /// Starts a group whose top band is `base`, with as many bands as the codec takes.
     pub fn new(codec: VideoCodec, base: u32, priority: Priority) -> Self {
-        let bands = (0..codec.bands())
+        let bands: Vec<Assembler> = (0..codec.bands())
             .map(|band| Assembler::new(codec, base.wrapping_add(u32::from(band)), band))
             .collect();
+        let references = (codec == VideoCodec::Hevc).then(References::default);
 
         Self {
             codec,
             priority,
             base,
-            bands,
             waiting: BTreeMap::new(),
             released: None,
             config: None,
             awaiting_keyframe: true,
+            references,
+            broken: vec![false; usize::from(codec.bands())],
+            bands,
             outputs: VecDeque::new(),
             instant: None,
         }
@@ -110,6 +125,11 @@ impl Group {
         self.outputs.pop_front()
     }
 
+    /// Whether a band lost a picture and has had no intact one since
+    pub fn recovering(&self) -> bool {
+        self.broken.iter().any(|broken| *broken)
+    }
+
     /// When `next()` must be called again, or `None` when nothing is waiting
     pub fn deadline(&self) -> Option<Instant> {
         let waiting = self.waiting.values().map(|waiting| waiting.since + MAX_WAIT).min();
@@ -129,8 +149,8 @@ impl Group {
                     Reassembled::Config(config) => self.announce(config),
                     Reassembled::Unit(unit, None) => self.admit(unit, None, now),
                     Reassembled::Unit(unit, Some(donl)) => self.queue(unit, donl, now),
-                    Reassembled::Lost => self.lose(false),
-                    Reassembled::Overflow => self.lose(true),
+                    Reassembled::Lost => self.lose(band, false),
+                    Reassembled::Overflow => self.lose(band, true),
                 }
             }
         }
@@ -151,7 +171,7 @@ impl Group {
         let key = sequence::extend(donl, highest);
 
         if self.released.is_some_and(|released| key <= released) {
-            self.lose(false);
+            self.lose(usize::from(unit.band), false);
             return;
         }
 
@@ -195,8 +215,19 @@ impl Group {
             self.announce(config);
         }
 
+        // Headers that cannot be read leave the picture counted as intact, as before references were followed.
+        let band = usize::from(unit.band);
+        let intact = self
+            .references
+            .as_mut()
+            .is_none_or(|references| references.intact(&unit.nals).unwrap_or(true));
+
+        if let Some(broken) = self.broken.get_mut(band) {
+            *broken = !intact;
+        }
+
         if self.bands.len() == 1 {
-            self.outputs.push_back(Assembled::Frame { unit, donl });
+            self.outputs.push_back(Assembled::Frame { unit, donl, intact });
             return;
         }
 
@@ -206,7 +237,7 @@ impl Group {
 
         let bottom = usize::from(unit.band) + 1 == self.bands.len();
         self.instant = Some((unit.timestamp, now));
-        self.outputs.push_back(Assembled::Frame { unit, donl });
+        self.outputs.push_back(Assembled::Frame { unit, donl, intact });
 
         if bottom {
             self.end_instant();
@@ -214,7 +245,7 @@ impl Group {
     }
 
     fn end_instant(&mut self) {
-        if self.instant.take().is_some() {
+        if self.instant.take().is_some() && !self.recovering() {
             self.outputs.push_back(Assembled::Present);
         }
     }
@@ -226,9 +257,14 @@ impl Group {
         }
     }
 
-    // A unit was lost. When favoring quality, wait for a keyframe.
-    fn lose(&mut self, overflow: bool) {
+    // A unit of `band` was lost. When favoring quality, wait for a keyframe.
+    fn lose(&mut self, band: usize, overflow: bool) {
         self.awaiting_keyframe |= overflow || self.priority == Priority::Quality;
+
+        if let Some(broken) = self.broken.get_mut(band) {
+            *broken = true;
+        }
+
         self.outputs.push_back(Assembled::Lost);
     }
 }
@@ -288,7 +324,7 @@ mod tests {
             .iter()
             .map(|output| match output {
                 Assembled::Config(_) => "C".into(),
-                Assembled::Frame { unit, donl } => format!("{}:{}", unit.band, donl.unwrap_or_default()),
+                Assembled::Frame { unit, donl, .. } => format!("{}:{}", unit.band, donl.unwrap_or_default()),
                 Assembled::Lost => "L".into(),
                 Assembled::Present => "|".into(),
             })

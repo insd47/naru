@@ -13,6 +13,7 @@ mod bits;
 mod group;
 mod h264;
 mod hevc;
+mod references;
 pub mod rtcp;
 mod rtp;
 mod sequence;

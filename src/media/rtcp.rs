@@ -7,10 +7,14 @@
 
 const RECEIVER_REPORT: u8 = 201;
 const SOURCE_DESCRIPTION: u8 = 202;
+const FEEDBACK_PAYLOAD: u8 = 206;
 const LEGACY_FIR: u8 = 192;
 const APPLICATION: u8 = 204;
 
 const LTR_ACKNOWLEDGMENT: u32 = 5;
+
+const FORMAT_PLI: u8 = 1;
+const FORMAT_FIR: u8 = 4;
 
 // Apple's client sends this word after the name in every feedback packet. Its meaning is unknown.
 const RATE_FEEDBACK: &[u8; 4] = b"RCTL";
@@ -41,11 +45,34 @@ pub fn source_description(sender: u32) -> Vec<u8> {
     packet
 }
 
-/// Builds a keyframe request as Apple's client sends it: a legacy FIR (RFC 2032) of its own, naming the client's video
-/// SSRC and the picture size in pixels.
+/// Builds a bundle of keyframe requests.
 ///
-/// - Apple's client sends neither the AVPF FIR nor PLI. The size is the encoder's: one band for HEVC.
-pub fn keyframe_request(sender: u32, size: (u16, u16)) -> Vec<u8> {
+/// - The server answers the bundle with a keyframe; the AVPF requests (RFC 5104 FIR, RFC 4585 PLI) are what it counts.
+/// - `sequence` is the FIR command sequence number, incremented by 1 per request.
+pub fn keyframe_request(sender: u32, target: u32, sequence: u8) -> Vec<u8> {
+    let mut packet = receiver_report(sender, &[]);
+
+    packet.extend(header(FORMAT_FIR, FEEDBACK_PAYLOAD, 4));
+    packet.extend_from_slice(&sender.to_be_bytes());
+    packet.extend_from_slice(&[0; 4]);
+    packet.extend_from_slice(&target.to_be_bytes());
+    packet.extend_from_slice(&[sequence, 0, 0, 0]);
+
+    packet.extend(header(FORMAT_PLI, FEEDBACK_PAYLOAD, 2));
+    packet.extend_from_slice(&sender.to_be_bytes());
+    packet.extend_from_slice(&target.to_be_bytes());
+
+    packet.extend(header(0, LEGACY_FIR, 1));
+    packet.extend_from_slice(&target.to_be_bytes());
+    packet
+}
+
+/// Builds the refresh request Apple's client sends while it loses video: a legacy FIR (RFC 2032) of its own, naming the
+/// client's video SSRC and the picture size in pixels.
+///
+/// - The server answers mostly with a picture predicted from older ones the client acknowledged, and now and then with
+///   a keyframe. The size is the encoder's: one band for HEVC.
+pub fn refresh_request(sender: u32, size: (u16, u16)) -> Vec<u8> {
     let mut packet = header(0, LEGACY_FIR, 2);
     packet.extend_from_slice(&sender.to_be_bytes());
     packet.extend_from_slice(&size.0.to_be_bytes());
@@ -110,7 +137,10 @@ fn header(count: u8, kind: u8, words: usize) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Feedback, keyframe_request, ltr_acknowledgment, rate_feedback, receiver_report, source_description};
+    use super::{
+        Feedback, keyframe_request, ltr_acknowledgment, rate_feedback, receiver_report, refresh_request,
+        source_description,
+    };
 
     // Splits a compound packet into (type, format, length). The split reaches the end only if every length field is correct.
     fn split(mut compound: &[u8]) -> Vec<(u8, u8, usize)> {
@@ -143,8 +173,16 @@ mod tests {
     }
 
     #[test]
-    fn keyframe_request_matches_apples_legacy_fir() {
-        let packet = keyframe_request(0x97b1_0c13, (3560, 512));
+    fn keyframe_request_bundles_rr_fir_pli_and_legacy_fir() {
+        let packet = keyframe_request(1, 2, 9);
+        assert_eq!(split(&packet), [(201, 0, 8), (206, 4, 20), (206, 1, 12), (192, 0, 8)]);
+        assert_eq!(&packet[8 + 12..8 + 17], [0, 0, 0, 2, 9]);
+        assert_eq!(&packet[packet.len() - 8..], [0x80, 192, 0, 1, 0, 0, 0, 2]);
+    }
+
+    #[test]
+    fn refresh_request_matches_apples_legacy_fir() {
+        let packet = refresh_request(0x97b1_0c13, (3560, 512));
         assert_eq!(
             packet,
             [0x80, 0xc0, 0, 2, 0x97, 0xb1, 0x0c, 0x13, 0x0d, 0xe8, 0x02, 0x00]

@@ -67,9 +67,11 @@ runs one loop over three inputs: control messages from the Mac, UDP datagrams, a
 - `negotiation` sends the media offer and resends it if the Mac does not answer.
 - `media` decrypts SRTP, picks the active group of video SSRCs, one per band (`media::Streams`), and reassembles access
   units in decoding order (`media::Group`). The Mac does not retransmit, so a gap waits only for late packets and
-  otherwise trades latency for quality according to the `Priority` the app chose for its decoder. For HEVC it
-  acknowledges each intact top-band picture (LTR), which tells the Mac what it may reference; without them it stops
-  sending moving video.
+  otherwise trades latency for quality according to the `Priority` the app chose for its decoder. For HEVC it reads
+  each picture's reference set (`media::References`) to tell which pictures decode intact, as Apple's client does:
+  it acknowledges every band's intact pictures (LTR), which tells the Mac what it may predict from, asks for a refresh
+  about once a frame while a band is broken, and holds the screen until every band is intact again. The Mac answers
+  with a picture predicted from acknowledged ones, so the screen recovers without a keyframe.
 - Every 50 ms `media` also sends the receiver feedback Apple's client sends (`RCTL`): what arrived, and the bandwidth
   it allows. The Mac raises the bitrate from its 20.8 Mbps floor only on this feedback, and keeps it at or below that
   bandwidth. `media::Bandwidth` estimates it from the trend of one-way delay and from heavy loss, as Apple's client
