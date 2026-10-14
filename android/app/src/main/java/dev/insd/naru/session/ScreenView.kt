@@ -17,6 +17,7 @@ import dev.insd.naru.core.Gesture
 import dev.insd.naru.core.Phase
 import dev.insd.naru.core.TouchPhase
 import kotlin.math.roundToInt
+import dev.insd.naru.core.Touchpad as FingerTouchpad
 
 /**
  * Draws the Mac screen and sends pointer input converted to Mac coordinates.
@@ -36,11 +37,21 @@ class ScreenView(context: Context) : SurfaceView(context) {
             value?.attach(holder.surface.takeIf { it.isValid })
         }
 
-    /** Pixel size of the layout. No pointer events are sent until it arrives. */
-    var layoutSize: Pair<Int, Int>? = null
+    /** The Mac's layout. No pointer events are sent until it arrives. */
+    var layout: Event.Layout? = null
+        set(value) {
+            if (value == field) return
+            field = value
+            drawCursor()
+        }
 
-    /** Logical width of the layout. Cursor images arrive at logical size, so they are scaled relative to this width. */
-    var logicalWidth: Int? = null
+    /** The Mac's cursor shape, used as the system pointer icon and scaled to the screen */
+    var cursor: Event.Cursor? = null
+        set(value) {
+            if (value === field) return
+            field = value
+            drawCursor()
+        }
 
     /** Key input handler. It runs before the IME so the One UI keyboard cannot intercept keys such as Korean/English. */
     var onKey: ((KeyEvent) -> Boolean)? = null
@@ -56,7 +67,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
     private var touchButtons = 0
 
     // The core's touchpad, and the fingers' velocity for momentum after a two-finger scroll
-    private val fingers = dev.insd.naru.core.Touchpad()
+    private val fingers = FingerTouchpad()
     private var tracker: VelocityTracker? = null
 
     // Cursor bitmap and hotspot to draw (view pixels), and the cursor position moved by finger touches (view pixels). Using a mouse or pen clears the position.
@@ -91,8 +102,15 @@ class ScreenView(context: Context) : SurfaceView(context) {
         setOnGenericMotionListener { _, event -> motion(event) }
     }
 
-    /** Uses the cursor shape as the system pointer icon, scaled to the screen. The image and hotspot are in the Mac's logical size. */
-    fun setCursor(cursor: Event.Cursor) {
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        drawCursor()
+    }
+
+    // The image and hotspot are in the Mac's logical size, so they scale by the view's pixels per logical point.
+    private fun drawCursor() {
+        val cursor = cursor ?: return
+        val scale = layout?.takeIf { width > 0 }?.let { width.toFloat() / it.logicalWidth.toInt() } ?: return
         val width = cursor.width.toInt()
         val height = cursor.height.toInt()
         val rgba = cursor.rgba
@@ -106,7 +124,6 @@ class ScreenView(context: Context) : SurfaceView(context) {
         val source = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         source.setPixels(pixels, 0, width, 0, 0, width, height)
 
-        val scale = logicalWidth?.let { this.width.toFloat() / it }?.takeIf { it > 0 } ?: 1f
         val scaledWidth = (width * scale).roundToInt().coerceAtLeast(1)
         val scaledHeight = (height * scale).roundToInt().coerceAtLeast(1)
 
@@ -155,7 +172,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
 
     // Gives each finger's position to the touchpad in layout pixels. Positions off screen are not clamped, since movement is relative.
     private fun finger(event: MotionEvent) {
-        val (layoutWidth, layoutHeight) = layoutSize ?: return
+        val layout = layout ?: return
 
         if (width == 0 || height == 0) {
             return
@@ -169,8 +186,8 @@ class ScreenView(context: Context) : SurfaceView(context) {
         tracker?.addMovement(event)
 
         val send = { index: Int, phase: TouchPhase ->
-            val x = event.getX(index) / width * layoutWidth
-            val y = event.getY(index) / height * layoutHeight
+            val x = event.getX(index) / width * layout.pixelWidth.toInt()
+            val y = event.getY(index) / height * layout.pixelHeight.toInt()
             fingers.touch(event.getPointerId(index).toUInt(), phase, x, y).forEach { gesture(it, event) }
         }
 
@@ -191,8 +208,8 @@ class ScreenView(context: Context) : SurfaceView(context) {
     // the fingers' release velocity, as a view would fling.
     private fun gesture(gesture: Gesture, event: MotionEvent) {
         val current = connection ?: return
-        val (layoutWidth, layoutHeight) = layoutSize ?: return
-        val logical = logicalWidth ?: layoutWidth
+        val layout = layout ?: return
+        val (layoutWidth, layoutHeight) = layout.pixelWidth.toInt() to layout.pixelHeight.toInt()
 
         when (gesture) {
             is Gesture.Move -> {
@@ -207,10 +224,10 @@ class ScreenView(context: Context) : SurfaceView(context) {
                 current.pointer(touchButtons, cursorX.roundToInt(), cursorY.roundToInt())
             }
             is Gesture.Scroll -> {
-                val pointsPerPixel = logical.toFloat() / layoutWidth
+                val pointsPerPixel = layout.logicalWidth.toFloat() / layoutWidth
                 current.scroll(gesture.phase, gesture.dx * pointsPerPixel, gesture.dy * pointsPerPixel)
 
-                if (gesture.phase == Phase.ENDED) fling(event, logical.toFloat() / width)
+                if (gesture.phase == Phase.ENDED) fling(event, pointsPerViewPixel(layout))
             }
             is Gesture.Magnify -> current.magnify(gesture.phase, gesture.scale)
         }
@@ -263,7 +280,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
         val notchesX = -event.getAxisValue(MotionEvent.AXIS_HSCROLL)
         val notchesY = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
         val configuration = ViewConfiguration.get(context)
-        val points = logicalWidth?.takeIf { width > 0 }?.let { it.toFloat() / width } ?: 1f
+        val points = layout?.let(::pointsPerViewPixel) ?: return
 
         connection?.wheel(
             notchesX * configuration.scaledHorizontalScrollFactor * points,
@@ -275,7 +292,8 @@ class ScreenView(context: Context) : SurfaceView(context) {
 
     private fun send(event: MotionEvent) {
         val current = connection ?: return
-        val (layoutWidth, layoutHeight) = layoutSize ?: return
+        val layout = layout ?: return
+        val (layoutWidth, layoutHeight) = layout.pixelWidth.toInt() to layout.pixelHeight.toInt()
 
         if (width == 0 || height == 0) {
             return
@@ -287,6 +305,9 @@ class ScreenView(context: Context) : SurfaceView(context) {
         cursorY = y.toFloat()
         current.pointer(buttons, x, y)
     }
+
+    // The Mac's points per pixel of this view, which has the video's aspect ratio
+    private fun pointsPerViewPixel(layout: Event.Layout): Float = layout.logicalWidth.toFloat() / width.coerceAtLeast(1)
 
     // Android 14 reports fingers touching the touchpad after a swipe as a touchpad hover that does not move. Later
     // versions report them as a swipe that begins and is cancelled, which [Touchpad] handles.
@@ -305,7 +326,6 @@ class ScreenView(context: Context) : SurfaceView(context) {
     }
 
     companion object {
-        // Unlike standard RFB, the server's button bits are 1 for right and 2 for middle.
         private const val BUTTON_LEFT = 1 shl 0
         private const val BUTTON_RIGHT = 1 shl 1
         private const val BUTTON_MIDDLE = 1 shl 2

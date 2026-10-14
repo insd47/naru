@@ -4,9 +4,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Bundle
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -21,8 +19,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +46,7 @@ import dev.insd.naru.session.Momentum
 import dev.insd.naru.session.ScreenView
 import dev.insd.naru.session.SessionService
 import dev.insd.naru.session.Touchpad
+import kotlinx.coroutines.delay
 
 /**
  * The screen of a live session, handling only display and input.
@@ -92,15 +93,7 @@ class SessionActivity : ComponentActivity() {
 
     private var loading by mutableStateOf(true)
     private var layout by mutableStateOf<Event.Layout?>(null)
-    private var screen: ScreenView? = null
-
-    // The screen view is created on the frame after the connection attaches, so a cursor that arrives earlier is kept and applied on attach.
-    private var cursor: Event.Cursor? = null
-
-    // Each resize makes the Mac open a new stream, taking 1.5 to 2 s, so changes during a window drag are collected until it stops and sent once.
-    private val main = Handler(Looper.getMainLooper())
-    private var area: IntSize? = null
-    private val resize = Runnable { area?.let { service?.resize(virtualDisplay(it.width, it.height)) } }
+    private var cursor by mutableStateOf<Event.Cursor?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,13 +101,17 @@ class SessionActivity : ComponentActivity() {
 
         setContent {
             NaruTheme(dark = true) {
-                val measured = Modifier.onSizeChanged {
-                    area = it
-                    main.removeCallbacks(resize)
-                    main.postDelayed(resize, RESIZE_SETTLE_MS)
+                var area by remember { mutableStateOf<IntSize?>(null) }
+
+                // Each resize makes the Mac open a new stream, taking 1.5 to 2 s, so changes during a window drag are
+                // collected until it stops and sent once.
+                LaunchedEffect(area) {
+                    val size = area ?: return@LaunchedEffect
+                    delay(RESIZE_SETTLE_MS)
+                    service?.resize(virtualDisplay(size.width, size.height))
                 }
 
-                Box(Modifier.fillMaxSize().background(Color.Black).then(measured), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().background(Color.Black).onSizeChanged { area = it }, contentAlignment = Alignment.Center) {
                     if (connection != null) Screen()
                 }
             }
@@ -141,7 +138,6 @@ class SessionActivity : ComponentActivity() {
 
     // Only the screen goes away; the session stays in the service.
     override fun onDestroy() {
-        main.removeCallbacks(resize)
         language?.stop()
         service?.detach(listener)
         unbindService(binding)
@@ -211,10 +207,10 @@ class SessionActivity : ComponentActivity() {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             AndroidView(
                 modifier = if (aspect != null) Modifier.aspectRatio(aspect) else Modifier.fillMaxSize(),
-                factory = { context -> ScreenView(context).also { screen = it; bind(it) } },
+                factory = { context -> ScreenView(context).also(::bind) },
                 update = { view ->
-                    view.layoutSize = current?.let { it.pixelWidth.toInt() to it.pixelHeight.toInt() }
-                    view.logicalWidth = current?.logicalWidth?.toInt()
+                    view.layout = current
+                    view.cursor = cursor
                 },
             )
 
@@ -229,7 +225,6 @@ class SessionActivity : ComponentActivity() {
     private fun bind(view: ScreenView) {
         view.connection = connection
         view.momentum = momentum
-        cursor?.let(view::setCursor)
         view.onKey = { handleKey(it) }
         view.requestFocus()
     }
@@ -246,10 +241,7 @@ class SessionActivity : ComponentActivity() {
     private fun handle(event: Event) {
         when (event) {
             is Event.Layout -> layout = event
-            is Event.Cursor -> {
-                cursor = event
-                screen?.setCursor(event)
-            }
+            is Event.Cursor -> cursor = event
             is Event.Closed -> closed()
             else -> Unit
         }
