@@ -60,11 +60,7 @@ struct SessionView: View {
 }
 
 // The window behind the session: reports whether it fills its screen, and drags the window where nothing in front
-// takes the touch.
-//
-// - iPadOS has no property for filling the screen, so the window and screen sizes are compared, either way round for
-//   rotation.
-// - The title bar drags the window only in its upper half. Touches that fall through its lower half land here.
+// takes the touch. The title bar drags the window only in its upper half, and touches through its lower half land here.
 private struct ScreenFill: UIViewRepresentable {
     let onChange: (Bool) -> Void
 
@@ -85,12 +81,9 @@ private struct ScreenFill: UIViewRepresentable {
         override func layoutSubviews() {
             super.layoutSubviews()
 
-            guard let window, let screen = window.windowScene?.screen.bounds.size else {
+            guard let now = window?.fillsScreen else {
                 return
             }
-
-            let size = window.bounds.size
-            let now = size == screen || size == CGSize(width: screen.height, height: screen.width)
 
             if fills != now {
                 fills = now
@@ -117,5 +110,17 @@ private struct Screen: UIViewRepresentable {
         view.cursor = cursor
         view.syncsLanguage = syncsLanguage
         view.onResize = onResize
+    }
+}
+
+extension UIWindow {
+    /// Whether the window fills its screen. iPadOS has no property for it, so the sizes are compared, either way round
+    /// for rotation.
+    var fillsScreen: Bool {
+        guard let screen = windowScene?.screen.bounds.size else {
+            return false
+        }
+
+        return bounds.size == screen || bounds.size == CGSize(width: screen.height, height: screen.width)
     }
 }

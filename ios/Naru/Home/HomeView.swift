@@ -250,11 +250,24 @@ extension FocusedValues {
     @Entry var home: HomeActions?
 }
 
-/// A virtual display sized to this window. The scale is 2 so the Mac renders at Retina resolution, and the pixel size matches the iPad screen.
+/// A virtual display sized to the session screen this window will show. The scale is 2 so the Mac renders at Retina
+/// resolution, and the pixel size matches the iPad screen.
+///
+/// - In a window the session screen sits below its title bar: the window's top inset and a standard navigation bar. Sizing
+///   for the whole window would have the Mac resize its display as soon as the screen appears.
 @MainActor
 func virtualDisplay() -> DisplayMode? {
-    let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
-    let size = window?.bounds.size ?? .zero
+    guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else {
+        return nil
+    }
+
+    var size = window.bounds.size
+
+    if !window.fillsScreen {
+        let bar = UINavigationController().navigationBar.sizeThatFits(size).height
+        size.height -= window.safeAreaInsets.top + bar
+    }
+
     guard size.width > 0, size.height > 0 else { return nil }
     return DisplayMode(width: UInt32(size.width.rounded()), height: UInt32(size.height.rounded()), scale: 2)
 }
