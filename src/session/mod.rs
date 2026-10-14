@@ -8,7 +8,7 @@
 //! - When media does not start, the session ends as Apple's client does. Only HEVC that brought no video at all is
 //!   retried once from scratch with H.264.
 use crate::error::{Error, Result};
-use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority, VideoCodec};
+use crate::media::{AccessUnit, AudioFrame, DecoderConfig, VideoCodec};
 use crate::message::gesture::{MomentumPhase, Phase};
 use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, clipboard};
 use control::Control;
@@ -48,8 +48,6 @@ pub struct Config {
     pub display: Option<DisplayConfig>,
     /// Whether to receive audio. Turn it off on devices without an AAC-ELD decoder.
     pub audio: bool,
-    /// Whether latency or quality wins when packets are lost
-    pub priority: Priority,
     /// Video codec to request. Request HEVC 4:4:4 only when the device's hardware decoder supports it. If it brings no
     /// video at all, the retry uses H.264.
     pub codec: VideoCodec,
@@ -69,7 +67,6 @@ impl Config {
             known_key: None,
             display: None,
             audio: false,
-            priority: Priority::default(),
             codec: VideoCodec::H264,
             local_ports: None,
         }

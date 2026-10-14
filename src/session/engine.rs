@@ -60,7 +60,7 @@ impl Engine {
         let offer = Offer::new(config.audio, codec);
 
         Self {
-            media: Media::new(sockets.clone(), &offer, codec, config.priority),
+            media: Media::new(sockets.clone(), &offer, codec),
             input: Input::new(control.keys().clone()),
             control,
             sockets,

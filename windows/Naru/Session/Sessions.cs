@@ -72,8 +72,6 @@ internal sealed class Sessions(Hosts hosts)
             KnownKey: ServerKeys.Find(host),
             Display: display,
             Audio: true,
-            // After a loss the Mac refers the next picture to one acknowledged intact, so drawing on recovers without a keyframe.
-            Priority: Priority.Latency,
             Codec: Video.Decoder.SupportsHevc444() ? VideoCodec.Hevc : VideoCodec.H264);
 
         Running? session = null;

@@ -25,7 +25,6 @@ import dev.insd.naru.core.Config
 import dev.insd.naru.core.DisplayMode
 import dev.insd.naru.core.Event
 import dev.insd.naru.core.Failure
-import dev.insd.naru.core.Priority
 import dev.insd.naru.core.Stage
 import dev.insd.naru.core.VideoCodec
 import dev.insd.naru.home.Host
@@ -100,8 +99,6 @@ class SessionService : Service() {
             knownKey = naru.serverKeys.find(host),
             display = display,
             audio = Player.supported(),
-            // H.264 has no long-term references, so a loss shows until the next keyframe either way; latency keeps the screen moving meanwhile.
-            priority = Priority.LATENCY,
             // The server's HEVC is 4:4:4 only, which most Android hardware decoders cannot decode, and there is no profile constant to query support.
             codec = VideoCodec.H264,
         )

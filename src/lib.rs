@@ -11,7 +11,7 @@
 #![deny(unsafe_code)]
 
 pub use error::{Error, Result};
-pub use media::{AccessUnit, AudioFrame, DecoderConfig, Priority, RtpPacket, SrtpContext, VideoCodec};
+pub use media::{AccessUnit, AudioFrame, DecoderConfig, RtpPacket, SrtpContext, VideoCodec};
 pub use message::gesture::{MomentumPhase, Phase};
 pub use message::{CursorImage, DisplayConfig, InputSource, Layout, Mode};
 pub use session::{Config, Event, MediaStats, Session, Stage};

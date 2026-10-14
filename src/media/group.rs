@@ -24,22 +24,8 @@ pub enum Assembled {
     /// Every band of one instant has gone out, so the screen they make up can be shown. Only for video in several
     /// bands, and only while every band's latest picture is intact.
     Present,
-    /// An access unit that couldn't be recovered in time was dropped. Request a keyframe.
+    /// An access unit that couldn't be recovered in time was dropped. H.264 recovers only from a keyframe.
     Lost,
-}
-
-/// What to favor after an unrecoverable loss in H.264. Each app picks it for its decoder; Screen Sharing's quality
-/// setting applies only to standard connections.
-///
-/// - HEVC follows its references instead and hides only the pictures that cannot decode intact, like Apple's client.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Enum)]
-pub enum Priority {
-    /// Drops only the lost unit and keeps emitting frames. Parts of the screen may be corrupted until a keyframe
-    /// arrives.
-    Latency,
-    /// Emits nothing until a keyframe arrives. The screen stays on the last intact frame meanwhile.
-    #[default]
-    Quality,
 }
 
 /// Assembles one group of SSRCs, one per band, into access units in decoding order.
@@ -53,14 +39,13 @@ pub enum Priority {
 ///   come in the same unit as the keyframe, so that unit emits the config first and then the unit.
 /// - With several bands, an instant ends when its bottom band goes out, a band of a later instant goes out, or no band
 ///   follows for a moment. Showing each band as it decodes would show the top one ahead of the others.
-/// - For H.264, [`Priority`] decides whether units whose reference was lost are emitted after a loss, and a buffer
-///   overflow always waits for a keyframe.
+/// - H.264 drops only a lost unit and keeps emitting, so parts of the screen may be corrupted until a keyframe arrives;
+///   after a buffer overflow it emits nothing until one does.
 /// - HEVC pictures that do not decode intact, because something they predict from was lost, are marked so on the unit
 ///   and not shown. While any band's latest picture is lost or not intact, the screen is not shown either, so it never
 ///   pairs bands from different moments; Apple's client likewise shows bands only as a whole screen during losses.
 pub struct Group {
     codec: VideoCodec,
-    priority: Priority,
     base: u32,
     bands: Vec<Assembler>,
     // Units by extended DONL, and the last one let through
@@ -85,7 +70,7 @@ struct Waiting {
 
 impl Group {
     /// Starts a group whose top band is `base`, with as many bands as the codec takes.
-    pub fn new(codec: VideoCodec, base: u32, priority: Priority) -> Self {
+    pub fn new(codec: VideoCodec, base: u32) -> Self {
         let bands: Vec<Assembler> = (0..codec.bands())
             .map(|band| Assembler::new(codec, base.wrapping_add(u32::from(band)), band))
             .collect();
@@ -93,7 +78,6 @@ impl Group {
 
         Self {
             codec,
-            priority,
             base,
             waiting: BTreeMap::new(),
             released: None,
@@ -258,11 +242,11 @@ impl Group {
         }
     }
 
-    // A unit of `band` was lost. When favoring quality, H.264 waits for a keyframe. HEVC keeps going: its references
-    // tell which pictures are broken, the screen waits for the band to be intact, and the server answers with pictures
-    // predicted from acknowledged ones, which waiting for a keyframe would throw away.
+    // A unit of `band` was lost. HEVC keeps going even after an overflow: its references tell which pictures are broken,
+    // the screen waits for the band to be intact, and the server answers with pictures predicted from acknowledged
+    // ones, which waiting for a keyframe would throw away.
     fn lose(&mut self, band: usize, overflow: bool) {
-        self.awaiting_keyframe |= self.references.is_none() && (overflow || self.priority == Priority::Quality);
+        self.awaiting_keyframe |= overflow && self.references.is_none();
         self.broken[band] = true;
 
         self.outputs.push_back(Assembled::Lost);
@@ -271,7 +255,7 @@ impl Group {
 
 #[cfg(test)]
 mod tests {
-    use super::{Assembled, Group, INSTANT_WAIT, MAX_WAIT, Priority};
+    use super::{Assembled, Group, INSTANT_WAIT, MAX_WAIT};
     use crate::media::{RtpPacket, VideoCodec};
     use std::time::Instant;
 
@@ -343,7 +327,7 @@ mod tests {
     #[test]
     fn h264_frames_before_the_decoder_config_are_withheld() {
         let now = Instant::now();
-        let mut group = Group::new(VideoCodec::H264, 7, Priority::Quality);
+        let mut group = Group::new(VideoCodec::H264, 7);
         group.push(packet(7, 1, 0, true, IDR));
         assert!(drain(&mut group, now).is_empty());
 
@@ -355,29 +339,9 @@ mod tests {
     }
 
     #[test]
-    fn quality_waits_for_a_keyframe_after_a_loss() {
+    fn h264_frames_keep_flowing_after_a_loss() {
         let now = Instant::now();
-        let mut group = Group::new(VideoCodec::H264, 7, Priority::Quality);
-        group.push(packet(7, 10, 0, false, &h264_config()));
-        group.push(packet(7, 11, 0, true, IDR));
-        drain(&mut group, now);
-
-        // Sequence number 12 is lost, then 13 (P), 14 (P), and 15 (IDR) arrive.
-        group.push(packet(7, 13, 3000, true, P_SLICE));
-        group.push(packet(7, 14, 6000, true, P_SLICE));
-        group.push(packet(7, 15, 9000, true, IDR));
-        assert!(drain(&mut group, now).is_empty());
-
-        let deadline = group.deadline().unwrap();
-        let outputs = drain(&mut group, deadline);
-        assert_eq!(outputs[0], Assembled::Lost);
-        assert!(matches!(&outputs[1..], [Assembled::Frame { unit, .. }] if unit.timestamp == 9000));
-    }
-
-    #[test]
-    fn latency_keeps_frames_flowing_after_a_loss() {
-        let now = Instant::now();
-        let mut group = Group::new(VideoCodec::H264, 7, Priority::Latency);
+        let mut group = Group::new(VideoCodec::H264, 7);
         group.push(packet(7, 10, 0, false, &h264_config()));
         group.push(packet(7, 11, 0, true, IDR));
         drain(&mut group, now);
@@ -396,7 +360,7 @@ mod tests {
     #[test]
     fn bands_come_out_in_decoding_order_from_the_top_keyframe() {
         let now = Instant::now();
-        let mut group = Group::new(VideoCodec::Hevc, 100, Priority::Quality);
+        let mut group = Group::new(VideoCodec::Hevc, 100);
 
         // Band 1 of an earlier instant is dropped: nothing decodes before the keyframe.
         group.push(packet(101, 0, 0, true, &slice(9, false)));
@@ -420,7 +384,7 @@ mod tests {
     #[test]
     fn missing_don_is_skipped_when_no_band_is_still_assembling() {
         let now = Instant::now();
-        let mut group = Group::new(VideoCodec::Hevc, 100, Priority::Latency);
+        let mut group = Group::new(VideoCodec::Hevc, 100);
         group.push(packet(100, 0, 90, false, &parameter_sets(10, 1)));
         group.push(packet(100, 1, 90, true, &slice(10, true)));
         group.push(packet(102, 0, 90, true, &slice(12, false)));
@@ -434,7 +398,7 @@ mod tests {
     #[test]
     fn a_band_that_stops_partway_holds_the_others_only_so_long() {
         let now = Instant::now();
-        let mut group = Group::new(VideoCodec::Hevc, 100, Priority::Latency);
+        let mut group = Group::new(VideoCodec::Hevc, 100);
         group.push(packet(100, 0, 90, false, &parameter_sets(10, 1)));
         group.push(packet(100, 1, 90, true, &slice(10, true)));
         group.push(packet(101, 0, 90, false, &[0x62, 0x01, 0x81, 0, 11, 1]));
@@ -450,7 +414,7 @@ mod tests {
     #[test]
     fn instants_end_at_the_next_instant_or_after_a_moment() {
         let now = Instant::now();
-        let mut group = Group::new(VideoCodec::Hevc, 100, Priority::Latency);
+        let mut group = Group::new(VideoCodec::Hevc, 100);
         group.push(packet(100, 0, 90, false, &parameter_sets(10, 1)));
         group.push(packet(100, 1, 90, true, &slice(10, true)));
         group.push(packet(101, 0, 90, true, &slice(11, false)));
@@ -466,7 +430,7 @@ mod tests {
     #[test]
     fn a_lost_band_holds_the_screen_until_it_is_intact_again() {
         let now = Instant::now();
-        let mut group = Group::new(VideoCodec::Hevc, 100, Priority::Latency);
+        let mut group = Group::new(VideoCodec::Hevc, 100);
         group.push(packet(100, 0, 90, false, &parameter_sets(10, 1)));
         group.push(packet(100, 1, 90, true, &slice(10, true)));
         group.push(packet(101, 0, 90, true, &slice(11, false)));

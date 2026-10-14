@@ -1,7 +1,7 @@
 use super::{Event, MediaStats};
 use crate::error::Result;
 use crate::media::{
-    Assembled, AudioFrame, Bandwidth, Group, Priority, Routed, RtpPacket, SrtpContext, Streams, VideoCodec, rtcp,
+    Assembled, AudioFrame, Bandwidth, Group, Routed, RtpPacket, SrtpContext, Streams, VideoCodec, rtcp,
 };
 use crate::offer::Offer;
 use socket2::{Domain, Socket, Type};
@@ -76,7 +76,6 @@ impl Sockets {
 pub struct Media {
     sockets: Sockets,
     codec: VideoCodec,
-    priority: Priority,
     video_ssrc: u32,
     audio_ssrc: u32,
     video_receive: SrtpContext,
@@ -122,11 +121,10 @@ pub struct Media {
 }
 
 impl Media {
-    pub fn new(sockets: Sockets, offer: &Offer, codec: VideoCodec, priority: Priority) -> Self {
+    pub fn new(sockets: Sockets, offer: &Offer, codec: VideoCodec) -> Self {
         Self {
             sockets,
             codec,
-            priority,
             video_ssrc: offer.video_ssrc,
             audio_ssrc: offer.audio_ssrc,
             video_receive: SrtpContext::new(&offer.keys.video_receive),
@@ -194,7 +192,7 @@ impl Media {
                 // A new group is a new decoder generation. Wait for a new config and keyframe so it never mixes with
                 // the previous generation's references.
                 self.filled += self.group.as_ref().map_or(0, Group::filled);
-                self.group = Some(Group::new(self.codec, base, self.priority));
+                self.group = Some(Group::new(self.codec, base));
                 self.configured = false;
                 packets
             }

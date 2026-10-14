@@ -5,7 +5,7 @@
 //! - Core types without tuples or private fields pass through as is; the rest are reshaped here for the native side.
 use crate::touchpad::TouchPhase;
 use crate::{
-    AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, MediaStats, Mode, MomentumPhase, Phase, Priority, Stage,
+    AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, MediaStats, Mode, MomentumPhase, Phase, Stage,
     VideoCodec,
 };
 use std::panic::AssertUnwindSafe;
@@ -37,8 +37,6 @@ pub struct Config {
     pub display: Option<DisplayMode>,
     /// Whether to receive audio. Turn it off on devices without an AAC-ELD decoder.
     pub audio: bool,
-    /// Whether latency or quality wins when packets are lost
-    pub priority: Priority,
     /// Video codec to request. Ask for HEVC 4:4:4 only when the device's hardware decoder supports 4:4:4; if it brings
     /// no video at all, the session retries once with H.264 4:2:0.
     pub codec: VideoCodec,
@@ -55,7 +53,6 @@ impl From<Config> for crate::Config {
             known_key: config.known_key,
             display: config.display.map(Into::into),
             audio: config.audio,
-            priority: config.priority,
             codec: config.codec,
             local_ports: None,
         }

@@ -1,6 +1,6 @@
 pub use audio::AudioFrame;
 pub use bandwidth::Bandwidth;
-pub use group::{Assembled, Group, Priority};
+pub use group::{Assembled, Group};
 pub use rtp::RtpPacket;
 pub use srtp::SrtpContext;
 pub use streams::{Routed, Streams};
