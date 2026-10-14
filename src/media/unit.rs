@@ -72,7 +72,7 @@ pub struct AccessUnit {
     /// - Each HEVC band is a picture of its own, a quarter of the height rounded up to a multiple of 16, and the bands stack
     ///   from the top. Bands that did not change are not sent, so the picture last decoded for a band stays on screen.
     pub band: u8,
-    /// RTP timestamp (90 kHz)
+    /// RTP timestamp, at 24 kHz
     pub timestamp: u32,
     pub keyframe: bool,
     /// NAL units without start codes

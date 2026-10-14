@@ -55,7 +55,8 @@ pub struct Bandwidth {
     // The RTP timestamp extended past its wrap, and the latest frame's timestamp and first arrival
     timestamp: Option<(u32, i64)>,
     frame: Option<(i64, Instant)>,
-    trend: Trend,
+    // Starts with the first frame and again after a long gap
+    trend: Option<Trend>,
     received: VecDeque<(Instant, usize)>,
     received_bytes: usize,
     lost: VecDeque<(Instant, u64)>,
@@ -64,37 +65,6 @@ pub struct Bandwidth {
     last_decrease: Option<Instant>,
     last_report: Option<Instant>,
     estimate_kbps: f64,
-}
-
-// The delay trend since the last restart
-struct Trend {
-    started: Instant,
-    frames: usize,
-    accumulated_ms: f64,
-    smoothed_ms: f64,
-    points: VecDeque<(f64, f64)>,
-    slope: f64,
-    threshold: f64,
-    threshold_updated: Instant,
-    rising_frames: u32,
-}
-
-impl Default for Bandwidth {
-    fn default() -> Self {
-        Self {
-            timestamp: None,
-            frame: None,
-            trend: Trend::new(Instant::now()),
-            received: VecDeque::new(),
-            received_bytes: 0,
-            lost: VecDeque::new(),
-            lost_packets: 0,
-            last_rising: None,
-            last_decrease: None,
-            last_report: None,
-            estimate_kbps: CEILING_KBPS,
-        }
-    }
 }
 
 impl Bandwidth {
@@ -115,11 +85,11 @@ impl Bandwidth {
                 let delta_ms = now.duration_since(arrived).as_secs_f64() * 1000.0
                     - (timestamp - previous) as f64 / CLOCK_TICKS_PER_MS;
 
-                if self.trend.push(delta_ms, now) {
+                if self.trend.as_mut().is_some_and(|trend| trend.push(delta_ms, now)) {
                     self.last_rising = Some(now);
                 }
             }
-            _ => self.trend = Trend::new(now),
+            _ => self.trend = Some(Trend::new(now)),
         }
     }
 
@@ -194,6 +164,37 @@ impl Bandwidth {
 
         extended
     }
+}
+
+impl Default for Bandwidth {
+    fn default() -> Self {
+        Self {
+            timestamp: None,
+            frame: None,
+            trend: None,
+            received: VecDeque::new(),
+            received_bytes: 0,
+            lost: VecDeque::new(),
+            lost_packets: 0,
+            last_rising: None,
+            last_decrease: None,
+            last_report: None,
+            estimate_kbps: CEILING_KBPS,
+        }
+    }
+}
+
+// The delay trend since the last restart
+struct Trend {
+    started: Instant,
+    frames: usize,
+    accumulated_ms: f64,
+    smoothed_ms: f64,
+    points: VecDeque<(f64, f64)>,
+    slope: f64,
+    threshold: f64,
+    threshold_updated: Instant,
+    rising_frames: u32,
 }
 
 impl Trend {

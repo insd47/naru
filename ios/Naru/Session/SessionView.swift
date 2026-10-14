@@ -35,7 +35,7 @@ struct SessionView: View {
         // Hidden only when filling the screen, since in a window it also hides the window's controls.
         .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
         .background {
-            ScreenFill { fills in
+            Backdrop { fills in
                 withAnimation(.snappy) { fillsScreen = fills }
             }
         }
@@ -61,20 +61,20 @@ struct SessionView: View {
 
 // The window behind the session: reports whether it fills its screen, and drags the window where nothing in front
 // takes the touch. The title bar drags the window only in its upper half, and touches through its lower half land here.
-private struct ScreenFill: UIViewRepresentable {
+private struct Backdrop: UIViewRepresentable {
     let onChange: (Bool) -> Void
 
-    func makeUIView(context: Context) -> FillView {
-        let view = FillView()
+    func makeUIView(context: Context) -> BackdropView {
+        let view = BackdropView()
         view.addInteraction(UIWindowSceneDragInteraction())
         return view
     }
 
-    func updateUIView(_ view: FillView, context: Context) {
+    func updateUIView(_ view: BackdropView, context: Context) {
         view.onChange = onChange
     }
 
-    final class FillView: UIView {
+    final class BackdropView: UIView {
         var onChange: ((Bool) -> Void)?
         private var fills: Bool?
 
