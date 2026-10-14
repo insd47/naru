@@ -230,7 +230,7 @@ struct HomeView: View {
         case let .otherUser(name): "\(name) is logged in to this Mac."
         case .unreachable: "Can't reach \(host.address). Check the address and that Screen Sharing is turned on."
         case .unsupported: "This Mac doesn't support High Performance screen sharing."
-        case .noMedia: "The Mac didn't start sending its screen."
+        case .noMedia: "The Mac couldn't start a High Performance connection. A slow or unreliable network can cause this."
         case .other: "The connection ended unexpectedly."
         }
     }

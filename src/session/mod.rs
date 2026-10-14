@@ -2,7 +2,8 @@
 //!
 //! - `Session::start` returns immediately and reports progress and results as events. The last event is always `Closed`.
 //! - The native layer only receives complete access units and decoder configs. Report decoder errors with `request_keyframe`.
-//! - When media does not start, the session disconnects and connects again from scratch, up to three attempts in total.
+//! - When media does not start, the session ends as Apple's client does. Only HEVC that brought no video at all is
+//!   retried once from scratch with H.264.
 use crate::error::{Error, Result};
 use crate::media::{AccessUnit, AudioFrame, DecoderConfig, Priority, VideoCodec};
 use crate::message::gesture::{MomentumPhase, Phase};
@@ -24,7 +25,6 @@ mod media;
 mod negotiation;
 mod switching;
 
-const ATTEMPTS: u32 = 3;
 const RETRY_DELAY: Duration = Duration::from_millis(800);
 
 // The session waits when the event receiver is slow, so video frames do not pile up in memory.
@@ -46,7 +46,7 @@ pub struct Config {
     pub audio: bool,
     /// Whether latency or quality wins when packets are lost
     pub priority: Priority,
-    /// Video codec to request. Request HEVC 4:4:4 only when the device's hardware decoder supports it. If video does not start, the retry uses H.264.
+    /// Video codec to request. Request HEVC 4:4:4 only when the device's hardware decoder supports it. If it brings no video at all, the retry uses H.264.
     pub codec: VideoCodec,
     /// Local UDP ports (audio, video). They default to the server's numbers; set them only when those are unavailable, such as when testing on the server's own machine.
     pub local_ports: Option<(u16, u16)>,
@@ -338,23 +338,16 @@ async fn run(
 }
 
 async fn attempts(config: &Config, commands: &mut mpsc::UnboundedReceiver<Command>, events: &mut Events) -> Result<()> {
-    let mut attempt = 1;
-    let mut codec = config.codec;
+    let result = attempt_session(config, config.codec, commands, events).await;
 
-    loop {
-        let result = attempt_session(config, codec, commands, events).await;
-
-        if !matches!(result, Err(Error::NoMedia(_))) || attempt == ATTEMPTS {
-            return result;
+    // Video packets that arrived without a start mean a lossy path, which another attempt would not fix. No video at
+    // all under HEVC may be a Mac that does not take single-tile HEVC, so that one case retries with H.264.
+    match result {
+        Err(Error::NoMedia(stats)) if config.codec == VideoCodec::Hevc && stats.authenticated == 0 => {
+            tokio::time::sleep(RETRY_DELAY).await;
+            attempt_session(config, VideoCodec::H264, commands, events).await
         }
-
-        // If HEVC video does not start, later attempts use H.264, because not every Mac has been confirmed to accept single-tile HEVC.
-        if codec == VideoCodec::Hevc {
-            codec = VideoCodec::H264;
-        }
-
-        attempt += 1;
-        tokio::time::sleep(RETRY_DELAY).await;
+        result => result,
     }
 }
 

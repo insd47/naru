@@ -251,7 +251,7 @@ internal sealed class Connector
         Failure.OtherUser other => $"{other.Name} is logged in to this Mac.",
         Failure.Unreachable => $"Can't reach {host.Address}. Check the address and that Screen Sharing is turned on.",
         Failure.Unsupported => "This Mac doesn't support High Performance screen sharing.",
-        Failure.NoMedia => "The Mac didn't start sending its screen.",
+        Failure.NoMedia => "The Mac couldn't start a High Performance connection. A slow or unreliable network can cause this.",
         _ => "The connection ended unexpectedly.",
     };
 }

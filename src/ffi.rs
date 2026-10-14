@@ -38,8 +38,8 @@ pub struct Config {
     pub audio: bool,
     /// Whether latency or quality wins when packets are lost
     pub priority: Priority,
-    /// Video codec to request. Ask for HEVC 4:4:4 only when the device's hardware decoder supports 4:4:4; if its video does not
-    /// start, later attempts fall back to H.264 4:2:0.
+    /// Video codec to request. Ask for HEVC 4:4:4 only when the device's hardware decoder supports 4:4:4; if it brings no
+    /// video at all, the session retries once with H.264 4:2:0.
     pub codec: VideoCodec,
 }
 

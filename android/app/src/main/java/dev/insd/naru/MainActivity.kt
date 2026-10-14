@@ -428,7 +428,7 @@ class MainActivity : ComponentActivity() {
         is Failure.OtherUser -> "${failure.name} is logged in to this Mac."
         is Failure.Unreachable -> "Can't reach ${host.address}. Check the address and that Screen Sharing is turned on."
         is Failure.Unsupported -> "This Mac doesn't support High Performance screen sharing."
-        is Failure.NoMedia -> "The Mac didn't start sending its screen."
+        is Failure.NoMedia -> "The Mac couldn't start a High Performance connection. A slow or unreliable network can cause this."
         is Failure.Other -> "The connection ended unexpectedly."
     }
 

@@ -53,8 +53,9 @@ An app opens a session with `Session::connect(config, listener)` and gets events
 
 ## Inside a session
 
-`session` drives one connection attempt at a time and retries from scratch when media never starts, up to three
-attempts in total. When HEVC was requested and no video arrives, later attempts fall back to H.264.
+`session` drives one connection attempt. When media does not start within about ten seconds, the session ends with
+`NoMedia`, as Apple's client gives up on a High Performance connection. The one retry is for HEVC that brought no video
+at all: the session connects again from scratch with H.264.
 
 Within an attempt the order is fixed: UDP sockets are opened first so the local firewall accepts the Mac's media, then
 the TCP handshake, sign-in (`auth`), and the switch to the encrypted record layer (`record`). After that the `Engine`
