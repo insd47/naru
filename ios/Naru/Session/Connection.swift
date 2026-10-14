@@ -70,8 +70,8 @@ final class Connection: SessionListener, @unchecked Sendable {
             video.present()
         case let .audio(frame):
             audio?.play(frame)
-        case .stats:
-            break
+        case let .stats(stats):
+            video.report(stats)
         case let .decoder(config):
             video.configure(config)
             announce(event)

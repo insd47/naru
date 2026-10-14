@@ -1,15 +1,20 @@
 import AVFoundation
+import Metal
 import VideoToolbox
 import os
 
 /// Decodes the session's video and draws it into [layer].
 ///
-/// - Create on the main thread, then call only from the session's event thread, except [place], which belongs to the main thread.
-/// - A decompression session decodes, and each band draws in a display layer of its own, stacked from the top. The
-///   config says how many bands there are. HEVC comes in several, each a picture of its own, and the Mac sends only bands
-///   that changed, so a band keeps its last picture until a new one replaces it. Pictures of several bands wait for
-///   [present], so the bands of one instant show together like on Apple's client. H.264 is a single band covering the
-///   screen, shown as it decodes.
+/// - Create on the main thread. [place] belongs to the main thread; the other calls come from the session's event thread
+///   and only hand work to a serial queue of the video's own, so a slow decode never holds up the session's events.
+/// - When a frame has waited on the queue for half a second, the waiting frames are dropped and it resumes from a keyframe.
+/// - A decompression session decodes to BGRA Metal textures. The config says how many bands there are: HEVC comes in
+///   several, each a picture of its own stacked from the top, and the Mac sends only bands that changed. H.264 is a
+///   single band covering the screen.
+/// - Bands are copied into a canvas that keeps each band's last picture. Each update of the canvas becomes one whole
+///   picture of the screen, and one display layer shows it, so the system still decides when it reaches the screen.
+///   Pictures of several bands wait for [present], so the bands of one instant show together like on Apple's client; a
+///   display layer per band would pick its own refresh. A single band shows as it decodes.
 /// - When the decoder config changes, the server asks for a new decoder, or decoding fails, a new decompression session
 ///   starts and decodes nothing until a keyframe arrives. The request may not have reached the server, so frames arriving
 ///   while waiting trigger a new request at a fixed interval.
@@ -18,108 +23,172 @@ import os
 final class Video: @unchecked Sendable {
     let layer = CALayer()
     var requestKeyframe: () -> Void = {}
-    // The Mac's screen in its own pixels, scaled to fit. It crops the bottom band's padding.
-    private let screen = CALayer()
+    private let display = AVSampleBufferDisplayLayer()
+    // The display layer belongs to the main thread, but its renderer accepts pictures from any thread.
+    private let renderer: AVSampleBufferVideoRenderer
+    private let device: MTLDevice
+    private let commands: MTLCommandQueue
+    private let textures: CVMetalTextureCache
     private let firstFrame: @Sendable () -> Void
+    private let work = DispatchQueue(label: "naru-video", qos: .userInteractive)
+    private let output = OSAllocatedUnfairLock(uncheckedState: Output())
+    // Queue only
     private var format: CMVideoFormatDescription?
     private var session: VTDecompressionSession?
     private var awaitingKeyframe = true
     private var requestedAt: ContinuousClock.Instant?
-    private let output = OSAllocatedUnfairLock(uncheckedState: Output())
-    // Main thread only: a display layer per band, where to draw, the Mac's screen size in pixels, and the size of one band's picture
-    private var bands: [AVSampleBufferDisplayLayer] = []
-    private var bounds = CGRect.zero
-    private var screenSize: CGSize?
-    private var bandSize: CGSize?
+    private var canvas: MTLTexture?
+    // Whole pictures of the screen, as large as the Mac's screen, which crops the bottom band's padding
+    private var pictures: CVPixelBufferPool?
+    private var visible: CGSize?
+    private var pictureSize = (0, 0)
+    private var shown = false
+    // Counts logged with every twentieth stats event, about every 10 seconds
+    private var counts = Counts()
 
-    // Shared with the decoder's output handler, which may run on a thread of its own. The layers belong to the main
-    // thread, but their renderers accept samples from any thread. The samples are ready and never change, so the lock
-    // hands them between threads unchecked.
+    // Shared with the decoder's output handler, which may run on a thread of its own. Decoded pictures are not changed
+    // once out, so the lock hands them between threads unchecked.
     private struct Output {
         var failed = false
-        var shown = false
-        // Renderers of the band layers, empty until the main thread has made them for the current band count
-        var renderers: [AVSampleBufferVideoRenderer] = []
-        // With several bands, the newest picture of each band waiting for [present]
-        var held: [CMSampleBuffer?] = []
-        // Pictures due on screen before their layer existed
-        var unplaced: [CMSampleBuffer?] = []
+        // The newest picture of each band since the last show
+        var held: [CVMetalTexture?] = []
+    }
+
+    // How long a frame may wait on the queue before the waiting ones are dropped. Measured in time, since the count per
+    // second depends on the frame rate and the number of bands. Decoding catches up far faster than real time, while a
+    // drop costs a keyframe, so this tolerates passing hiccups such as a new decoder.
+    private static let backlog = Duration.milliseconds(500)
+
+    private struct Counts {
+        var reports = 0
+        var frames = 0
+        var dropped = 0
+        var presented = 0
+        var decoding = Duration.zero
+        var slowestDecode = Duration.zero
     }
 
     @MainActor
     init(firstFrame: @escaping @Sendable () -> Void) {
         self.firstFrame = firstFrame
-        screen.masksToBounds = true
-        layer.addSublayer(screen)
+        device = MTLCreateSystemDefaultDevice()!
+        commands = device.makeCommandQueue()!
+
+        var cache: CVMetalTextureCache?
+        CVMetalTextureCacheCreate(nil, nil, device, nil, &cache)
+        textures = cache!
+
+        renderer = display.sampleBufferRenderer
+        display.videoGravity = .resizeAspect
+        layer.addSublayer(display)
     }
 
     /// Fits the Mac's screen, `size` in its pixels, into `bounds`.
     @MainActor
     func place(in bounds: CGRect, screen size: CGSize?) {
-        self.bounds = bounds
-        screenSize = size
-        arrange()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.frame = bounds
+        display.frame = CGRect(origin: .zero, size: bounds.size)
+        CATransaction.commit()
+
+        work.async { [self] in visible = size }
     }
 
     func configure(_ config: DecoderConfig) {
-        format = Self.format(config)
-
-        // A new band count needs new layers, which only the main thread makes. Pictures due before then wait in `unplaced`.
-        let count = Int(config.bands)
-        let recount = output.withLockUnchecked { output in
-            guard output.held.count != count else {
-                return false
-            }
-
-            output.renderers = []
-            output.held = Array(repeating: nil, count: count)
-            output.unplaced = Array(repeating: nil, count: count)
-            return true
-        }
-
-        let size = format.map { CMVideoFormatDescriptionGetPresentationDimensions($0, usePixelAspectRatio: false, useCleanAperture: true) }
-        DispatchQueue.main.async { [self] in
-            if recount {
-                layOut(count)
-            }
-
-            bandSize = size
-            arrange()
-        }
-
-        restart()
+        work.async { [self] in setUp(config) }
     }
 
     /// The server asked for the decoder to be recreated.
     func reset() {
-        restart()
+        work.async { [self] in restart() }
     }
 
     /// Every band of one instant has been queued, so the bands decoded since the last call show together.
     func present() {
-        let ready = output.withLockUnchecked { output in
-            defer { output.held = Array(repeating: nil, count: output.held.count) }
-            return output.held.enumerated().compactMap { band, picture in picture.map { (band, $0) } }
-        }
+        work.async { [self] in
+            // The decoder may hand pictures over later on a thread of its own, so the instant's last bands are waited for.
+            if let session {
+                VTDecompressionSessionWaitForAsynchronousFrames(session)
+            }
 
-        show(ready)
+            counts.presented += 1
+            show()
+        }
     }
 
     func queue(_ unit: AccessUnit) {
+        let queued = ContinuousClock.now
+        work.async { [self] in decode(unit, queued: queued) }
+    }
+
+    func report(_ stats: MediaStats) {
+        work.async { [self] in
+            counts.reports += 1
+
+            guard counts.reports >= 20 else {
+                return
+            }
+
+            let c = counts
+            log.log("""
+                received (10 s): frames \(c.frames) (dropped \(c.dropped)), presented \(c.presented), decode \
+                \(Self.milliseconds(c.decoding / max(c.frames, 1)), privacy: .public) avg \
+                \(Self.milliseconds(c.slowestDecode), privacy: .public) max | missing \(stats.missing), lost \(stats.losses)
+                """)
+            counts = Counts()
+        }
+    }
+
+    private func setUp(_ config: DecoderConfig) {
+        format = Self.format(config)
+
+        let count = Int(config.bands)
+        output.withLockUnchecked { output in
+            if output.held.count != count {
+                output.held = Array(repeating: nil, count: count)
+            }
+        }
+
+        // The canvas stacks the bands; a new size starts a new one.
+        let size = format.map { CMVideoFormatDescriptionGetPresentationDimensions($0, usePixelAspectRatio: false, useCleanAperture: true) }
+        let next = size.map { CGSize(width: $0.width, height: $0.height * CGFloat(count)) }
+
+        if let next, canvas.map({ CGSize(width: $0.width, height: $0.height) }) != next {
+            let description = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: .bgra8Unorm, width: Int(next.width), height: Int(next.height), mipmapped: false
+            )
+            description.usage = [.shaderRead, .renderTarget]
+            description.storageMode = .private
+            canvas = device.makeTexture(descriptor: description)
+            clear()
+        }
+
+        restart()
+    }
+
+    private func decode(_ unit: AccessUnit, queued: ContinuousClock.Instant) {
+        counts.frames += 1
+
         guard let format else {
             return
         }
 
-        let band = Int(unit.band)
+        // Decoding fell behind the network: drop the backlog and resume from a keyframe.
+        if ContinuousClock.now - queued >= Self.backlog, !unit.keyframe {
+            if !awaitingKeyframe {
+                log.log("video backed up; dropping pending frames")
+                awaitingKeyframe = true
+                requestedAt = nil
+                requestIfDue()
+            }
+
+            counts.dropped += 1
+            return
+        }
 
         if output.withLockUnchecked({ $0.failed }) {
             restart()
-        }
-
-        let renderers = output.withLockUnchecked { $0.renderers }
-
-        if band < renderers.count, renderers[band].requiresFlushToResumeDecoding {
-            renderers[band].flush()
         }
 
         if awaitingKeyframe {
@@ -131,75 +200,123 @@ final class Video: @unchecked Sendable {
             awaitingKeyframe = false
         }
 
+        let band = Int(unit.band)
+
         guard let session, band < output.withLockUnchecked({ $0.held.count }), let sample = Self.sample(unit, format: format) else {
             return
         }
 
+        let started = ContinuousClock.now
         VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [], infoFlagsOut: nil) { [weak self] status, _, image, _, _ in
             if status != noErr {
                 log.error("cannot decode a frame: \(status)")
             }
 
-            self?.draw(status == noErr ? image : nil, band: band)
+            self?.hold(status == noErr ? image : nil, band: band)
+        }
+        let decoding = ContinuousClock.now - started
+        counts.decoding += decoding
+        counts.slowestDecode = max(counts.slowestDecode, decoding)
+
+        if output.withLockUnchecked({ $0.held.count }) == 1 {
+            show()
         }
     }
 
-    private func draw(_ image: CVImageBuffer?, band: Int) {
+    // Runs in the decoder's output handler.
+    private func hold(_ image: CVImageBuffer?, band: Int) {
         guard let image else {
             output.withLockUnchecked { $0.failed = true }
             return
         }
 
-        guard let picture = Self.picture(image) else {
-            return
-        }
+        var texture: CVMetalTexture?
+        CVMetalTextureCacheCreateTextureFromImage(
+            nil, textures, image, nil, .bgra8Unorm, CVPixelBufferGetWidth(image), CVPixelBufferGetHeight(image), 0, &texture
+        )
 
-        let ready = output.withLockUnchecked { output in
-            guard output.held.count > 1 else {
-                return [(band, picture)]
+        output.withLockUnchecked { output in
+            if band < output.held.count {
+                output.held[band] = texture
             }
-
-            output.held[band] = picture
-            return []
         }
-
-        show(ready)
     }
 
-    private func show(_ pictures: [(band: Int, picture: CMSampleBuffer)]) {
-        guard !pictures.isEmpty else {
+    // A new canvas holds whatever the memory had, so it starts black until the bands arrive.
+    private func clear() {
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = canvas
+        pass.colorAttachments[0].loadAction = .clear
+        pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        pass.colorAttachments[0].storeAction = .store
+
+        guard let buffer = commands.makeCommandBuffer(), let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else {
             return
         }
 
-        let renderers = output.withLockUnchecked { output in
-            if output.renderers.isEmpty {
-                for (band, picture) in pictures where band < output.unplaced.count {
-                    output.unplaced[band] = picture
-                }
+        encoder.endEncoding()
+        buffer.commit()
+    }
+
+    // Copies the bands held since the last show into the canvas and sends the screen they make up to the display layer.
+    private func show() {
+        let held = output.withLockUnchecked { output in
+            defer { output.held = Array(repeating: nil, count: output.held.count) }
+            return output.held
+        }
+
+        guard let canvas, held.contains(where: { $0 != nil }), let buffer = commands.makeCommandBuffer(),
+              let blit = buffer.makeBlitCommandEncoder() else {
+            return
+        }
+
+        for case let (band, picture?) in held.enumerated() {
+            guard let texture = CVMetalTextureGetTexture(picture) else {
+                continue
             }
 
-            return output.renderers
+            let top = band * texture.height
+            let height = min(texture.height, canvas.height - top)
+
+            if height > 0 {
+                let size = MTLSize(width: min(texture.width, canvas.width), height: height, depth: 1)
+                blit.copy(
+                    from: texture, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(), sourceSize: size,
+                    to: canvas, destinationSlice: 0, destinationLevel: 0, destinationOrigin: MTLOrigin(x: 0, y: top, z: 0)
+                )
+            }
         }
 
-        for (band, picture) in pictures where band < renderers.count {
-            renderers[band].enqueue(picture)
+        guard let picture = whole(canvas, encoding: blit) else {
+            blit.endEncoding()
+            buffer.commit()
+            return
         }
 
-        let first = output.withLockUnchecked { output in
-            defer { output.shown = true }
-            return !output.shown
-        }
+        blit.endEncoding()
 
-        if first {
-            let (band, picture) = pictures[0]
-            let size = picture.imageBuffer.map { CGSize(width: CVPixelBufferGetWidth($0), height: CVPixelBufferGetHeight($0)) } ?? .zero
-            let renderer = renderers[band]
-            log.log("first picture \(Int(size.width))×\(Int(size.height)) in band \(band), display \(renderer.status.rawValue) \(renderer.error?.localizedDescription ?? "", privacy: .public)")
+        // The decoder's pictures stay alive until the copies are done, and the whole picture goes out once it is drawn.
+        nonisolated(unsafe) let used = (held, picture)
+        buffer.addCompletedHandler { [self] _ in
+            withExtendedLifetime(used.0) {}
+
+            if renderer.requiresFlushToResumeDecoding {
+                renderer.flush()
+            }
+
+            if let sample = Self.sample(showing: used.1.image) {
+                renderer.enqueue(sample)
+            }
+        }
+        buffer.commit()
+
+        if !shown {
+            shown = true
             firstFrame()
         }
     }
 
-    // A new session for a new generation of references. The bands keep their pictures, since after a reset the Mac may
+    // A new session for a new generation of references. The canvas keeps the bands, since after a reset the Mac may
     // resend only the top band.
     private func restart() {
         if let session {
@@ -208,8 +325,9 @@ final class Video: @unchecked Sendable {
 
         session = format.flatMap(Self.session)
         awaitingKeyframe = true
+        shown = false
         output.withLockUnchecked { output in
-            output = Output(renderers: output.renderers, held: Array(repeating: nil, count: output.held.count), unplaced: output.unplaced)
+            output = Output(held: Array(repeating: nil, count: output.held.count))
         }
         requestedAt = nil
         requestIfDue()
@@ -224,55 +342,37 @@ final class Video: @unchecked Sendable {
         }
     }
 
-    // Replaces the band layers and draws the pictures that were due before they existed.
-    @MainActor
-    private func layOut(_ count: Int) {
-        bands.forEach { $0.removeFromSuperlayer() }
-        bands = (0..<count).map { _ in AVSampleBufferDisplayLayer() }
+    // Copies the visible part of the canvas into a whole picture of the screen from the pool.
+    private func whole(_ canvas: MTLTexture, encoding blit: MTLBlitCommandEncoder) -> (image: CVPixelBuffer, texture: CVMetalTexture)? {
+        let width = canvas.width
+        let height = min(canvas.height, visible.map { Int($0.height) } ?? canvas.height)
 
-        for band in bands {
-            band.videoGravity = .resize
-            screen.addSublayer(band)
+        if pictures == nil || pictureSize != (width, height) {
+            let attributes = [
+                kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey: width,
+                kCVPixelBufferHeightKey: height,
+                kCVPixelBufferMetalCompatibilityKey: true,
+                kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+            ] as CFDictionary
+            CVPixelBufferPoolCreate(nil, nil, attributes, &pictures)
+            pictureSize = (width, height)
         }
 
-        let renderers = bands.map(\.sampleBufferRenderer)
-        let unplaced = output.withLockUnchecked { output in
-            defer { output.unplaced = Array(repeating: nil, count: output.unplaced.count) }
-            output.renderers = renderers
-            return output.unplaced
+        var image: CVPixelBuffer?
+        var wrapped: CVMetalTexture?
+
+        guard let pictures, CVPixelBufferPoolCreatePixelBuffer(nil, pictures, &image) == kCVReturnSuccess, let image,
+              CVMetalTextureCacheCreateTextureFromImage(nil, textures, image, nil, .bgra8Unorm, width, height, 0, &wrapped) == kCVReturnSuccess,
+              let wrapped, let texture = CVMetalTextureGetTexture(wrapped) else {
+            return nil
         }
 
-        for (renderer, picture) in zip(renderers, unplaced) {
-            if let picture { renderer.enqueue(picture) }
-        }
-    }
-
-    @MainActor
-    private func arrange() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
-
-        layer.frame = bounds
-
-        guard let bandSize else {
-            return
-        }
-
-        let size = screenSize ?? bandSize
-
-        guard size.width > 0, size.height > 0 else {
-            return
-        }
-
-        let scale = min(bounds.width / size.width, bounds.height / size.height)
-        screen.bounds = CGRect(origin: .zero, size: size)
-        screen.position = CGPoint(x: bounds.midX, y: bounds.midY)
-        screen.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
-
-        for (index, band) in bands.enumerated() {
-            band.frame = CGRect(origin: CGPoint(x: 0, y: CGFloat(index) * bandSize.height), size: bandSize)
-        }
+        blit.copy(
+            from: canvas, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(), sourceSize: MTLSize(width: width, height: height, depth: 1),
+            to: texture, destinationSlice: 0, destinationLevel: 0, destinationOrigin: MTLOrigin()
+        )
+        return (image, wrapped)
     }
 
     /// Whether this device's hardware decoder can decode the server's HEVC 4:4:4
@@ -285,8 +385,12 @@ final class Video: @unchecked Sendable {
 
         let specification = [kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder: true] as CFDictionary
         var session: VTDecompressionSession?
-        // A display layer shows only pictures backed by an IOSurface, which a software decoder does not use by itself.
-        let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary] as CFDictionary
+        // Metal reads the pictures as BGRA textures, which a software decoder does not produce by itself.
+        let attributes = [
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferMetalCompatibilityKey: true,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+        ] as CFDictionary
         let status = VTDecompressionSessionCreate(
             allocator: nil, formatDescription: format, decoderSpecification: specification,
             imageBufferAttributes: attributes, outputCallback: nil, decompressionSessionOut: &session
@@ -365,8 +469,12 @@ final class Video: @unchecked Sendable {
     private static func session(_ format: CMVideoFormatDescription) -> VTDecompressionSession? {
         let specification = [kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder: true] as CFDictionary
         var session: VTDecompressionSession?
-        // A display layer shows only pictures backed by an IOSurface, which a software decoder does not use by itself.
-        let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary] as CFDictionary
+        // Metal reads the pictures as BGRA textures, which a software decoder does not produce by itself.
+        let attributes = [
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferMetalCompatibilityKey: true,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+        ] as CFDictionary
         let status = VTDecompressionSessionCreate(
             allocator: nil, formatDescription: format, decoderSpecification: specification,
             imageBufferAttributes: attributes, outputCallback: nil, decompressionSessionOut: &session
@@ -381,11 +489,11 @@ final class Video: @unchecked Sendable {
         return session
     }
 
-    // Wraps a decoded picture for a display layer, to be shown as soon as it arrives.
-    private static func picture(_ image: CVImageBuffer) -> CMSampleBuffer? {
+    // Wraps a whole picture for the display layer, shown as soon as it arrives.
+    private static func sample(showing image: CVPixelBuffer) -> CMSampleBuffer? {
         var format: CMVideoFormatDescription?
         var sample: CMSampleBuffer?
-        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()), decodeTimeStamp: .invalid)
+        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: .zero, decodeTimeStamp: .invalid)
 
         guard CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: image, formatDescriptionOut: &format) == noErr,
               let format,
@@ -402,6 +510,10 @@ final class Video: @unchecked Sendable {
         }
 
         return sample
+    }
+
+    private static func milliseconds(_ duration: Duration) -> String {
+        duration.formatted(.units(allowed: [.milliseconds], fractionalPart: .show(length: 1)))
     }
 }
 
