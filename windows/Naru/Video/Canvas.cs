@@ -10,7 +10,7 @@ namespace Naru.Video;
 /// <remarks>
 /// <list type="bullet">
 /// <item>The Mac sends only bands that changed, so each band keeps its last picture until a new one replaces it.</item>
-/// <item>Starts black. Bands are drawn as they decode, and the lower ones follow the top one by a few milliseconds.</item>
+/// <item>Starts black, in case a band has not been sent yet when the canvas is first shown.</item>
 /// <item>Call only on the video thread.</item>
 /// </list>
 /// </remarks>
@@ -21,12 +21,14 @@ internal sealed class Canvas : IDisposable
     public ID3D11Texture2D Texture { get; }
     public (uint Width, uint Height) Band { get; }
     public uint Rows { get; }
+    public bool StudioRange { get; }
 
     public Canvas(Graphics graphics, (uint Width, uint Height) band, uint rows, bool studioRange)
     {
         context = graphics.Context;
         Band = band;
         Rows = rows;
+        StudioRange = studioRange;
 
         // AYUV keeps V, U, Y, and alpha in that byte order.
         var black = new byte[band.Width * band.Height * rows * 4];

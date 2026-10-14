@@ -16,7 +16,7 @@ namespace Naru.Video;
 /// <item>A decoder exists only while a config (VPS, SPS, PPS) exists. When it changes, a new one is created and fed from a keyframe.</item>
 /// <item>A keyframe is requested when the decoder failed or input backed up. The session requests one itself for a new config and for stall recovery.</item>
 /// <item>Each new decoder raises <see cref="FirstFrame"/> once it presents its first picture. The screen is black until then.</item>
-/// <item>HEVC bands are presented as they decode, like Apple's client, unless more units are already waiting.</item>
+/// <item>HEVC bands go into a canvas as they decode, and the canvas is presented when the session says an instant is complete.</item>
 /// <item>Work arriving after <see cref="Dispose"/> is ignored.</item>
 /// </list>
 /// </remarks>
@@ -112,6 +112,15 @@ internal sealed class Player : IDisposable
         Interlocked.Increment(ref pending);
         Post(() => Decode(unit));
     }
+
+    /// <summary>Every band of one instant has been queued, so the canvas they went into is shown.</summary>
+    public void Present() => Post(() =>
+    {
+        if (canvas is { } stacked && renderer is { } target && decoder != null && !awaitingKeyframe)
+        {
+            Show(() => target.Render(stacked.Texture, 0, stacked.StudioRange, visibleWidth, visibleHeight));
+        }
+    });
 
     /// <summary>No frame has come out for a while, so the decoder is recreated. The session requests the keyframe.</summary>
     public void Reset() => Post(() => Rebuild(keyframe: false));
@@ -232,16 +241,18 @@ internal sealed class Player : IDisposable
             return;
         }
 
-        // Every band goes into the canvas, but only the newest picture is worth showing.
+        // Bands go into the canvas, shown later as a whole. Otherwise only the newest picture is worth showing.
         for (var index = 0; index < pictures.Count; index++)
         {
             var picture = pictures[index];
-            var newest = index == pictures.Count - 1;
-            var banded = current.Band is { } band && Guard("place a band", () => Stack(band, picture));
 
-            if (newest && renderer is { } target && (!banded || Volatile.Read(ref pending) == 0))
+            if (current.Band is { } band)
             {
-                Present(target, banded ? canvas : null, picture);
+                Guard("place a band", () => Stack(band, picture));
+            }
+            else if (index == pictures.Count - 1 && renderer is { } target)
+            {
+                Show(() => target.Render(picture.Texture, picture.Slice, picture.StudioRange, visibleWidth, visibleHeight));
             }
 
             picture.Texture.Dispose();
@@ -251,7 +262,7 @@ internal sealed class Player : IDisposable
 
     // The canvas is as many bands tall as the Mac's screen needs, and is replaced when the band size changes. It outlives
     // a decoder reset, since the Mac may resend only the top band after one.
-    private bool Stack((uint Width, uint Height) band, Picture picture)
+    private void Stack((uint Width, uint Height) band, Picture picture)
     {
         var rows = visibleHeight == 0 ? 4 : (visibleHeight + band.Height - 1) / band.Height;
 
@@ -263,21 +274,13 @@ internal sealed class Player : IDisposable
         }
 
         canvas.Place(picture);
-        return true;
     }
 
-    private void Present(Renderer target, Canvas? stacked, Picture picture)
+    private void Show(Action render)
     {
         try
         {
-            if (stacked != null)
-            {
-                target.Render(stacked.Texture, 0, picture.StudioRange, visibleWidth, visibleHeight);
-            }
-            else
-            {
-                target.Render(picture.Texture, picture.Slice, picture.StudioRange, visibleWidth, visibleHeight);
-            }
+            render();
         }
         catch (SharpGenException error)
         {
@@ -342,19 +345,6 @@ internal sealed class Player : IDisposable
         {
             Log.Error($"Cannot {what}", error);
             return null;
-        }
-    }
-
-    private static bool Guard(string what, Func<bool> action)
-    {
-        try
-        {
-            return action();
-        }
-        catch (Exception error) when (error is SharpGenException or COMException)
-        {
-            Log.Error($"Cannot {what}", error);
-            return false;
         }
     }
 

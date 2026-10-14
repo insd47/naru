@@ -64,6 +64,9 @@ internal sealed class Connection : SessionListener
             case Event.Frame frame:
                 Video.Queue(frame.Unit);
                 break;
+            case Event.Present:
+                Video.Present();
+                break;
             case Event.Audio audioEvent:
                 Play(audioEvent.AudioFrame);
                 break;
