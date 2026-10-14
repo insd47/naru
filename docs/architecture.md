@@ -36,7 +36,8 @@ An app opens a session with `Session::connect(config, listener)` and gets events
 - Events arrive in order on a thread dedicated to that session. A slow listener slows the session down instead of
   letting frames pile up in memory, so listeners hand heavy work to another thread.
 - Video arrives as a `Decoder` config followed by `Frame` access units. The app recreates its decoder on every new
-  config, and calls `request_keyframe` whenever it drops frames or rebuilds the decoder.
+  config, and calls `request_keyframe` once whenever it drops frames or rebuilds the decoder on its own. The session
+  repeats the request until a keyframe arrives.
 - HEVC comes in four horizontal bands, as it does to Apple's client. Each frame is a picture of one band, numbered from
   the top; the app stacks them, keeps a band's last picture until a new one replaces it, and shows the screen at each
   `Present`, which follows the last band of an instant. While any band's latest picture is lost or broken, no

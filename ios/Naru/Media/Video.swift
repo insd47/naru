@@ -15,9 +15,9 @@ import os
 ///   picture of the screen, and one display layer shows it, so the system still decides when it reaches the screen.
 ///   Pictures of several bands wait for [present], so the bands of one instant show together like on Apple's client; a
 ///   display layer per band would pick its own refresh. A single band shows as it decodes.
-/// - When the decoder config changes, the server asks for a new decoder, or decoding fails, a new decompression session
-///   starts and decodes nothing until a keyframe arrives. The request may not have reached the server, so frames arriving
-///   while waiting trigger a new request at a fixed interval.
+/// - When the decoder config changes, the session resets the decoder, or decoding fails, a new decompression session
+///   starts and decodes nothing until a keyframe arrives. A new config comes with its keyframe and the session asks for
+///   one before a reset, so only a failure asks here; the session repeats the request until a keyframe arrives.
 /// - Calls [firstFrame] when the first picture after that is drawn. The screen stays blank until then.
 /// - The codec follows the decoder config. HEVC 4:4:4 is requested only when [decodesHevc444] is true.
 final class Video: @unchecked Sendable {
@@ -36,7 +36,6 @@ final class Video: @unchecked Sendable {
     private var format: CMVideoFormatDescription?
     private var session: VTDecompressionSession?
     private var awaitingKeyframe = true
-    private var requestedAt: ContinuousClock.Instant?
     private var canvas: MTLTexture?
     // Whole pictures of the screen, as large as the Mac's screen, which crops the bottom band's padding
     private var pictures: CVPixelBufferPool?
@@ -99,7 +98,7 @@ final class Video: @unchecked Sendable {
         work.async { [self] in setUp(config) }
     }
 
-    /// The server asked for the decoder to be recreated.
+    /// The session asked for the decoder to be recreated.
     func reset() {
         work.async { [self] in restart() }
     }
@@ -179,8 +178,7 @@ final class Video: @unchecked Sendable {
             if !awaitingKeyframe {
                 log.log("video backed up; dropping pending frames")
                 awaitingKeyframe = true
-                requestedAt = nil
-                requestIfDue()
+                requestKeyframe()
             }
 
             counts.dropped += 1
@@ -189,11 +187,11 @@ final class Video: @unchecked Sendable {
 
         if output.withLockUnchecked({ $0.failed }) {
             restart()
+            requestKeyframe()
         }
 
         if awaitingKeyframe {
             guard unit.keyframe else {
-                requestIfDue()
                 return
             }
 
@@ -333,17 +331,6 @@ final class Video: @unchecked Sendable {
         shown = false
         output.withLockUnchecked { output in
             output = Output(held: Array(repeating: nil, count: output.held.count))
-        }
-        requestedAt = nil
-        requestIfDue()
-    }
-
-    private func requestIfDue() {
-        let now = ContinuousClock.now
-
-        if requestedAt.map({ now - $0 >= .seconds(1) }) ?? true {
-            requestedAt = now
-            requestKeyframe()
         }
     }
 

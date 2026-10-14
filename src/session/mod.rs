@@ -312,8 +312,9 @@ impl Session {
         self.send(Command::Clipboard(clipboard::message(text)?))
     }
 
-    /// Requests a keyframe. Call it after recreating the decoder or dropping frames. The caller discards frames until
-    /// the keyframe arrives.
+    /// Requests a keyframe, and again until one arrives. Call it once after recreating the decoder or dropping frames
+    /// on your own; the caller discards frames until the keyframe arrives, and nothing is acknowledged to the server
+    /// meanwhile.
     pub fn request_keyframe(&self) -> Result<()> {
         self.send(Command::Keyframe)
     }

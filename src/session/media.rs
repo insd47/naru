@@ -28,7 +28,6 @@ const REFRESH_INTERVAL: Duration = Duration::from_millis(16);
 // Frame stall recovery. The server sends no video for a still screen, so recovery only runs when packets arrived
 // recently.
 const STALL_KEYFRAME: Duration = Duration::from_secs(3);
-const STALL_KEYFRAME_REPEAT: Duration = Duration::from_millis(1500);
 const STALL_RESETS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(15)];
 
 /// Audio (P) and video (P+1) UDP sockets, opened before authentication.
@@ -91,8 +90,9 @@ pub struct Media {
     streams: Streams,
     group: Option<Group>,
     last_keyframe_request: Option<Instant>,
-    // An H.264 unit was lost and no keyframe has arrived since. H.264 recovers only from a keyframe, so requests repeat
-    // until one arrives rather than going out once and possibly being swallowed by the rate limit.
+    // The app's decoder lost its references, or an H.264 unit was lost, and no keyframe has arrived since. Requests
+    // repeat until one arrives rather than going out once and possibly being lost or swallowed by the rate limit, and
+    // nothing is acknowledged meanwhile, since the decoder no longer holds what the server would predict from.
     awaiting_keyframe: bool,
     fir_sequence: u8,
     // Keyframe requests sent since the last keyframe arrived
@@ -102,9 +102,6 @@ pub struct Media {
     refreshed_missing: u64,
     // Picture size from the latest decoder config, which refresh requests name
     picture_size: Option<(u16, u16)>,
-    // Whether the app's decoder holds the pictures the server may reference. A decoder reset stops the
-    // acknowledgments until the next keyframe.
-    acknowledging: bool,
     // Counts for diagnosing why media did not start.
     datagrams: u64,
     authenticated: u64,
@@ -120,14 +117,8 @@ pub struct Media {
     feedback_started: Option<Instant>,
     last_frame: Option<Instant>,
     configured: bool,
-    stall: Stall,
-}
-
-// Frame stall watch state, reset whenever a frame comes out.
-#[derive(Default)]
-struct Stall {
-    last_request: Option<Instant>,
-    resets: usize,
+    // Decoder resets since the last frame
+    stall_resets: usize,
 }
 
 impl Media {
@@ -152,7 +143,6 @@ impl Media {
             last_refresh_request: None,
             refreshed_missing: 0,
             picture_size: None,
-            acknowledging: false,
             datagrams: 0,
             authenticated: 0,
             largest_bytes: 0,
@@ -165,7 +155,7 @@ impl Media {
             feedback_started: None,
             last_frame: None,
             configured: false,
-            stall: Stall::default(),
+            stall_resets: 0,
         }
     }
 
@@ -206,7 +196,6 @@ impl Media {
                 self.filled += self.group.as_ref().map_or(0, Group::filled);
                 self.group = Some(Group::new(self.codec, base, self.priority));
                 self.configured = false;
-                self.acknowledging = false;
                 packets
             }
             Routed::Held => return,
@@ -266,18 +255,16 @@ impl Media {
                 }
                 Assembled::Frame { unit, donl } => {
                     self.last_frame = Some(now);
-                    self.stall = Stall::default();
+                    self.stall_resets = 0;
                     self.streams.mark_frame(now);
-                    self.awaiting_keyframe &= !unit.keyframe;
-
                     if unit.keyframe {
+                        self.awaiting_keyframe = false;
                         self.unanswered = 0;
-                        self.acknowledging = true;
                     }
 
                     // Like Apple's client, every band's intact pictures are acknowledged, and none predicted from a
                     // lost one.
-                    if let Some(donl) = donl.filter(|_| unit.intact && self.acknowledging) {
+                    if let Some(donl) = donl.filter(|_| unit.intact && !self.awaiting_keyframe) {
                         self.acknowledge(donl).await;
                     }
 
@@ -294,7 +281,7 @@ impl Media {
         // H.264 asks on every drain until a keyframe arrives, and HEVC while packets go missing. The intervals space
         // the requests out.
         if self.awaiting_keyframe {
-            self.request_keyframe(now).await;
+            self.send_keyframe_request(now).await;
         }
 
         if self.codec == VideoCodec::Hevc && self.missing > self.refreshed_missing {
@@ -331,22 +318,13 @@ impl Media {
 
         let stalled = now.duration_since(since);
 
-        if let Some(&threshold) = STALL_RESETS.get(self.stall.resets)
+        if let Some(&threshold) = STALL_RESETS.get(self.stall_resets)
             && stalled >= threshold
         {
-            self.stall.resets += 1;
-            self.acknowledging = false;
+            self.stall_resets += 1;
             events.push(Event::ResetDecoder);
-            self.stall.last_request = None;
-        }
-
-        let due = self
-            .stall
-            .last_request
-            .is_none_or(|last| now.duration_since(last) >= STALL_KEYFRAME_REPEAT);
-
-        if stalled >= STALL_KEYFRAME && due {
-            self.stall.last_request = Some(now);
+            self.request_keyframe(now).await;
+        } else if stalled >= STALL_KEYFRAME && !self.awaiting_keyframe {
             self.request_keyframe(now).await;
         }
     }
@@ -417,11 +395,17 @@ impl Media {
             .await;
     }
 
-    /// Requests a keyframe, unless within the minimum interval, the server is quiet, or there is no stream yet.
+    /// Requests a keyframe, and again on later packets until one arrives.
     ///
-    /// - It does not decide whether to drop frames until the keyframe. The group decides after a loss, and the native
-    ///   layer after recreating the decoder.
+    /// - It does not decide whether to drop frames until the keyframe. The group decides after a loss, and the app
+    ///   after recreating its decoder.
     pub async fn request_keyframe(&mut self, now: Instant) {
+        self.awaiting_keyframe = true;
+        self.send_keyframe_request(now).await;
+    }
+
+    // Sends a keyframe request, unless within the minimum interval, the server is quiet, or there is no stream yet.
+    async fn send_keyframe_request(&mut self, now: Instant) {
         let recent = self
             .last_keyframe_request
             .is_some_and(|last| now.duration_since(last) < self.keyframe_interval());

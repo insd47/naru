@@ -17,7 +17,8 @@ import java.util.concurrent.TimeUnit
  *
  * - The decoder and its callbacks live on one dedicated thread. Calls from any thread are posted there and handled in order.
  * - A decoder exists only while both a config (SPS, PPS) and a Surface exist. When either changes, a new one is created and fed from a keyframe.
- * - A keyframe is requested through [requestKeyframe] when the Surface changed, the decoder failed, or input backed up. The session requests one itself for a new config and for frame stall recovery.
+ * - A keyframe is requested through [requestKeyframe] when the Surface changed, the decoder failed, or input backed up.
+ *   The session repeats the request until one arrives, and a new config comes with its keyframe.
  * - Each new decoder calls [onFirstFrame] once it draws its first frame. The screen is blank until then.
  * - Work arriving after [release] is ignored.
  */
@@ -33,9 +34,7 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
     private var released = false
 
     // After a new decoder is created, nothing is queued until a keyframe arrives.
-    // The request may not have reached the server, so frames arriving while waiting trigger a new request at a fixed interval.
     private var awaitingKeyframe = true
-    private var requestedAt = 0L
 
     // Receive counters logged on each stats event.
     private var frames = 0
@@ -84,18 +83,11 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
         }
     }
 
-    // The server resends the same config with every keyframe. The decoder is kept for an identical config and recreated only when it changes.
-    // When recreating, the following keyframe arrives shortly, so none is requested.
     fun configure(config: DecoderConfig) {
         handler.post {
-            val nextSps = config.sps.firstOrNull() ?: return@post
-            val nextPps = config.pps.firstOrNull() ?: return@post
-
-            if (decoder == null || !sps.contentEquals(nextSps) || !pps.contentEquals(nextPps)) {
-                sps = nextSps
-                pps = nextPps
-                rebuild(keyframe = false)
-            }
+            sps = config.sps.firstOrNull() ?: return@post
+            pps = config.pps.firstOrNull() ?: return@post
+            rebuild(keyframe = false)
         }
     }
 
@@ -150,20 +142,19 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
 
         if (awaitingKeyframe && !unit.keyframe) {
             dropped += 1
-            if (System.nanoTime() - requestedAt >= KEYFRAME_RETRY_NS) askKeyframe()
             return
         }
 
         awaitingKeyframe = false
 
-        // RTP timestamps are 90 kHz. They only order output, so wraparound does not matter.
-        val ptsUs = unit.timestamp.toLong() * 1_000 / 90
+        // RTP timestamps are 24 kHz. They only order output, so wraparound does not matter.
+        val ptsUs = unit.timestamp.toLong() * 1_000 / 24
 
         if (!current.queue(unit, ptsUs)) {
             Log.w(TAG, "Decoder input backed up; dropping pending frames")
             dropped += Decoder.BACKLOG + 1
             awaitingKeyframe = true
-            askKeyframe()
+            requestKeyframe()
         }
     }
 
@@ -186,13 +177,8 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
             .getOrNull()
 
         if (keyframe) {
-            askKeyframe()
+            requestKeyframe()
         }
-    }
-
-    private fun askKeyframe() {
-        requestedAt = System.nanoTime()
-        requestKeyframe()
     }
 
     companion object {
@@ -200,8 +186,5 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
 
         // How long to wait for the decoder release when the Surface goes away. A release usually finishes within tens of ms.
         private const val DETACH_TIMEOUT_MS = 500L
-
-        // Interval between keyframe re-requests while waiting. The session also enforces a minimum interval between requests.
-        private const val KEYFRAME_RETRY_NS = 1_000_000_000L
     }
 }

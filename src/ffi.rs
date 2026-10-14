@@ -341,7 +341,9 @@ impl Session {
         self.session.clipboard(&text).is_ok()
     }
 
-    /// Requests a keyframe. Call it after recreating the decoder or dropping frames because input backed up.
+    /// Requests a keyframe, and again until one arrives. Call it once after recreating the decoder or dropping frames
+    /// on your own, but not for a new decoder config, which comes with its keyframe, or `ResetDecoder`, which asks for
+    /// one.
     pub fn request_keyframe(&self) {
         let _ = self.session.request_keyframe();
     }
