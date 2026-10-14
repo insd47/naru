@@ -7,11 +7,8 @@ using Vortice.MediaFoundation;
 
 namespace Naru.Video;
 
-/// <summary>
-/// A decoded picture: a slice of a texture the decoder owns until the sample is released, the band it covers, and whether
-/// it decoded from intact references.
-/// </summary>
-internal readonly record struct Picture(IMFSample Sample, ID3D11Texture2D Texture, uint Slice, bool StudioRange, byte Band, bool Intact);
+/// <summary>A decoded picture: a slice of a texture the decoder owns until the sample is released, and the band it covers.</summary>
+internal readonly record struct Picture(IMFSample Sample, ID3D11Texture2D Texture, uint Slice, bool StudioRange, byte Band);
 
 /// <summary>
 /// One Media Foundation decoder for H.264 or HEVC 4:4:4, accelerated through the session's Direct3D device.
@@ -120,8 +117,7 @@ internal sealed class Decoder : IDisposable
 
         using var sample = MediaFactory.MFCreateSample();
         sample.AddBuffer(buffer);
-        // The sample time carries the band and whether the unit is intact through the decoder.
-        sample.SampleTime = ((++decoded * bands) + unit.Band) * 2 + (unit.Intact ? 1 : 0);
+        sample.SampleTime = ++decoded * bands + unit.Band;
         transform.ProcessInput(0, sample, 0);
 
         return Drain();
@@ -172,8 +168,7 @@ internal sealed class Decoder : IDisposable
             using var media = sample.GetBufferByIndex(0);
             using var surface = media.QueryInterface<IMFDXGIBuffer>();
             var texture = new ID3D11Texture2D(surface.GetResource(typeof(ID3D11Texture2D).GUID));
-            var time = sample.SampleTime;
-            pictures.Add(new Picture(sample, texture, surface.SubresourceIndex, studioRange, (byte)(time / 2 % bands), time % 2 == 1));
+            pictures.Add(new Picture(sample, texture, surface.SubresourceIndex, studioRange, (byte)(sample.SampleTime % bands)));
         }
     }
 

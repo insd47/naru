@@ -87,15 +87,15 @@ pub struct Media {
     streams: Streams,
     group: Option<Group>,
     last_keyframe_request: Option<Instant>,
-    last_refresh_request: Option<Instant>,
-    // Missing sequence numbers counted when the last refresh was asked for
-    refreshed_missing: u64,
     // An H.264 unit was lost and no keyframe has arrived since. H.264 recovers only from a keyframe, so requests repeat
     // until one arrives rather than going out once and possibly being swallowed by the rate limit.
     awaiting_keyframe: bool,
     fir_sequence: u8,
     // Keyframe requests sent since the last keyframe arrived
     unanswered: u32,
+    last_refresh_request: Option<Instant>,
+    // Missing sequence numbers counted when the last refresh was asked for
+    refreshed_missing: u64,
     // Picture size from the latest decoder config, which refresh requests name
     picture_size: Option<(u16, u16)>,
     // Whether the app's decoder holds the pictures the server may reference. A decoder reset stops the
@@ -142,11 +142,11 @@ impl Media {
             streams: Streams::new(codec.bands()),
             group: None,
             last_keyframe_request: None,
-            last_refresh_request: None,
-            refreshed_missing: 0,
             awaiting_keyframe: false,
             fir_sequence: 0,
             unanswered: 0,
+            last_refresh_request: None,
+            refreshed_missing: 0,
             picture_size: None,
             acknowledging: false,
             datagrams: 0,
@@ -285,8 +285,8 @@ impl Media {
             }
         }
 
-        // Asked on every drain until a keyframe arrives, or while HEVC packets go missing. The intervals space the
-        // requests out.
+        // H.264 asks on every drain until a keyframe arrives, and HEVC while packets go missing. The intervals space
+        // the requests out.
         if self.awaiting_keyframe {
             self.request_keyframe(now).await;
         }
@@ -436,7 +436,7 @@ impl Media {
         }
     }
 
-    // Asks for a picture that predicts only from intact ones, at most once a frame.
+    // Asks for pictures predicted only from acknowledged ones, at most once a frame.
     async fn request_refresh(&mut self, now: Instant) {
         if self
             .last_refresh_request
@@ -445,11 +445,11 @@ impl Media {
             return;
         }
 
+        self.last_refresh_request = Some(now);
         self.refreshed_missing = self.missing;
 
         // Before the first decoder config the size is not known yet and goes out as 0.
         let size = self.picture_size.unwrap_or((0, 0));
-        self.last_refresh_request = Some(now);
         self.send_video_rtcp(&rtcp::refresh_request(self.video_ssrc, size))
             .await;
     }

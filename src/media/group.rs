@@ -157,16 +157,6 @@ impl Group {
         {
             self.end_instant();
         }
-
-        // Instants let out together, after a gap held them back, show only the latest screen, as Apple's client resumes
-        // from the newest picture rather than replaying the ones in between.
-        if let Some(last) = self.outputs.iter().rposition(|output| *output == Assembled::Present) {
-            let mut index = 0;
-            self.outputs.retain(|output| {
-                index += 1;
-                *output != Assembled::Present || index - 1 == last
-            });
-        }
     }
 
     // A unit arriving after a later one already went ahead without it can no longer be decoded in order, so it counts as lost.
@@ -219,7 +209,8 @@ impl Group {
             self.announce(config);
         }
 
-        // Headers that cannot be read leave the picture counted as intact, as before references were followed.
+        // A picture whose headers cannot be read counts as intact, so headers the parser does not know never stop the
+        // screen.
         let intact = self
             .references
             .as_mut()
@@ -246,8 +237,11 @@ impl Group {
         }
     }
 
+    // Instants let out together, after a gap held them back, show only the latest screen, as Apple's client resumes
+    // from the newest picture rather than replaying the ones in between.
     fn end_instant(&mut self) {
         if self.instant.take().is_some() && !self.broken.contains(&true) {
+            self.outputs.retain(|output| *output != Assembled::Present);
             self.outputs.push_back(Assembled::Present);
         }
     }
@@ -260,8 +254,8 @@ impl Group {
     }
 
     // A unit of `band` was lost. When favoring quality, H.264 waits for a keyframe. HEVC keeps going: its references
-    // tell which pictures are broken, the screen waits for the band to be intact, and the server answers with pictures predicted from acknowledged ones, which
-    // waiting for a keyframe would throw away.
+    // tell which pictures are broken, the screen waits for the band to be intact, and the server answers with pictures
+    // predicted from acknowledged ones, which waiting for a keyframe would throw away.
     fn lose(&mut self, band: usize, overflow: bool) {
         self.awaiting_keyframe |= self.references.is_none() && (overflow || self.priority == Priority::Quality);
         self.broken[band] = true;
