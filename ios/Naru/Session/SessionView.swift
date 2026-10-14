@@ -14,8 +14,9 @@ struct SessionView: View {
             .ignoresSafeArea()
 
             if !session.shown {
-                ProgressView("Preparing Screen")
+                ProgressView()
                     .controlSize(.large)
+                    .accessibilityLabel("Preparing Screen")
                     .foregroundStyle(.white)
                     .tint(.white)
             }
