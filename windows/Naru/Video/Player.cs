@@ -125,7 +125,7 @@ internal sealed class Player : IDisposable
         Log.Info(
             $"Received (10 s): frames {frames} (key {keyframes}, dropped {dropped}), rendered {rendered} | datagrams {stats.Datagrams}, " +
             $"authenticated {stats.Authenticated}, SSRC {stats.Ssrc:x}, sequence {stats.Highest}, candidates {stats.Candidates}, " +
-            $"offers {stats.Offers}, NACK {stats.Nacked}, filled {stats.Filled}, lost {stats.Losses}");
+            $"offers {stats.Offers}, missing {stats.Missing}, filled {stats.Filled}, lost {stats.Losses}");
         frames = keyframes = dropped = rendered = 0;
     });
 

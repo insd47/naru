@@ -4,14 +4,12 @@ use super::unit::{AccessUnit, DecoderConfig, VideoCodec};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-// How long an access unit with a sequence gap is held for retransmission. On a LAN it usually arrives within a few ms.
+// How long an access unit with a sequence gap waits for the missing packets. The server does not retransmit, so only
+// packets that arrive out of order fill a gap, and those are milliseconds late.
 const HOLD: Duration = Duration::from_millis(75);
 
 // Beyond this many buffered packets, everything is treated as lost and dropped.
 const MAX_BUFFERED: usize = 4096;
-
-// Most sequence numbers requested for retransmission at once. Larger gaps are recovered with a keyframe request.
-const MAX_NACK: u64 = 64;
 
 /// Output of the assembler.
 #[derive(Debug, PartialEq)]
@@ -50,7 +48,7 @@ pub struct Assembler {
     stalled_since: Option<Instant>,
     configured: bool,
     awaiting_keyframe: bool,
-    // Packets that filled a gap (retransmitted or reordered)
+    // Packets that filled a gap by arriving out of order
     filled: u64,
     // HEVC unit to emit after its config
     pending: Option<AccessUnit>,
@@ -73,30 +71,24 @@ impl Assembler {
         }
     }
 
-    /// Packets that have filled a gap so far, for checking whether retransmissions actually arrive
+    /// Packets that have filled a gap so far by arriving out of order
     pub fn filled(&self) -> u64 {
         self.filled
     }
 
-    /// Pushes one packet and returns the sequence numbers of any new gap, which should be requested for retransmission.
-    pub fn push(&mut self, packet: RtpPacket) -> Vec<u16> {
+    /// Pushes one packet and returns how many sequence numbers it showed to be missing.
+    pub fn push(&mut self, packet: RtpPacket) -> u64 {
         let sequence = self.extend(packet.sequence);
 
         if self.next.is_some_and(|next| sequence < next) || self.packets.contains_key(&sequence) {
-            return Vec::new();
+            return 0;
         }
 
         if self.highest.is_some_and(|highest| sequence < highest) {
             self.filled += 1;
         }
 
-        let missing = match self.highest {
-            Some(highest) if sequence > highest + 1 => {
-                let first = (highest + 1).max(sequence.saturating_sub(MAX_NACK));
-                (first..sequence).map(|lost| lost as u16).collect()
-            }
-            _ => Vec::new(),
-        };
+        let missing = self.highest.map_or(0, |highest| sequence.saturating_sub(highest + 1));
 
         self.highest = Some(self.highest.map_or(sequence, |highest| highest.max(sequence)));
         self.next.get_or_insert(sequence);
@@ -119,7 +111,7 @@ impl Assembler {
 
             let Some(end) = self.unit_end(next) else {
                 // The next unit isn't complete yet. If the received packets are contiguous, wait for later packets;
-                // if there is a gap, wait for retransmission until the deadline.
+                // if there is a gap, wait for late packets until the deadline.
                 let contiguous = self
                     .highest
                     .is_none_or(|highest| self.packets.len() as u64 == highest + 1 - next);
@@ -324,7 +316,7 @@ mod tests {
         let mut assembler = Assembler::new(VideoCodec::H264, SSRC, Priority::Quality);
 
         for packet in stream(100) {
-            assert!(assembler.push(packet).is_empty());
+            assert_eq!(assembler.push(packet), 0);
         }
 
         let outputs = drain(&mut assembler, now);
@@ -354,14 +346,14 @@ mod tests {
     }
 
     #[test]
-    fn gap_is_reported_once_for_retransmission_and_filled_in_time() {
+    fn gap_is_counted_once_and_filled_by_a_late_packet_in_time() {
         let now = Instant::now();
         let mut assembler = Assembler::new(VideoCodec::H264, SSRC, Priority::Quality);
         let mut packets = stream(10);
         let late = packets.remove(2);
 
-        let missing: Vec<u16> = packets.into_iter().flat_map(|packet| assembler.push(packet)).collect();
-        assert_eq!(missing, [12]);
+        let missing: u64 = packets.into_iter().map(|packet| assembler.push(packet)).sum();
+        assert_eq!(missing, 1);
 
         let outputs = drain(&mut assembler, now);
         assert!(matches!(outputs[..], [Assembled::Config(_)]));
@@ -434,7 +426,7 @@ mod tests {
         }
 
         drain(&mut assembler, now);
-        assert!(assembler.push(packet(12, 0, true, &[0x7c, 0x45, 0x99])).is_empty());
+        assert_eq!(assembler.push(packet(12, 0, true, &[0x7c, 0x45, 0x99])), 0);
         assert!(drain(&mut assembler, now).is_empty());
     }
 

@@ -154,9 +154,9 @@ pub struct MediaStats {
     pub candidates: u32,
     /// Number of offers sent, including those resent after negotiation for resizes and keyframes
     pub offers: u32,
-    /// Number of sequence numbers for which retransmission was requested
-    pub nacked: u64,
-    /// Number of packets that filled a gap. Grows as retransmissions arrive.
+    /// Number of sequence numbers found missing. The server does not retransmit, so these are lost unless they arrive late.
+    pub missing: u64,
+    /// Number of packets that filled a gap by arriving out of order
     pub filled: u64,
     /// Number of unrecovered losses that forced a wait for a keyframe
     pub losses: u64,

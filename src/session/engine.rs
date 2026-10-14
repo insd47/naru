@@ -16,7 +16,7 @@ use tokio::time::MissedTickBehavior;
 const TICK: Duration = Duration::from_millis(500);
 
 // If no decoder config arrives this long after the answer, the session gives up, about as long as Apple's client waits.
-// A lossy path needs the time to fill the first keyframe's gaps with retransmissions.
+// On a lossy path the first keyframe often arrives incomplete, and the keyframes asked for meanwhile are more chances.
 const MEDIA_START: Duration = Duration::from_secs(10);
 
 /// Session state once the record layer is on. One task handles the control channel, UDP, timers, and commands.

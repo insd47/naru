@@ -22,7 +22,10 @@ const KEEPALIVE_TIMESTAMP_STEP: u32 = 480;
 const SENDER_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 
 // Minimum interval between keyframe requests. A server quiet for longer than `QUIET_AFTER` is idling on a still screen, so no request is sent.
+// A request still unanswered is repeated at doubling intervals up to `KEYFRAME_BACKOFF_LIMIT`: each answer is the largest
+// frame there is, and on a lossy path asking again before it can arrive only adds keyframes that are lost the same way.
 const KEYFRAME_INTERVAL: Duration = Duration::from_millis(250);
+const KEYFRAME_BACKOFF_LIMIT: Duration = Duration::from_secs(2);
 const QUIET_AFTER: Duration = Duration::from_millis(1500);
 
 // Frame stall recovery. The server sends no video for a still screen, so recovery only runs when packets arrived recently.
@@ -91,12 +94,14 @@ pub struct Media {
     // requests repeat until one arrives rather than going out once and possibly being swallowed by the rate limit.
     awaiting_keyframe: bool,
     fir_sequence: u8,
+    // Keyframe requests sent since the last keyframe arrived
+    unanswered: u32,
     // Counts for diagnosing why media did not start.
     datagrams: u64,
     authenticated: u64,
     largest_bytes: u32,
-    // Sequence numbers NACKed, packets filled by previous assemblers, and unrecovered losses
-    nacked: u64,
+    // Sequence numbers found missing, packets filled by previous assemblers, and unrecovered losses
+    missing: u64,
     filled: u64,
     losses: u64,
     last_packet: Option<Instant>,
@@ -133,10 +138,11 @@ impl Media {
             last_keyframe_request: None,
             awaiting_keyframe: false,
             fir_sequence: 0,
+            unanswered: 0,
             datagrams: 0,
             authenticated: 0,
             largest_bytes: 0,
-            nacked: 0,
+            missing: 0,
             filled: 0,
             losses: 0,
             last_packet: None,
@@ -185,19 +191,11 @@ impl Media {
             Routed::Held => return,
         };
 
-        let target = self.streams.current().unwrap_or_default();
-
         let Some(assembler) = self.assembler.as_mut() else {
             return;
         };
 
-        let lost: Vec<u16> = packets.into_iter().flat_map(|packet| assembler.push(packet)).collect();
-
-        if !lost.is_empty() {
-            self.nacked += lost.len() as u64;
-            self.send_rtcp(&rtcp::nack(self.video_ssrc, target, &lost)).await;
-        }
-
+        self.missing += packets.into_iter().map(|packet| assembler.push(packet)).sum::<u64>();
         self.drain(now, events).await;
     }
 
@@ -224,7 +222,7 @@ impl Media {
         events.push(Event::Audio(frame));
     }
 
-    /// Takes every available output from the assembler. Also called when the retransmission deadline passes.
+    /// Takes every available output from the assembler. Also called when the deadline for late packets passes.
     pub async fn drain(&mut self, now: Instant, events: &mut Vec<Event>) {
         while let Some(output) = self.assembler.as_mut().and_then(|assembler| assembler.next(now)) {
             match output {
@@ -237,6 +235,11 @@ impl Media {
                     self.stall = Stall::default();
                     self.streams.mark_frame(now);
                     self.awaiting_keyframe &= !unit.keyframe;
+
+                    if unit.keyframe {
+                        self.unanswered = 0;
+                    }
+
                     events.push(Event::Frame(unit));
                 }
                 Assembled::Lost => {
@@ -310,7 +313,7 @@ impl Media {
             highest: ssrc.and_then(|ssrc| self.receive.highest_received(ssrc)),
             candidates: u32::try_from(self.streams.candidates()).unwrap_or(u32::MAX),
             offers,
-            nacked: self.nacked,
+            missing: self.missing,
             filled: self.filled + self.assembler.as_ref().map_or(0, Assembler::filled),
             losses: self.losses,
         }
@@ -365,15 +368,26 @@ impl Media {
     pub async fn request_keyframe(&mut self, now: Instant) {
         let recent = self
             .last_keyframe_request
-            .is_some_and(|last| now.duration_since(last) < KEYFRAME_INTERVAL);
+            .is_some_and(|last| now.duration_since(last) < self.keyframe_interval());
         let Some(target) = self.streams.current().filter(|_| !recent && self.active(now)) else {
             return;
         };
 
+        // A repeat keeps the FIR sequence number, so it reads as the same request rather than a new one (RFC 5104).
+        if self.unanswered == 0 {
+            self.fir_sequence = self.fir_sequence.wrapping_add(1);
+        }
+
         self.last_keyframe_request = Some(now);
-        self.fir_sequence = self.fir_sequence.wrapping_add(1);
+        self.unanswered += 1;
         self.send_rtcp(&rtcp::keyframe_request(self.video_ssrc, target, self.fir_sequence))
             .await;
+    }
+
+    // Doubles while requests go unanswered, so a keyframe already on its way can arrive before the next request.
+    fn keyframe_interval(&self) -> Duration {
+        let doublings = self.unanswered.saturating_sub(1).min(4);
+        (KEYFRAME_INTERVAL * 2u32.pow(doublings)).min(KEYFRAME_BACKOFF_LIMIT)
     }
 
     async fn send_rtcp(&mut self, compound: &[u8]) {

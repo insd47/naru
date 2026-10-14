@@ -36,8 +36,8 @@ pub enum Error {
     /// - Zero `datagrams` means no UDP arrived (firewall, port, NAT); zero `authenticated` means the SRTP keys or port pairing don't match.
     /// - Packets arriving without a start, with losses and a small `largest_bytes`, point at a path that drops large packets.
     #[error(
-        "the server never started sending video ({} datagrams received, {} passed SRTP authentication, largest {} bytes, {} NACKed, {} lost, {} other streams)",
-        .0.datagrams, .0.authenticated, .0.largest_bytes, .0.nacked, .0.losses, .0.candidates
+        "the server never started sending video ({} datagrams received, {} passed SRTP authentication, largest {} bytes, {} missing, {} lost, {} other streams)",
+        .0.datagrams, .0.authenticated, .0.largest_bytes, .0.missing, .0.losses, .0.candidates
     )]
     NoMedia(crate::MediaStats),
     #[error("the session has already ended")]

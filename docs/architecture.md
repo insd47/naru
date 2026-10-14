@@ -63,8 +63,8 @@ runs one loop over three inputs: control messages from the Mac, UDP datagrams, a
 
 - `negotiation` sends the media offer and resends it if the Mac does not answer.
 - `media` decrypts SRTP, picks the active video stream (`media::Streams`), and reassembles access units
-  (`media::Assembler`). Gaps are retransmitted when they can be, and otherwise trade latency for quality according
-  to the `Priority` the user chose.
+  (`media::Assembler`). The Mac does not retransmit, so a gap waits only for
+  late packets and otherwise trades latency for quality according to the `Priority` the user chose.
 - The engine watches for stalled video and asks for a keyframe, or tells the app to rebuild its decoder, only while the
   Mac is actually sending.
 - `input` turns pointer, scroll, momentum, and magnify input into protocol events. Keys go out unchanged.

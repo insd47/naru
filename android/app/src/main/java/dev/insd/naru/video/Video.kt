@@ -118,7 +118,7 @@ class Video(private val requestKeyframe: () -> Unit, private val onFirstFrame: (
                 TAG,
                 "Received (10 s): frames $frames (key $keyframes, dropped $dropped), rendered $rendered | datagrams ${stats.datagrams}, " +
                     "authenticated ${stats.authenticated}, SSRC ${stats.ssrc?.toString(16)}, sequence ${stats.highest}, candidates ${stats.candidates}, " +
-                    "offers ${stats.offers}, NACK ${stats.nacked}, filled ${stats.filled}, lost ${stats.losses}",
+                    "offers ${stats.offers}, missing ${stats.missing}, filled ${stats.filled}, lost ${stats.losses}",
             )
             frames = 0
             keyframes = 0

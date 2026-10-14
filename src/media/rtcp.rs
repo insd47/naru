@@ -2,14 +2,13 @@
 //!
 //! - The sender SSRC is the client video SSRC negotiated in the offer. With any other SSRC, the server cuts the stream after about 30 seconds.
 //! - Loss, jitter, LSR, and DLSR are sent as 0; the server keeps the session alive regardless.
+//! - No retransmission requests (NACK): the server answers none, to Apple's client or to this one, and Apple's client sends none.
 
 const RECEIVER_REPORT: u8 = 201;
 const SENDER_REPORT: u8 = 200;
-const FEEDBACK_TRANSPORT: u8 = 205;
 const FEEDBACK_PAYLOAD: u8 = 206;
 const LEGACY_FIR: u8 = 192;
 
-const FORMAT_NACK: u8 = 1;
 const FORMAT_PLI: u8 = 1;
 const FORMAT_FIR: u8 = 4;
 
@@ -59,34 +58,6 @@ pub fn keyframe_request(sender: u32, target: u32, sequence: u8) -> Vec<u8> {
     packet
 }
 
-/// Builds a retransmission request (RFC 4585 Generic NACK). Nearby losses share an entry: a base sequence number plus a bitmask of the next 16.
-pub fn nack(sender: u32, target: u32, lost: &[u16]) -> Vec<u8> {
-    let mut entries: Vec<(u16, u16)> = Vec::new();
-
-    for &sequence in lost {
-        let covered = entries.last_mut().and_then(|(base, mask)| {
-            let offset = sequence.wrapping_sub(*base);
-            (1..=16).contains(&offset).then(|| *mask |= 1 << (offset - 1))
-        });
-
-        if covered.is_none() {
-            entries.push((sequence, 0));
-        }
-    }
-
-    let mut packet = receiver_report(sender, &[]);
-    packet.extend(header(FORMAT_NACK, FEEDBACK_TRANSPORT, 2 + entries.len()));
-    packet.extend_from_slice(&sender.to_be_bytes());
-    packet.extend_from_slice(&target.to_be_bytes());
-
-    for (base, mask) in entries {
-        packet.extend_from_slice(&base.to_be_bytes());
-        packet.extend_from_slice(&mask.to_be_bytes());
-    }
-
-    packet
-}
-
 // Version 2, no padding. The length is the number of 32-bit words minus one.
 fn header(count: u8, kind: u8, words: usize) -> Vec<u8> {
     let mut header = vec![0x80 | count & 0x1f, kind];
@@ -96,7 +67,7 @@ fn header(count: u8, kind: u8, words: usize) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{keyframe_request, nack, receiver_report, sender_report};
+    use super::{keyframe_request, receiver_report, sender_report};
 
     // Splits a compound packet into (type, format, length). The split reaches the end only if every length field is correct.
     fn split(mut compound: &[u8]) -> Vec<(u8, u8, usize)> {
@@ -130,13 +101,5 @@ mod tests {
         assert_eq!(split(&packet), [(201, 0, 8), (206, 4, 20), (206, 1, 12), (192, 0, 8)]);
         assert_eq!(&packet[8 + 12..8 + 17], [0, 0, 0, 2, 9]);
         assert_eq!(&packet[packet.len() - 8..], [0x80, 192, 0, 1, 0, 0, 0, 2]);
-    }
-
-    #[test]
-    fn consecutive_losses_share_one_bitmask_entry() {
-        // 65535 and 0 are the 1st and 2nd after 65534, so they share its entry; 15 and 40 are more than 16 away and start new entries.
-        let packet = nack(1, 2, &[65_534, 65_535, 0, 15, 40]);
-        assert_eq!(split(&packet), [(201, 0, 8), (205, 1, 24)]);
-        assert_eq!(&packet[20..], [0xff, 0xfe, 0, 3, 0, 15, 0, 0, 0, 40, 0, 0]);
     }
 }
