@@ -33,7 +33,9 @@ pub enum Assembled {
     Lost,
 }
 
-/// What to favor after an unrecoverable loss. Each app picks it for its decoder; Screen Sharing's quality setting applies only to standard connections.
+/// What to favor after an unrecoverable loss in H.264. Each app picks it for its decoder; Screen Sharing's quality setting applies only to standard connections.
+///
+/// - HEVC follows its references instead and shows only intact screens, like Apple's client.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Enum)]
 pub enum Priority {
     /// Drops only the lost unit and keeps emitting frames. Parts of the screen may be corrupted until a keyframe arrives.
@@ -54,7 +56,7 @@ pub enum Priority {
 ///   come in the same unit as the keyframe, so that unit emits the config first and then the unit.
 /// - With several bands, an instant ends when its bottom band goes out, a band of a later instant goes out, or no band
 ///   follows for a moment. Showing each band as it decodes would show the top one ahead of the others.
-/// - [`Priority`] decides whether units whose reference was lost are emitted after a loss. A buffer overflow always waits for a keyframe.
+/// - For H.264, [`Priority`] decides whether units whose reference was lost are emitted after a loss, and a buffer overflow always waits for a keyframe.
 /// - After a loss in one band, the screen is not shown until that band has an intact picture again, as on Apple's client.
 ///   The other bands keep decoding meanwhile, so the screen comes back whole rather than one band behind the others.
 pub struct Group {
@@ -257,9 +259,11 @@ impl Group {
         }
     }
 
-    // A unit of `band` was lost. When favoring quality, wait for a keyframe.
+    // A unit of `band` was lost. When favoring quality, H.264 waits for a keyframe. HEVC keeps going: its references
+    // tell which pictures are broken, the screen waits for the band to be intact, and the server answers with pictures
+    // predicted from acknowledged ones, which waiting for a keyframe would throw away.
     fn lose(&mut self, band: usize, overflow: bool) {
-        self.awaiting_keyframe |= overflow || self.priority == Priority::Quality;
+        self.awaiting_keyframe |= self.references.is_none() && (overflow || self.priority == Priority::Quality);
 
         if let Some(broken) = self.broken.get_mut(band) {
             *broken = true;
