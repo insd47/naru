@@ -123,7 +123,7 @@ class MainActivity : ComponentActivity() {
                 if (adding) AddDialog(onConnect = { adding = false; connect(Host(address = it)) }, onDismiss = { adding = false })
                 editing?.let { EditDialog(it, onSave = { edited -> save(edited); editing = null }, onDismiss = { editing = null }) }
                 signingIn?.let { Login(it) }
-                (state as? SessionService.State.Failed)?.takeIf { it.failure !is Failure.Rejected }?.let { Failure(it) }
+                (state as? SessionService.State.Failed)?.takeIf { it.failure !is Failure.Rejected }?.let { FailureDialog(it) }
             }
         }
 
@@ -194,10 +194,11 @@ class MainActivity : ComponentActivity() {
         Group {
             itemsIndexed(hosts, key = { _, host -> host.id }) { index, host ->
                 val active = state?.takeIf { it.host.id == host.id }
-                val disconnect: (() -> Unit)? = if (active != null) ({ service?.close() }) else null
-                val primary = when (disconnect) {
-                    null -> Action("Connect", Icons.Outlined.ScreenShare) { connect(host) }
-                    else -> Action("Disconnect", Icons.Outlined.Close, disconnect)
+                val disconnect: (() -> Unit)? = active?.let { { service?.close() } }
+                val primary = if (disconnect == null) {
+                    Action("Connect", Icons.Outlined.ScreenShare) { connect(host) }
+                } else {
+                    Action("Disconnect", Icons.Outlined.Close, disconnect)
                 }
 
                 Entry(
@@ -315,7 +316,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun Failure(failed: SessionService.State.Failed) {
+    private fun FailureDialog(failed: SessionService.State.Failed) {
         val host = failed.host
         val keyChanged = failed.failure is Failure.KeyChanged
         val close: () -> Unit = { service?.dismiss() }
@@ -371,12 +372,11 @@ class MainActivity : ComponentActivity() {
     private fun open(host: Host, credentials: SessionService.Credentials) {
         val bound = service ?: return
 
-        bound.dismiss()
         opening = host.id
         bound.open(host, credentials, if (host.virtualDisplay) virtualDisplay() else null)
     }
 
-    // Opens the session screen on successful authentication and shows a wrong password in the login dialog. [Failure] shows other failures.
+    // Opens the session screen on successful authentication and shows a wrong password in the login dialog. [FailureDialog] shows other failures.
     private fun react(state: SessionService.State?) {
         when (state) {
             is SessionService.State.Connected -> if (opening == state.host.id) {

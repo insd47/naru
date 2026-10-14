@@ -60,7 +60,6 @@ class Connection(config: Config, private val listener: Listener) {
     /** `true` if sent; `false` without sending if it exceeds the size limit */
     fun clipboard(text: String): Boolean = session.clipboard(text)
 
-
     fun resize(mode: DisplayMode) = session.resize(mode)
 
     fun disconnect() = session.disconnect()
@@ -131,5 +130,4 @@ class Connection(config: Config, private val listener: Listener) {
         is Event.AudioConfig -> "Audio config, ${event.config.size} bytes, decoder ${if (audio != null) "available" else "unavailable"}"
         else -> event.javaClass.simpleName
     }
-
 }

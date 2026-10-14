@@ -2,6 +2,8 @@ package dev.insd.naru
 
 import android.content.Context
 import androidx.compose.runtime.mutableStateOf
+import kotlin.properties.ReadWriteProperty
+import kotlin.reflect.KProperty
 
 /**
  * Settings shared by every Mac, stored in the app's private preferences file.
@@ -10,27 +12,21 @@ import androidx.compose.runtime.mutableStateOf
  */
 class Preferences(context: Context) {
     private val store = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-    private val swapState = mutableStateOf(store.getBoolean(SWAP_COMMAND_OPTION, true))
-    private val syncState = mutableStateOf(store.getBoolean(SYNC_KEYBOARD_LANGUAGE, false))
 
     /** Whether to send Alt as Command and Meta (the Windows key) as Option. When on, the keys sit where they do on a Mac keyboard. */
-    var swapCommandOption: Boolean
-        get() = swapState.value
-        set(value) {
-            swapState.value = value
-            store.edit().putBoolean(SWAP_COMMAND_OPTION, value).apply()
-        }
+    var swapCommandOption by stored("swapCommandOption", default = true)
 
     /** Whether the Mac's input source follows the tablet's input language. Off by default, as in the Screen Sharing app. */
-    var syncKeyboardLanguage: Boolean
-        get() = syncState.value
-        set(value) {
-            syncState.value = value
-            store.edit().putBoolean(SYNC_KEYBOARD_LANGUAGE, value).apply()
-        }
+    var syncKeyboardLanguage by stored("syncKeyboardLanguage", default = false)
 
-    companion object {
-        private const val SWAP_COMMAND_OPTION = "swapCommandOption"
-        private const val SYNC_KEYBOARD_LANGUAGE = "syncKeyboardLanguage"
+    private fun stored(key: String, default: Boolean) = object : ReadWriteProperty<Any?, Boolean> {
+        private val state = mutableStateOf(store.getBoolean(key, default))
+
+        override fun getValue(thisRef: Any?, property: KProperty<*>): Boolean = state.value
+
+        override fun setValue(thisRef: Any?, property: KProperty<*>, value: Boolean) {
+            state.value = value
+            store.edit().putBoolean(key, value).apply()
+        }
     }
 }

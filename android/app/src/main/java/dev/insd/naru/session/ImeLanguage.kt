@@ -15,7 +15,7 @@ import dev.insd.naru.TAG
  * - One UI handles the Korean/English key, so [sync] rereads the language after it is pressed. The selected IME subtype is also observed in case the system consumes the key.
  * - Call only on the main thread.
  */
-class ImeLanguage(private val context: Context, private val onChange: (String) -> Unit = {}) {
+class ImeLanguage(private val context: Context, private val onChange: (String) -> Unit) {
     private val handler = Handler(Looper.getMainLooper())
 
     /** The current input language, empty when the IME reports none */

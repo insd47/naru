@@ -9,10 +9,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
-import kotlinx.coroutines.launch
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -20,8 +19,9 @@ import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import dev.insd.naru.home.Group
+import kotlinx.coroutines.launch
 
-/** Settings screen shared by every Mac. The key mapping is an on/off toggle as in Parsec. */
+/** Settings screen shared by every Mac */
 @Composable
 fun Settings(preferences: Preferences) {
     val context = LocalContext.current
@@ -32,33 +32,23 @@ fun Settings(preferences: Preferences) {
         item { Section("Keyboard") }
 
         item {
-            SegmentedListItem(
-                onClick = { preferences.swapCommandOption = !preferences.swapCommandOption },
-                shapes = ListItemDefaults.segmentedShapes(0, 1),
-                colors = ListItemDefaults.segmentedColors(),
-                modifier = Modifier.semantics {
-                    role = Role.Switch
-                    toggleableState = ToggleableState(preferences.swapCommandOption)
-                },
-                supportingContent = { Text("Alt sends Command and the Windows key sends Option, matching the keys on a Mac keyboard.") },
-                trailingContent = { Switch(checked = preferences.swapCommandOption, onCheckedChange = null) },
-            ) { Text("Swap Alt and Command") }
+            SwitchItem(
+                "Swap Alt and Command",
+                "Alt sends Command and the Windows key sends Option, matching the keys on a Mac keyboard.",
+                preferences.swapCommandOption,
+                index = 0,
+                count = 2,
+            ) { preferences.swapCommandOption = it }
         }
 
         item {
-            SegmentedListItem(
-                onClick = { preferences.syncKeyboardLanguage = !preferences.syncKeyboardLanguage },
-                shapes = ListItemDefaults.segmentedShapes(0, 2),
-                colors = ListItemDefaults.segmentedColors(),
-                modifier = Modifier.semantics {
-                    role = Role.Switch
-                    toggleableState = ToggleableState(preferences.syncKeyboardLanguage)
-                },
-                supportingContent = {
-                    Text("The Mac switches its input source with the tablet's language. Works best with one language besides English on the Mac.")
-                },
-                trailingContent = { Switch(checked = preferences.syncKeyboardLanguage, onCheckedChange = null) },
-            ) { Text("Sync Keyboard Language") }
+            SwitchItem(
+                "Sync Keyboard Language",
+                "The Mac switches its input source with the tablet's language. Works best with one language besides English on the Mac.",
+                preferences.syncKeyboardLanguage,
+                index = 1,
+                count = 2,
+            ) { preferences.syncKeyboardLanguage = it }
         }
 
         item { Section("Help") }
@@ -100,4 +90,20 @@ private fun Section(title: String) {
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
     )
+}
+
+// A list item that turns a setting on or off, which accessibility services read as a switch
+@Composable
+private fun SwitchItem(title: String, summary: String, checked: Boolean, index: Int, count: Int, onChange: (Boolean) -> Unit) {
+    SegmentedListItem(
+        onClick = { onChange(!checked) },
+        shapes = ListItemDefaults.segmentedShapes(index, count),
+        colors = ListItemDefaults.segmentedColors(),
+        modifier = Modifier.semantics {
+            role = Role.Switch
+            toggleableState = ToggleableState(checked)
+        },
+        supportingContent = { Text(summary) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = null) },
+    ) { Text(title) }
 }

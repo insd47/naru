@@ -102,19 +102,19 @@ class Keys(swapCommandOption: Boolean) {
         val latin = if (combined in 0x20..0x7e || combined in 0xa0..0xff) combined else 0x0100_0000 + combined
 
         // Shortcuts send the Latin key itself.
-        val commandLike = KeyEvent.META_CTRL_ON or KeyEvent.META_ALT_ON or KeyEvent.META_META_ON
-        if (event.metaState and commandLike != 0) return latin
+        if (event.metaState and SHORTCUT != 0) return latin
 
         return character(latin.toUInt(), language, source)?.toInt() ?: latin
     }
 
     private fun char(event: KeyEvent): Int {
-        val commandLike = KeyEvent.META_CTRL_ON or KeyEvent.META_ALT_ON or KeyEvent.META_META_ON
-        val meta = if (event.metaState and commandLike != 0) 0 else event.metaState and KeyEvent.META_SHIFT_MASK
+        val meta = if (event.metaState and SHORTCUT != 0) 0 else event.metaState and KeyEvent.META_SHIFT_MASK
         return event.keyCharacterMap.get(event.keyCode, meta)
     }
 
     companion object {
+        private const val SHORTCUT = KeyEvent.META_CTRL_ON or KeyEvent.META_ALT_ON or KeyEvent.META_META_ON
+
         // Super_L/R are confirmed as Command and Meta_L as Option. Meta_R mirrors Meta_L and is unverified.
         private const val COMMAND_LEFT = 0xffeb
         private const val COMMAND_RIGHT = 0xffec
