@@ -6,8 +6,9 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 // How long an access unit with a sequence gap waits for the missing packets. The server does not retransmit, so only
-// packets that arrive out of order fill a gap, and those are milliseconds late.
-const HOLD: Duration = Duration::from_millis(75);
+// packets that arrive out of order fill a gap. Captures of Apple's client on a lossy LAN had none, and on a lossy path
+// nearly every picture has a gap, so waiting longer only delays the screen.
+const HOLD: Duration = Duration::from_millis(20);
 
 // Beyond this many buffered packets, everything is treated as lost and dropped.
 const MAX_BUFFERED: usize = 4096;

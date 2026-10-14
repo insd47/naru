@@ -21,10 +21,8 @@ const KEYFRAME_BACKOFF_LIMIT: Duration = Duration::from_secs(2);
 const QUIET_AFTER: Duration = Duration::from_millis(1500);
 
 // Apple's client asks for a refresh about once a frame while packets go missing, and stops as soon as they do not.
-// Each answer is a picture predicted from older ones, larger than usual, so asking more only loses more of them. A band
-// that broke on a still screen has nothing coming to replace it, so it is asked for slowly until it is intact.
+// Each answer is a picture predicted from older ones, larger than usual, so asking more only loses more of them.
 const REFRESH_INTERVAL: Duration = Duration::from_millis(16);
-const STILL_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
 
 // Frame stall recovery. The server sends no video for a still screen, so recovery only runs when packets arrived recently.
 const STALL_KEYFRAME: Duration = Duration::from_secs(3);
@@ -294,7 +292,7 @@ impl Media {
         }
 
         if self.codec == VideoCodec::Hevc && self.missing > self.refreshed_missing {
-            self.request_refresh(now, REFRESH_INTERVAL).await;
+            self.request_refresh(now).await;
         }
     }
 
@@ -392,7 +390,7 @@ impl Media {
         }
     }
 
-    /// Sends the receiver feedback, every 50 ms once video has arrived, and a refresh request while a band recovers.
+    /// Sends the receiver feedback, every 50 ms once video has arrived.
     pub async fn feedback(&mut self, now: Instant) {
         let Some(last_packet) = self.last_packet else {
             return;
@@ -410,11 +408,6 @@ impl Media {
 
         self.send_video_rtcp(&rtcp::rate_feedback(self.video_ssrc, &feedback))
             .await;
-
-        // A still screen sends nothing to drain, so a band that broke on it is asked for here.
-        if !self.active(now) && self.group.as_ref().is_some_and(Group::recovering) {
-            self.request_refresh(now, STILL_REFRESH_INTERVAL).await;
-        }
     }
 
     /// Requests a keyframe, unless within the minimum interval, the server is quiet, or there is no stream yet.
@@ -443,11 +436,11 @@ impl Media {
         }
     }
 
-    // Asks for a picture that predicts only from intact ones, at most once per `interval`.
-    async fn request_refresh(&mut self, now: Instant, interval: Duration) {
+    // Asks for a picture that predicts only from intact ones, at most once a frame.
+    async fn request_refresh(&mut self, now: Instant) {
         if self
             .last_refresh_request
-            .is_some_and(|last| now.duration_since(last) < interval)
+            .is_some_and(|last| now.duration_since(last) < REFRESH_INTERVAL)
         {
             return;
         }

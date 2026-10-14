@@ -63,9 +63,8 @@ pub struct Group {
     released: Option<u64>,
     config: Option<DecoderConfig>,
     awaiting_keyframe: bool,
-    // Which pictures decode intact (HEVC only), and per band whether its latest picture does not
+    // Which pictures decode intact (HEVC only)
     references: Option<References>,
-    broken: Vec<bool>,
     outputs: VecDeque<Assembled>,
     // RTP timestamp of the instant whose bands are going out, and when the last of them went out
     instant: Option<(u32, Instant)>,
@@ -94,7 +93,6 @@ impl Group {
             config: None,
             awaiting_keyframe: true,
             references,
-            broken: vec![false; usize::from(codec.bands())],
             bands,
             outputs: VecDeque::new(),
             instant: None,
@@ -121,11 +119,6 @@ impl Group {
         self.outputs.pop_front()
     }
 
-    /// Whether a band lost a picture and has had no intact one since
-    pub fn recovering(&self) -> bool {
-        self.broken.iter().any(|broken| *broken)
-    }
-
     /// When `next()` must be called again, or `None` when nothing is waiting
     pub fn deadline(&self) -> Option<Instant> {
         let waiting = self.waiting.values().map(|waiting| waiting.since + MAX_WAIT).min();
@@ -145,8 +138,8 @@ impl Group {
                     Reassembled::Config(config) => self.announce(config),
                     Reassembled::Unit(unit, None) => self.admit(unit, None, now),
                     Reassembled::Unit(unit, Some(donl)) => self.queue(unit, donl, now),
-                    Reassembled::Lost => self.lose(band, false),
-                    Reassembled::Overflow => self.lose(band, true),
+                    Reassembled::Lost => self.lose(false),
+                    Reassembled::Overflow => self.lose(true),
                 }
             }
         }
@@ -159,6 +152,16 @@ impl Group {
         {
             self.end_instant();
         }
+
+        // Instants let out together, after a gap held them back, show only the latest screen, as Apple's client resumes
+        // from the newest picture rather than replaying the ones in between.
+        if let Some(last) = self.outputs.iter().rposition(|output| *output == Assembled::Present) {
+            let mut index = 0;
+            self.outputs.retain(|output| {
+                index += 1;
+                *output != Assembled::Present || index - 1 == last
+            });
+        }
     }
 
     // A unit arriving after a later one already went ahead without it can no longer be decoded in order, so it counts as lost.
@@ -167,7 +170,7 @@ impl Group {
         let key = sequence::extend(donl, highest);
 
         if self.released.is_some_and(|released| key <= released) {
-            self.lose(usize::from(unit.band), false);
+            self.lose(false);
             return;
         }
 
@@ -212,15 +215,10 @@ impl Group {
         }
 
         // Headers that cannot be read leave the picture counted as intact, as before references were followed.
-        let band = usize::from(unit.band);
         let intact = self
             .references
             .as_mut()
             .is_none_or(|references| references.intact(&unit.nals).unwrap_or(true));
-
-        if let Some(broken) = self.broken.get_mut(band) {
-            *broken = !intact;
-        }
 
         unit.intact = intact;
 
@@ -255,15 +253,11 @@ impl Group {
         }
     }
 
-    // A unit of `band` was lost. When favoring quality, H.264 waits for a keyframe. HEVC keeps going: its references
+    // A unit was lost. When favoring quality, H.264 waits for a keyframe. HEVC keeps going: its references
     // tell which pictures are broken, and the server answers with pictures predicted from acknowledged ones, which
     // waiting for a keyframe would throw away.
-    fn lose(&mut self, band: usize, overflow: bool) {
+    fn lose(&mut self, overflow: bool) {
         self.awaiting_keyframe |= self.references.is_none() && (overflow || self.priority == Priority::Quality);
-
-        if let Some(broken) = self.broken.get_mut(band) {
-            *broken = true;
-        }
 
         self.outputs.push_back(Assembled::Lost);
     }
