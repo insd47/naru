@@ -144,6 +144,8 @@ pub struct MediaStats {
     pub datagrams: u64,
     /// RTP packets among them that passed SRTP authentication
     pub authenticated: u64,
+    /// Size of the largest of those datagrams. A path with a smaller MTU, such as a VPN, drops larger ones.
+    pub largest_bytes: u32,
     /// SSRC currently being decoded
     pub ssrc: Option<u32>,
     /// Highest extended sequence number received on that SSRC
@@ -342,7 +344,7 @@ async fn attempts(config: &Config, commands: &mut mpsc::UnboundedReceiver<Comman
     loop {
         let result = attempt_session(config, codec, commands, events).await;
 
-        if !matches!(result, Err(Error::NoMedia { .. })) || attempt == ATTEMPTS {
+        if !matches!(result, Err(Error::NoMedia(_))) || attempt == ATTEMPTS {
             return result;
         }
 

@@ -339,12 +339,7 @@ impl Engine {
     // When media does not start, reset the connection immediately (RST). Reconnecting only works once no session lingers on the server.
     fn abort(&self) -> Error {
         self.control.abort();
-        let stats = self.media.stats(self.negotiation.offers());
-
-        Error::NoMedia {
-            datagrams: stats.datagrams,
-            authenticated: stats.authenticated,
-        }
+        Error::NoMedia(self.media.stats(self.negotiation.offers()))
     }
 }
 

@@ -220,7 +220,7 @@ impl From<&Error> for Failure {
             Error::OtherUser(name) => Self::OtherUser { name: name.clone() },
             Error::Io(_) | Error::Resolve(_) | Error::Timeout => Self::Unreachable,
             Error::Unsupported => Self::Unsupported,
-            Error::NoMedia { .. } => Self::NoMedia,
+            Error::NoMedia(_) => Self::NoMedia,
             _ => Self::Other,
         }
     }

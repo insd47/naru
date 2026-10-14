@@ -31,13 +31,15 @@ pub enum Error {
     Integrity,
     #[error("the server changed keys during the session")]
     Rekey,
-    /// The server never started sending video; the two counts tell the causes apart.
+    /// The server never started sending video; the reception stats tell the causes apart.
     ///
     /// - Zero `datagrams` means no UDP arrived (firewall, port, NAT); zero `authenticated` means the SRTP keys or port pairing don't match.
+    /// - Packets arriving without a start, with losses and a small `largest_bytes`, point at a path that drops large packets.
     #[error(
-        "the server never started sending video ({datagrams} datagrams received, {authenticated} passed SRTP authentication)"
+        "the server never started sending video ({} datagrams received, {} passed SRTP authentication, largest {} bytes, {} NACKed, {} lost, {} other streams)",
+        .0.datagrams, .0.authenticated, .0.largest_bytes, .0.nacked, .0.losses, .0.candidates
     )]
-    NoMedia { datagrams: u64, authenticated: u64 },
+    NoMedia(crate::MediaStats),
     #[error("the session has already ended")]
     Closed,
     #[error("connection failed at the {stage} stage")]

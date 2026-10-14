@@ -94,6 +94,7 @@ pub struct Media {
     // Counts for diagnosing why media did not start.
     datagrams: u64,
     authenticated: u64,
+    largest_bytes: u32,
     // Sequence numbers NACKed, packets filled by previous assemblers, and unrecovered losses
     nacked: u64,
     filled: u64,
@@ -134,6 +135,7 @@ impl Media {
             fir_sequence: 0,
             datagrams: 0,
             authenticated: 0,
+            largest_bytes: 0,
             nacked: 0,
             filled: 0,
             losses: 0,
@@ -151,6 +153,9 @@ impl Media {
         }
 
         self.datagrams += 1;
+        self.largest_bytes = self
+            .largest_bytes
+            .max(u32::try_from(datagram.len()).unwrap_or(u32::MAX));
 
         if RtpPacket::is_rtcp(datagram) {
             return;
@@ -300,6 +305,7 @@ impl Media {
         MediaStats {
             datagrams: self.datagrams,
             authenticated: self.authenticated,
+            largest_bytes: self.largest_bytes,
             ssrc,
             highest: ssrc.and_then(|ssrc| self.receive.highest_received(ssrc)),
             candidates: u32::try_from(self.streams.candidates()).unwrap_or(u32::MAX),

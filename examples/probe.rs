@@ -176,6 +176,7 @@ async fn session(args: Args) -> Result<()> {
     let mut closing = false;
     let mut decoder: Option<DecoderConfig> = None;
     let (mut frames, mut keyframes, mut bytes) = (0u64, 0u64, 0usize);
+    let mut largest_bytes = 0;
 
     loop {
         let event = tokio::select! {
@@ -249,6 +250,7 @@ async fn session(args: Args) -> Result<()> {
                     out.write_all(&unit.annex_b())?;
                 }
             }
+            Event::Stats(stats) => largest_bytes = stats.largest_bytes,
             Event::InputSource(source) => {
                 println!("[{at}] input source: {} (secure input {})", source.id, source.secure)
             }
@@ -262,7 +264,10 @@ async fn session(args: Args) -> Result<()> {
         out.flush()?;
     }
 
-    println!("{frames} frames ({keyframes} keyframes), {} KiB", bytes >> 10);
+    println!(
+        "{frames} frames ({keyframes} keyframes), {} KiB, largest video datagram {largest_bytes} bytes",
+        bytes >> 10
+    );
     Ok(())
 }
 
