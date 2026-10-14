@@ -70,7 +70,7 @@ runs one loop over three inputs: control messages from the Mac, UDP datagrams, a
   otherwise trades latency for quality according to the `Priority` the app chose for its decoder. For HEVC it reads
   each picture's reference set (`media::References`) to tell which pictures decode intact, as Apple's client does:
   it acknowledges (LTR) only intact pictures, which tells the Mac what it may predict from, and asks for a refresh
-  about once a frame while a band is broken. Every picture still goes to the decoder, marked `AccessUnit::intact`; the
+  about once a frame while packets go missing. Every picture still goes to the decoder, marked `AccessUnit::intact`; the
   apps show only intact ones, so a broken band keeps its last intact picture until the Mac answers with a picture
   predicted from acknowledged ones, and the screen recovers without a keyframe.
 - Every 50 ms `media` also sends the receiver feedback Apple's client sends (`RCTL`): what arrived, and the bandwidth

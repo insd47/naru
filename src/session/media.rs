@@ -20,9 +20,11 @@ const KEYFRAME_INTERVAL: Duration = Duration::from_millis(250);
 const KEYFRAME_BACKOFF_LIMIT: Duration = Duration::from_secs(2);
 const QUIET_AFTER: Duration = Duration::from_millis(1500);
 
-// While a band recovers from a loss, Apple's client asks for a refresh about once a frame. Each answer is a small
-// picture predicted from ones it acknowledged, so asking often costs little.
+// Apple's client asks for a refresh about once a frame while packets go missing, and stops as soon as they do not.
+// Each answer is a picture predicted from older ones, larger than usual, so asking more only loses more of them. A band
+// that broke on a still screen has nothing coming to replace it, so it is asked for slowly until it is intact.
 const REFRESH_INTERVAL: Duration = Duration::from_millis(16);
+const STILL_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
 
 // Frame stall recovery. The server sends no video for a still screen, so recovery only runs when packets arrived recently.
 const STALL_KEYFRAME: Duration = Duration::from_secs(3);
@@ -88,6 +90,8 @@ pub struct Media {
     group: Option<Group>,
     last_keyframe_request: Option<Instant>,
     last_refresh_request: Option<Instant>,
+    // Missing sequence numbers counted when the last refresh was asked for
+    refreshed_missing: u64,
     // An H.264 unit was lost and no keyframe has arrived since. H.264 recovers only from a keyframe, so requests repeat
     // until one arrives rather than going out once and possibly being swallowed by the rate limit.
     awaiting_keyframe: bool,
@@ -141,6 +145,7 @@ impl Media {
             group: None,
             last_keyframe_request: None,
             last_refresh_request: None,
+            refreshed_missing: 0,
             awaiting_keyframe: false,
             fir_sequence: 0,
             unanswered: 0,
@@ -282,14 +287,14 @@ impl Media {
             }
         }
 
-        // Asked on every drain until a keyframe arrives, or until every band is intact again. The intervals space the
+        // Asked on every drain until a keyframe arrives, or while HEVC packets go missing. The intervals space the
         // requests out.
         if self.awaiting_keyframe {
             self.request_keyframe(now).await;
         }
 
-        if self.group.as_ref().is_some_and(Group::recovering) {
-            self.request_refresh(now).await;
+        if self.codec == VideoCodec::Hevc && self.missing > self.refreshed_missing {
+            self.request_refresh(now, REFRESH_INTERVAL).await;
         }
     }
 
@@ -407,8 +412,8 @@ impl Media {
             .await;
 
         // A still screen sends nothing to drain, so a band that broke on it is asked for here.
-        if self.group.as_ref().is_some_and(Group::recovering) {
-            self.request_refresh(now).await;
+        if !self.active(now) && self.group.as_ref().is_some_and(Group::recovering) {
+            self.request_refresh(now, STILL_REFRESH_INTERVAL).await;
         }
     }
 
@@ -438,15 +443,16 @@ impl Media {
         }
     }
 
-    // Asks for a picture that predicts only from intact ones, at most once a frame. It goes out on a still screen too,
-    // where nothing else would ever replace the band that broke.
-    async fn request_refresh(&mut self, now: Instant) {
+    // Asks for a picture that predicts only from intact ones, at most once per `interval`.
+    async fn request_refresh(&mut self, now: Instant, interval: Duration) {
         if self
             .last_refresh_request
-            .is_some_and(|last| now.duration_since(last) < REFRESH_INTERVAL)
+            .is_some_and(|last| now.duration_since(last) < interval)
         {
             return;
         }
+
+        self.refreshed_missing = self.missing;
 
         // Before the first decoder config the size is not known yet and goes out as 0.
         let size = self.picture_size.unwrap_or((0, 0));
