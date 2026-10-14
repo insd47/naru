@@ -13,9 +13,10 @@ use tokio::net::UdpSocket;
 const RECEIVE_BUFFER_BYTES: usize = 4 << 20;
 const PUNCH_INTERVAL: Duration = Duration::from_millis(100);
 
-// Minimum interval between keyframe requests. A server quiet for longer than `QUIET_AFTER` is idling on a still screen, so no request is sent.
-// A request still unanswered is repeated at doubling intervals up to `KEYFRAME_BACKOFF_LIMIT`: each answer is the largest
-// frame there is, and on a lossy path asking again before it can arrive only adds keyframes that are lost the same way.
+// Minimum interval between keyframe requests. A server quiet for longer than `QUIET_AFTER` is idling on a still screen,
+// so no request is sent. A request still unanswered is repeated at doubling intervals up to `KEYFRAME_BACKOFF_LIMIT`:
+// each answer is the largest frame there is, and on a lossy path asking again before it can arrive only adds keyframes
+// that are lost the same way.
 const KEYFRAME_INTERVAL: Duration = Duration::from_millis(250);
 const KEYFRAME_BACKOFF_LIMIT: Duration = Duration::from_secs(2);
 const QUIET_AFTER: Duration = Duration::from_millis(1500);
@@ -24,7 +25,8 @@ const QUIET_AFTER: Duration = Duration::from_millis(1500);
 // Each answer is a picture predicted from older ones, larger than usual, so asking more only loses more of them.
 const REFRESH_INTERVAL: Duration = Duration::from_millis(16);
 
-// Frame stall recovery. The server sends no video for a still screen, so recovery only runs when packets arrived recently.
+// Frame stall recovery. The server sends no video for a still screen, so recovery only runs when packets arrived
+// recently.
 const STALL_KEYFRAME: Duration = Duration::from_secs(3);
 const STALL_KEYFRAME_REPEAT: Duration = Duration::from_millis(1500);
 const STALL_RESETS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(15)];
@@ -50,7 +52,8 @@ impl Sockets {
         })
     }
 
-    /// Sends one byte from each socket to the server's matching port until the handshake ends. The server ignores these packets.
+    /// Sends one byte from each socket to the server's matching port until the handshake ends. The server ignores these
+    /// packets.
     pub async fn punch(self) {
         let mut interval = tokio::time::interval(PUNCH_INTERVAL);
 
@@ -81,7 +84,8 @@ pub struct Media {
     audio_receive: SrtpContext,
     // SSRC of the audio stream whose decoder config was announced. The server restarts audio with a new SSRC on resize.
     audio_stream: Option<u32>,
-    // Video RTCP goes out with the video key and audio RTCP with the audio key, as the server checks each port with its own.
+    // Video RTCP goes out with the video key and audio RTCP with the audio key, as the server checks each port with its
+    // own.
     video_send: SrtpContext,
     audio_send: SrtpContext,
     streams: Streams,
@@ -197,7 +201,8 @@ impl Media {
         let packets = match self.streams.route(packet, now) {
             Routed::Current(packet) => vec![packet],
             Routed::Switched { base, packets } => {
-                // A new group is a new decoder generation. Wait for a new config and keyframe so it never mixes with the previous generation's references.
+                // A new group is a new decoder generation. Wait for a new config and keyframe so it never mixes with
+                // the previous generation's references.
                 self.filled += self.group.as_ref().map_or(0, Group::filled);
                 self.group = Some(Group::new(self.codec, base, self.priority));
                 self.configured = false;
@@ -270,7 +275,8 @@ impl Media {
                         self.acknowledging = true;
                     }
 
-                    // Like Apple's client, every band's intact pictures are acknowledged, and none predicted from a lost one.
+                    // Like Apple's client, every band's intact pictures are acknowledged, and none predicted from a
+                    // lost one.
                     if let Some(donl) = donl.filter(|_| unit.intact && self.acknowledging) {
                         self.acknowledge(donl).await;
                     }
@@ -312,7 +318,8 @@ impl Media {
             .is_some_and(|last| now.duration_since(last) <= QUIET_AFTER)
     }
 
-    /// Watches for frame stalls. When packets arrive but frames stop, it requests a keyframe, and if that lasts, has the decoder recreated.
+    /// Watches for frame stalls. When packets arrive but frames stop, it requests a keyframe, and if that lasts, has
+    /// the decoder recreated.
     ///
     /// - `answered` is when the media answer arrived. Until the first frame, the stall is measured from then.
     pub async fn watch(&mut self, now: Instant, answered: Instant, events: &mut Vec<Event>) {
@@ -412,7 +419,8 @@ impl Media {
 
     /// Requests a keyframe, unless within the minimum interval, the server is quiet, or there is no stream yet.
     ///
-    /// - It does not decide whether to drop frames until the keyframe. The group decides after a loss, and the native layer after recreating the decoder.
+    /// - It does not decide whether to drop frames until the keyframe. The group decides after a loss, and the native
+    ///   layer after recreating the decoder.
     pub async fn request_keyframe(&mut self, now: Instant) {
         let recent = self
             .last_keyframe_request

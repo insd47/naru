@@ -159,7 +159,8 @@ impl Proof {
     }
 }
 
-// Reads a big number after stripping leading zeros. Values longer than 512 bytes are accepted if the excess is leading zeros.
+// Reads a big number after stripping leading zeros. Values longer than 512 bytes are accepted if the excess is leading
+// zeros.
 fn number(bytes: &[u8]) -> Result<BigUint> {
     let start = bytes.iter().position(|&byte| byte != 0).unwrap_or(bytes.len());
 
@@ -226,7 +227,8 @@ mod tests {
         body
     }
 
-    // 2^127 - 1 is prime. SRP's identities hold for any prime modulus, so this checks the math without copying the group constant.
+    // 2^127 - 1 is prime. SRP's identities hold for any prime modulus, so this checks the math without copying the
+    // group constant.
     fn prime() -> BigUint {
         (BigUint::from(1u8) << 127usize) - BigUint::from(1u8)
     }

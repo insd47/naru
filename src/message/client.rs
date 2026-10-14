@@ -60,7 +60,8 @@ pub fn set_encodings() -> Vec<u8> {
 /// Builds a framebuffer update request.
 ///
 /// - Screen pixels arrive over UDP, so this request only keeps the server sending cursor and layout updates over TCP.
-/// - Repeated incremental requests for a large area make the server start sending video over TCP, so periodic requests are 1×1.
+/// - Repeated incremental requests for a large area make the server start sending video over TCP, so periodic requests
+///   are 1×1.
 pub fn framebuffer_request(incremental: bool, width: u16, height: u16) -> [u8; 10] {
     let [width_high, width_low] = width.to_be_bytes();
     let [height_high, height_low] = height.to_be_bytes();

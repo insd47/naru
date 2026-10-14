@@ -42,7 +42,8 @@ impl RtpPacket {
         packet
     }
 
-    /// Length of the header (fixed header, CSRCs, header extension), or `None` if the version isn't 2 or the packet is truncated
+    /// Length of the header (fixed header, CSRCs, header extension), or `None` if the version isn't 2 or the packet is
+    /// truncated
     pub fn header_len(packet: &[u8]) -> Option<usize> {
         let first = *packet.first()?;
 
@@ -60,7 +61,8 @@ impl RtpPacket {
         (len <= packet.len()).then_some(len)
     }
 
-    /// Tells RTP and RTCP apart on a shared port (RFC 5761): it is RTCP if the low 7 bits of the second byte are 64 to 95.
+    /// Tells RTP and RTCP apart on a shared port (RFC 5761): it is RTCP if the low 7 bits of the second byte are 64 to
+    /// 95.
     pub fn is_rtcp(packet: &[u8]) -> bool {
         matches!(packet, [first, second, ..] if first >> 6 == 2 && (64..=95).contains(&(second & 0x7f)))
     }

@@ -32,7 +32,8 @@ pub struct Cursors {
 impl Cursors {
     /// Applies one cursor rectangle and returns the resulting shape.
     ///
-    /// - The server occasionally selects an id that was never stored. That returns `None`, and the previous shape should stay.
+    /// - The server occasionally selects an id that was never stored. That returns `None`, and the previous shape
+    ///   should stay.
     pub fn apply(
         &mut self,
         hotspot: (u16, u16),

@@ -16,7 +16,8 @@ const TAG_BYTES: usize = 20;
 const MAX_CIPHERTEXT_BYTES: usize = u16::MAX as usize / BLOCK_BYTES * BLOCK_BYTES;
 const MAX_BODY_BYTES: usize = MAX_CIPHERTEXT_BYTES - 2 - TAG_BYTES;
 
-// When the tag doesn't match, nearby sequence numbers are tried in this order, because the server's sequence number has been seen to drift.
+// When the tag doesn't match, nearby sequence numbers are tried in this order, because the server's sequence number has
+// been seen to drift.
 const SEQUENCE_WINDOW: [i64; 7] = [0, -1, 1, 2, 3, 4, 5];
 
 /// Record layer keys unwrapped from the key exchange message. Both directions start with the same key and IV.
@@ -115,7 +116,8 @@ impl Opener {
 
     /// Takes out the body of the next complete record, if any.
     ///
-    /// - Returns `Integrity` when the tag matches no sequence number near the expected one; the connection must be dropped.
+    /// - Returns `Integrity` when the tag matches no sequence number near the expected one; the connection must be
+    ///   dropped.
     pub fn pop(&mut self) -> Result<Option<Vec<u8>>> {
         let Some(&[high, low]) = self.buffer.get(..2) else {
             return Ok(None);

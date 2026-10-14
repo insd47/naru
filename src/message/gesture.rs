@@ -21,8 +21,8 @@ const MAGNIFY_BYTES: usize = 36;
 /// A gesture phase. Scroll and magnify share the same values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum Phase {
-    /// Fingers touched the trackpad but have not moved yet. Followed by `Began` once they move, or `Cancelled` when they
-    /// lift without moving.
+    /// Fingers touched the trackpad but have not moved yet. Followed by `Began` once they move, or `Cancelled` when
+    /// they lift without moving.
     MayBegin = 128,
     Began = 1,
     Changed = 2,
@@ -80,7 +80,8 @@ impl Scroll {
 /// A magnify gesture.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Magnify {
-    /// Magnification since the previous event. Positive zooms in, negative zooms out, and the scale changes by a factor of `1 + magnification`.
+    /// Magnification since the previous event. Positive zooms in, negative zooms out, and the scale changes by a factor
+    /// of `1 + magnification`.
     pub magnification: f64,
     pub phase: Phase,
     /// Center of the magnification in pixels

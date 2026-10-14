@@ -19,7 +19,8 @@ const NAL_FU: u8 = 49;
 const IRAP: std::ops::RangeInclusive<u8> = 16..=21;
 
 impl DecoderConfig {
-    /// Builds a decoder config from the parameter sets in an access unit. Returns `None` if any of VPS, SPS, or PPS is missing.
+    /// Builds a decoder config from the parameter sets in an access unit. Returns `None` if any of VPS, SPS, or PPS is
+    /// missing.
     pub fn from_hevc(nals: &[Vec<u8>]) -> Option<Self> {
         let of = |kind| -> Vec<Vec<u8>> { nals.iter().filter(|nal| nal_type(nal) == Some(kind)).cloned().collect() };
         let (vps, sps, pps) = (of(NAL_VPS), of(NAL_SPS), of(NAL_PPS));
@@ -28,7 +29,8 @@ impl DecoderConfig {
             return None;
         }
 
-        // In the SPS profile_tier_level, general_profile_idc is the low 5 bits of the second byte and general_level_idc is the 13th byte.
+        // In the SPS profile_tier_level, general_profile_idc is the low 5 bits of the second byte and general_level_idc
+        // is the 13th byte.
         let rbsp = rbsp(sps.first()?.get(2..)?, 13);
         let profile = *rbsp.get(1)? & 0x1f;
         let level = *rbsp.get(12)?;
@@ -102,7 +104,8 @@ pub fn nal_type(nal: &[u8]) -> Option<u8> {
     (nal.len() >= 2).then(|| (nal[0] >> 1) & 0x3f)
 }
 
-/// Turns one access unit's payloads back into NAL units and the unit's DONL. Returns `None` if a fragment is missing or malformed.
+/// Turns one access unit's payloads back into NAL units and the unit's DONL. Returns `None` if a fragment is missing or
+/// malformed.
 pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<(Vec<Vec<u8>>, u16)> {
     let mut nals = Vec::new();
     let mut fragment: Option<Vec<u8>> = None;
@@ -135,7 +138,8 @@ pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<(
                 let header = payload[2];
                 let (start, end) = (header & 0x80 != 0, header & 0x40 != 0);
 
-                // The original NAL header is the payload header with its type bits replaced by the type from the FU header.
+                // The original NAL header is the payload header with its type bits replaced by the type from the FU
+                // header.
                 if start {
                     fragment.is_none().then_some(())?;
                     let mut nal = vec![(payload[0] & 0x81) | ((header & 0x3f) << 1), payload[1]];
@@ -275,7 +279,8 @@ mod tests {
         assert!(!is_keyframe(&[SPS.to_vec()]));
     }
 
-    // The captured SPS profile_tier_level contains two emulation prevention bytes; without removing them the level offset is wrong.
+    // The captured SPS profile_tier_level contains two emulation prevention bytes; without removing them the level
+    // offset is wrong.
     #[test]
     fn config_comes_from_in_band_parameter_sets() {
         let nals = [VPS.to_vec(), SPS.to_vec(), PPS.to_vec(), IDR.to_vec()];

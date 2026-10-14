@@ -34,7 +34,8 @@ pub struct Engine {
     cursors: Cursors,
     // Pixel size of the last layout. A change resends the offer.
     pixels: Option<(u16, u16)>,
-    // The latest resize asked before the first frame, sent once it arrives, since its framebuffer request derails the start
+    // The latest resize asked before the first frame, sent once it arrives, since its framebuffer request derails the
+    // start
     display: Option<Vec<u8>>,
     // An input source the Mac is switching to, holding keys until it reports it
     switching: Option<Switching>,
@@ -131,9 +132,11 @@ impl Engine {
         }
     }
 
-    // Requests sent right after the record layer turns on. After the offer, a non-incremental full-area request wakes the TCP side.
+    // Requests sent right after the record layer turns on. After the offer, a non-incremental full-area request wakes
+    // the TCP side.
     async fn start(&mut self, outgoing: &mut Vec<Event>) -> Result<()> {
-        // The encoding list is sent again over the record layer even though the plaintext prelude had it, matching Apple's client order.
+        // The encoding list is sent again over the record layer even though the plaintext prelude had it, matching
+        // Apple's client order.
         self.control.send(&client::set_encodings()).await?;
         self.control.send(&client::AUTO_CLIPBOARD).await?;
         self.control.send(&self.negotiation.start(Instant::now())).await?;
@@ -160,7 +163,8 @@ impl Engine {
             match message {
                 ServerMessage::FramebufferUpdate(rects) => self.rects(rects, now, outgoing).await?,
                 ServerMessage::ClipboardChanged => self.control.send(&client::clipboard_request()).await?,
-                // A malformed clipboard body does not misalign message boundaries, so only that content is dropped and the session stays up.
+                // A malformed clipboard body does not misalign message boundaries, so only that content is dropped and
+                // the session stays up.
                 ServerMessage::Clipboard(message) => {
                     if let Ok(Some(text)) = clipboard::text(&message) {
                         outgoing.push(Event::Clipboard(text));
@@ -173,7 +177,8 @@ impl Engine {
         Ok(())
     }
 
-    // A malformed rectangle body (cursor image, layout) drops only that rectangle; message boundaries were already checked.
+    // A malformed rectangle body (cursor image, layout) drops only that rectangle; message boundaries were already
+    // checked.
     async fn rects(&mut self, rects: Vec<Rect>, now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
         for rect in rects {
             match rect {
@@ -294,8 +299,8 @@ impl Engine {
                 None => Ok(()),
             },
             Command::Clipboard(message) => self.control.send(&message).await,
-            // A server gone quiet on a still screen ignores keyframe requests.
-            // Resend the offer instead; the server opens a new stream and sends a config and keyframe even for a still screen.
+            // A server gone quiet on a still screen ignores keyframe requests. Resend the offer instead; the server
+            // opens a new stream and sends a config and keyframe even for a still screen.
             Command::Keyframe if !self.media.active(now) => match self.negotiation.reoffer(now) {
                 Some(offer) => self.control.send(&offer).await,
                 None => Ok(()),
@@ -336,7 +341,8 @@ impl Engine {
             .await
     }
 
-    // Resend the same offer until an answer with a size arrives, giving up past the limit. After negotiation, send the deferred resend.
+    // Resend the same offer until an answer with a size arrives, giving up past the limit. After negotiation, send the
+    // deferred resend.
     async fn retry(&mut self, now: Instant) -> Result<()> {
         match self.negotiation.expire(now) {
             Some(offer) => self.control.send(&offer).await,
@@ -344,7 +350,8 @@ impl Engine {
         }
     }
 
-    // When media does not start, reset the connection immediately (RST). Reconnecting only works once no session lingers on the server.
+    // When media does not start, reset the connection immediately (RST). Reconnecting only works once no session
+    // lingers on the server.
     fn abort(&self) -> Error {
         self.control.abort();
         Error::NoMedia(self.media.stats(self.negotiation.offers()))

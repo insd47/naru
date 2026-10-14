@@ -1,6 +1,7 @@
 //! RTP payload of the server's audio.
 //!
-//! - AAC-ELD + SBR, 48 kHz stereo. Each RTP packet carries one access unit without an AU header (480 frames per packet).
+//! - AAC-ELD + SBR, 48 kHz stereo. Each RTP packet carries one access unit without an AU header (480 frames per
+//!   packet).
 //! - Silence is sent as four zero bytes, which can't be decoded, so they are skipped.
 use super::RtpPacket;
 

@@ -1,23 +1,28 @@
 use crate::offer::{Answer, Offer};
 use std::time::{Duration, Instant};
 
-// An answer without a size means the server's encoder is not ready yet, so the same offer is sent again.
-// Nothing is resent before an answer arrives. The server creates a stream per offer, so resending early spawns several streams and breaks the start.
+// An answer without a size means the server's encoder is not ready yet, so the same offer is sent again. Nothing is
+// resent before an answer arrives. The server creates a stream per offer, so resending early spawns several streams and
+// breaks the start.
 const RETRY: Duration = Duration::from_millis(200);
 const ATTEMPTS: u32 = 16;
 
-// How long to wait before resending when no answer arrives at all, and how many times. Answers normally take about 1.5 seconds.
+// How long to wait before resending when no answer arrives at all, and how many times. Answers normally take about 1.5
+// seconds.
 const TIMEOUT: Duration = Duration::from_secs(4);
 const SILENT_ATTEMPTS: u32 = 3;
 
-// Minimum interval between offers resent for keyframes after negotiation, so they do not overlap before the server opens a new stream. Requests within the interval are deferred.
+// Minimum interval between offers resent for keyframes after negotiation, so they do not overlap before the server
+// opens a new stream. Requests within the interval are deferred.
 const REOFFER_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Sends the media offer and waits for an answer with a size. It returns the messages to send; the caller sends them.
 ///
-/// - An answer without a size triggers a resend shortly after; no answer at all triggers one every [`TIMEOUT`]. It gives up past the attempt limits.
+/// - An answer without a size triggers a resend shortly after; no answer at all triggers one every [`TIMEOUT`]. It
+///   gives up past the attempt limits.
 /// - The count of silent timeouts restarts whenever an answer arrives.
-/// - Offers are also resent after negotiation (pixel size changes, keyframes while the screen is still). The server opens a new stream and sends a config and keyframe.
+/// - Offers are also resent after negotiation (pixel size changes, keyframes while the screen is still). The server
+///   opens a new stream and sends a config and keyframe.
 /// - Resends for keyframes are spaced out; resizes are always sent.
 pub struct Negotiation {
     offer: Offer,
@@ -68,7 +73,8 @@ impl Negotiation {
         }
     }
 
-    /// Looks for an answer in a body carried by a framebuffer update, returning `true` for the first answer with a size.
+    /// Looks for an answer in a body carried by a framebuffer update, returning `true` for the first answer with a
+    /// size.
     pub fn answer(&mut self, body: &[u8], now: Instant) -> bool {
         let Some(answer) = Answer::find(body).filter(|_| self.answered.is_none()) else {
             return false;
@@ -85,7 +91,8 @@ impl Negotiation {
         false
     }
 
-    /// Called once [`Self::deadline`] passes. Returns the offer to resend, or `None` when negotiation ran out of attempts.
+    /// Called once [`Self::deadline`] passes. Returns the offer to resend, or `None` when negotiation ran out of
+    /// attempts.
     pub fn expire(&mut self, now: Instant) -> Option<Vec<u8>> {
         if self.answered.is_some() {
             return Some(self.send(now));
@@ -102,7 +109,8 @@ impl Negotiation {
         Some(self.send(now))
     }
 
-    /// Resends the offer to get a keyframe. Returns `None` while still negotiating; if an offer just went out, it is deferred to [`Self::deadline`].
+    /// Resends the offer to get a keyframe. Returns `None` while still negotiating; if an offer just went out, it is
+    /// deferred to [`Self::deadline`].
     pub fn reoffer(&mut self, now: Instant) -> Option<Vec<u8>> {
         self.answered?;
 
@@ -114,7 +122,8 @@ impl Negotiation {
         Some(self.send(now))
     }
 
-    /// Called when the pixel size changed. Resends the offer so encoding starts at the new size; without it the server stops encoding.
+    /// Called when the pixel size changed. Resends the offer so encoding starts at the new size; without it the server
+    /// stops encoding.
     pub fn resize(&mut self, now: Instant) -> Option<Vec<u8>> {
         self.answered.is_some().then(|| self.send(now))
     }

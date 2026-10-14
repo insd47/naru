@@ -1,7 +1,9 @@
 //! Security type 33 (RSA-SRP) authentication.
 //!
-//! - The username is sent encrypted with the server's RSA public key, then the password is proven with SRP-6a (RFC 5054). The password itself is never sent.
-//! - The server's public key has no certificate. The caller remembers the first key it sees and decides to stop connecting if it changes.
+//! - The username is sent encrypted with the server's RSA public key, then the password is proven with SRP-6a (RFC
+//!   5054). The password itself is never sent.
+//! - The server's public key has no certificate. The caller remembers the first key it sees and decides to stop
+//!   connecting if it changes.
 //! - The non-SRP path (username and password protected only by a symmetric key) is not implemented.
 use crate::error::{Error, Result};
 use crate::reader::Reader;
@@ -21,7 +23,8 @@ pub const SECURITY_TYPE: u8 = 33;
 /// First authentication message. It picks the security type and requests the server's RSA public key.
 pub const KEY_REQUEST: [u8; 15] = *b"\x21\x00\x00\x00\x0a\x01\x00RSA1\x00\x00\x00\x00";
 
-// Every server message has a `u32` length prefix. The key response is a few hundred bytes and the SRP challenge about 1.2 KiB.
+// Every server message has a `u32` length prefix. The key response is a few hundred bytes and the SRP challenge about
+// 1.2 KiB.
 pub const MAX_MESSAGE_BYTES: usize = 8 << 10;
 const MAX_KEY_BYTES: usize = 2 << 10;
 

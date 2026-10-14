@@ -1,8 +1,9 @@
 use crate::error::{Error, Result};
 use flate2::{Decompress, FlushDecompress, Status};
 
-// The server's zlib data ends with a sync flush and no final block. One-shot inflate rejects that as a truncated stream,
-// so this feeds a streaming decompressor and succeeds once the expected length comes out. Output never exceeds `len`.
+// The server's zlib data ends with a sync flush and no final block. One-shot inflate rejects that as a truncated
+// stream, so this feeds a streaming decompressor and succeeds once the expected length comes out. Output never exceeds
+// `len`.
 pub fn inflate(stream: &mut Decompress, input: &[u8], len: usize, what: &'static str) -> Result<Vec<u8>> {
     let mut output = Vec::with_capacity(len);
     let start = stream.total_in();

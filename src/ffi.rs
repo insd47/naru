@@ -1,6 +1,7 @@
 //! The UniFFI boundary that exposes sessions to Kotlin and Swift.
 //!
-//! - The native side opens a session by passing a [`SessionListener`] to [`Session::connect`] and receives events in order on a dedicated session thread.
+//! - The native side opens a session by passing a [`SessionListener`] to [`Session::connect`] and receives events in
+//!   order on a dedicated session thread.
 //! - Core types without tuples or private fields pass through as is; the rest are reshaped here for the native side.
 use crate::touchpad::TouchPhase;
 use crate::{
@@ -38,8 +39,8 @@ pub struct Config {
     pub audio: bool,
     /// Whether latency or quality wins when packets are lost
     pub priority: Priority,
-    /// Video codec to request. Ask for HEVC 4:4:4 only when the device's hardware decoder supports 4:4:4; if it brings no
-    /// video at all, the session retries once with H.264 4:2:0.
+    /// Video codec to request. Ask for HEVC 4:4:4 only when the device's hardware decoder supports 4:4:4; if it brings
+    /// no video at all, the session retries once with H.264 4:2:0.
     pub codec: VideoCodec,
 }
 
@@ -63,7 +64,8 @@ impl From<Config> for crate::Config {
 
 /// Logical size and scale of the virtual display. The pixel size is logical size × scale.
 ///
-/// - A pixel size past the server's limit (3840×2160 landscape, 2160×3840 portrait) is shrunk with the aspect ratio kept. The actual size arrives as `Layout`.
+/// - A pixel size past the server's limit (3840×2160 landscape, 2160×3840 portrait) is shrunk with the aspect ratio
+///   kept. The actual size arrives as `Layout`.
 #[derive(uniffi::Record)]
 pub struct DisplayMode {
     pub width: u32,
@@ -101,12 +103,14 @@ pub enum Event {
         pixel_width: u16,
         pixel_height: u16,
     },
-    // A variant named after the type it carries makes the generated Kotlin nested class shadow that type, so these two are named differently.
+    // A variant named after the type it carries makes the generated Kotlin nested class shadow that type, so these two
+    // are named differently.
     /// New decoder config. Recreate the decoder with it.
     Decoder {
         config: DecoderConfig,
     },
-    /// Audio decoder config (AudioSpecificConfig). Arrives before the first audio of each audio stream; recreate the audio decoder with it.
+    /// Audio decoder config (AudioSpecificConfig). Arrives before the first audio of each audio stream; recreate the
+    /// audio decoder with it.
     AudioConfig {
         config: Vec<u8>,
     },
@@ -118,7 +122,8 @@ pub enum Event {
     Frame {
         unit: AccessUnit,
     },
-    /// Every band of one instant has arrived as frames, so show the screen they make up. Only for HEVC, which comes in bands.
+    /// Every band of one instant has arrived as frames, so show the screen they make up. Only for HEVC, which comes in
+    /// bands.
     Present,
     /// Cursor shape as row-major RGBA with non-premultiplied alpha
     Cursor {
@@ -242,7 +247,8 @@ impl From<&Error> for Failure {
 pub trait SessionListener: Send + Sync {
     /// One event. Called in order on the dedicated session thread; the last event is always `Closed`.
     ///
-    /// - The next event waits until this returns, and the session waits when events back up. Hand long work to another thread.
+    /// - The next event waits until this returns, and the session waits when events back up. Hand long work to another
+    ///   thread.
     fn on_event(&self, event: Event);
 }
 
@@ -264,7 +270,8 @@ impl Session {
         std::thread::Builder::new()
             .name("naru-events".into())
             .spawn(move || {
-                // UniFFI turns a native exception into a panic. Drop only that event and keep delivering so the final `Closed` arrives.
+                // UniFFI turns a native exception into a panic. Drop only that event and keep delivering so the final
+                // `Closed` arrives.
                 while let Some(event) = events.blocking_recv() {
                     let _ = std::panic::catch_unwind(AssertUnwindSafe(|| listener.on_event(event.into())));
                 }
@@ -274,8 +281,8 @@ impl Session {
         Arc::new(Self { session })
     }
 
-    /// Key input. `keysym` is an X11 keysym of what the Mac should type, sent as is; [`character`] gives what a Latin key types in a
-    /// language. Release with the keysym that was pressed.
+    /// Key input. `keysym` is an X11 keysym of what the Mac should type, sent as is; [`character`] gives what a Latin
+    /// key types in a language. Release with the keysym that was pressed.
     pub fn key(&self, keysym: u32, down: bool) {
         let _ = self.session.key(keysym, down);
     }
@@ -285,8 +292,8 @@ impl Session {
         let _ = self.session.pointer(buttons, x, y);
     }
 
-    /// Trackpad scroll while fingers touch. The delta is in points, positive up and left. The scroll happens at the last
-    /// pointer position.
+    /// Trackpad scroll while fingers touch. The delta is in points, positive up and left. The scroll happens at the
+    /// last pointer position.
     ///
     /// - As from a Mac trackpad: `MayBegin` when fingers rest, `Began` with the first movement, then `Changed`, and
     ///   `Ended` with no delta when they lift. Fingers that lift without moving end with `Cancelled`.
@@ -294,8 +301,8 @@ impl Session {
         let _ = self.session.scroll(phase, (dx, dy));
     }
 
-    /// Momentum after a trackpad scroll, with the same delta as scroll. The Mac leaves momentum to the client, so send what
-    /// this system's own deceleration would scroll.
+    /// Momentum after a trackpad scroll, with the same delta as scroll. The Mac leaves momentum to the client, so send
+    /// what this system's own deceleration would scroll.
     ///
     /// - `Began` follows the scroll's `Ended` and carries the first movement.
     /// - `Ended` has no delta. Send it also when fingers touch down during momentum, before anything else.
@@ -305,7 +312,8 @@ impl Session {
 
     /// Mouse wheel, with the same direction as scroll. The scroll happens at the last pointer position.
     ///
-    /// - `dx` and `dy` are the distance in points, converted from the client's own distance with the same scale as scroll.
+    /// - `dx` and `dy` are the distance in points, converted from the client's own distance with the same scale as
+    ///   scroll.
     /// - `lines_x` and `lines_y` are the same distance in lines.
     /// - Send what this system's wheel would scroll, from its settings or defaults. Mac apps use either the distance or
     ///   the lines, and the Mac adds no acceleration.
@@ -318,8 +326,8 @@ impl Session {
         let _ = self.session.magnify(phase, scale);
     }
 
-    /// Selects the Mac's input source by its ID, as Apple's "Sync Keyboard Language" does. [`input_source`] gives the ID
-    /// for a language. Call it as soon as the client's input language changes, or right before the first key in it.
+    /// Selects the Mac's input source by its ID, as Apple's "Sync Keyboard Language" does. [`input_source`] gives the
+    /// ID for a language. Call it as soon as the client's input language changes, or right before the first key in it.
     ///
     /// - Keys sent after this wait until the Mac reports the new source, usually a few milliseconds, so the first key
     ///   already reaches the new input method.
@@ -327,7 +335,8 @@ impl Session {
         let _ = self.session.select_input_source(&id);
     }
 
-    /// Puts text on the Mac's clipboard. Past the same size limit used when receiving, nothing is sent and `false` is returned.
+    /// Puts text on the Mac's clipboard. Past the same size limit used when receiving, nothing is sent and `false` is
+    /// returned.
     pub fn clipboard(&self, text: String) -> bool {
         self.session.clipboard(&text).is_ok()
     }
@@ -351,7 +360,8 @@ impl Session {
 /// Turns fingers on a screen into Mac trackpad gestures. The whole screen is one trackpad.
 ///
 /// - One finger moves the cursor and taps to left-click. Touching down right after a tap and moving drags.
-/// - Two fingers tap to right-click and move to scroll or magnify. Three or more fingers are system gestures and are ignored.
+/// - Two fingers tap to right-click and move to scroll or magnify. Three or more fingers are system gestures and are
+///   ignored.
 /// - It knows nothing of the session. The client moves its own cursor, clamped to the screen, and sends the gestures as
 ///   pointer, scroll, and magnify. Momentum after a scroll comes from the client's system, as for a trackpad.
 #[derive(uniffi::Object)]
@@ -405,11 +415,12 @@ impl From<crate::touchpad::Gesture> for Gesture {
     }
 }
 
-/// What to send so the Mac types what this Latin key means in `language` (a BCP 47 tag such as `ko-KR`), given the Mac's
-/// input source from the latest `Event::Source`.
+/// What to send so the Mac types what this Latin key means in `language` (a BCP 47 tag such as `ko-KR`), given the
+/// Mac's input source from the latest `Event::Source`.
 ///
 /// - `latin` is the keysym of the Latin character on the physical key, shifted as typed.
-/// - `None` when the language has no Mac layout to follow, such as Latin-script languages: send what the keyboard produced.
+/// - `None` when the language has no Mac layout to follow, such as Latin-script languages: send what the keyboard
+///   produced.
 /// - In secure input it returns the Latin key, since the Mac forces ABC there.
 /// - Not for shortcuts: with Command, Control, or Option held, send the Latin key as is.
 #[uniffi::export]

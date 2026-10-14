@@ -1,4 +1,5 @@
-//! Rectangle encoding numbers for framebuffer updates. The client announces the ones it supports, and the server tags each rectangle with one.
+//! Rectangle encoding numbers for framebuffer updates. The client announces the ones it supports, and the server tags
+//! each rectangle with one.
 
 pub const ZLIB: i32 = 6;
 pub const ZRLE: i32 = 16;

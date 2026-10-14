@@ -1,9 +1,10 @@
 //! RTCP packets the client sends, all encrypted with SRTCP.
 //!
-//! - The sender SSRC is the client SSRC of the stream the packet is about, negotiated in the offer. With any other SSRC,
-//!   the server cuts the stream after about 30 seconds.
+//! - The sender SSRC is the client SSRC of the stream the packet is about, negotiated in the offer. With any other
+//!   SSRC, the server cuts the stream after about 30 seconds.
 //! - Loss, jitter, LSR, and DLSR are sent as 0; the server keeps the session alive regardless.
-//! - No retransmission requests (NACK): the server answers none, to Apple's client or to this one, and Apple's client sends none.
+//! - No retransmission requests (NACK): the server answers none, to Apple's client or to this one, and Apple's client
+//!   sends none.
 
 const RECEIVER_REPORT: u8 = 201;
 const SOURCE_DESCRIPTION: u8 = 202;
@@ -80,7 +81,8 @@ pub fn refresh_request(sender: u32, size: (u16, u16)) -> Vec<u8> {
     packet
 }
 
-/// Builds an LTR acknowledgment: an APP packet of subtype 5 naming the last top-band picture received intact by its DONL.
+/// Builds an LTR acknowledgment: an APP packet of subtype 5 naming the last top-band picture received intact by its
+/// DONL.
 ///
 /// - After a loss the server references the acknowledged picture instead of sending a keyframe. It silently ignores any
 ///   other counter in place of the DONL.
@@ -98,7 +100,8 @@ pub struct Feedback {
     pub timestamp: u32,
     /// Time since the last video packet arrived
     pub idle_ms: u16,
-    /// A clock at 1024 Hz that starts with the session. Apple's client sends its device clock; the server works with either.
+    /// A clock at 1024 Hz that starts with the session. Apple's client sends its device clock; the server works with
+    /// either.
     pub clock: u16,
     /// Video packets received since the session started
     pub received: u64,
@@ -142,7 +145,8 @@ mod tests {
         source_description,
     };
 
-    // Splits a compound packet into (type, format, length). The split reaches the end only if every length field is correct.
+    // Splits a compound packet into (type, format, length). The split reaches the end only if every length field is
+    // correct.
     fn split(mut compound: &[u8]) -> Vec<(u8, u8, usize)> {
         let mut packets = Vec::new();
 

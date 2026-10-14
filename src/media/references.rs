@@ -56,7 +56,8 @@ impl References {
         Some(intact)
     }
 
-    // The picture order count of a picture's first slice and every picture its reference set keeps, as (delta, used now).
+    // The picture order count of a picture's first slice and every picture its reference set keeps, as (delta, used
+    // now).
     fn slice(&mut self, nal: &[u8]) -> Option<(i32, Vec<(i32, bool)>)> {
         let (sps, pps) = (self.sps.as_ref()?, self.pps.as_ref()?);
         let kind = nal_type(nal)?;
@@ -208,7 +209,8 @@ impl Pps {
         bits.ue()?;
         bits.ue()?;
 
-        // dependent_slice_segments_enabled_flag would add a field to every slice but the first, which is all that is read.
+        // dependent_slice_segments_enabled_flag would add a field to every slice but the first, which is all that is
+        // read.
         bits.skip(1)?;
 
         Some(Self {
@@ -242,7 +244,8 @@ impl Rps {
         let sign = if bits.read(1)? == 1 { -1 } else { 1 };
         let delta = sign * (i32::try_from(bits.ue()?).ok()? + 1);
 
-        // For each picture of the source set, then the source picture itself: whether it is used, and whether it is kept
+        // For each picture of the source set, then the source picture itself: whether it is used, and whether it is
+        // kept
         let count = source.before.len() + source.after.len() + 1;
         let flags: Vec<(bool, bool)> = (0..count)
             .map(|_| {
@@ -329,8 +332,8 @@ fn nal_type(nal: &[u8]) -> Option<u8> {
     (nal.len() >= 2).then(|| (nal[0] >> 1) & 0x3f)
 }
 
-// profile_tier_level: the general profile and level, the sub-layer presence flags padded to eight, then each sub-layer's
-// profile (88 bits) and level (8 bits) when present.
+// profile_tier_level: the general profile and level, the sub-layer presence flags padded to eight, then each
+// sub-layer's profile (88 bits) and level (8 bits) when present.
 fn skip_profile_tier_level(bits: &mut Bits, sub_layers: u32) -> Option<()> {
     bits.skip(96)?;
     let present: Vec<(u32, u32)> = (0..sub_layers)

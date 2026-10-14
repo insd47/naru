@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 const TAP: Duration = Duration::from_millis(250);
 const TAP_SLOP: f32 = 20.0;
 
-// Touching down again within this time after a tap starts a drag with the button held. Lifting right away makes a second click, which the Mac takes as a double click.
+// Touching down again within this time after a tap starts a drag with the button held. Lifting right away makes a
+// second click, which the Mac takes as a double click.
 const DRAG_AFTER_TAP: Duration = Duration::from_millis(300);
 
 // Once two fingers first move this far, the gesture is fixed as magnify or scroll until all fingers lift.
@@ -67,7 +68,8 @@ enum Mode {
 /// Turns finger touches into trackpad gestures. The whole screen is one trackpad.
 ///
 /// - One finger moves the cursor and taps to left-click. Touching down right after a tap and moving drags.
-/// - Two fingers tap to right-click and move to scroll or magnify. Lifting one finger keeps the gesture going until all fingers lift.
+/// - Two fingers tap to right-click and move to scroll or magnify. Lifting one finger keeps the gesture going until all
+///   fingers lift.
 /// - Three or more fingers are iPadOS or Android system gestures, so the current gesture ends and they are ignored.
 pub struct Touchpad {
     fingers: HashMap<u32, (f32, f32)>,
@@ -162,7 +164,8 @@ impl Touchpad {
             return Vec::new();
         }
 
-        // With a finger remaining, the gesture continues. Move the reference so the center does not jump to the remaining finger.
+        // With a finger remaining, the gesture continues. Move the reference so the center does not jump to the
+        // remaining finger.
         if !self.fingers.is_empty() {
             self.origin = self.centroid();
             return Vec::new();
@@ -205,7 +208,8 @@ impl Touchpad {
         Vec::new()
     }
 
-    // Scrolls by how far the center moved. Moving fingers down is positive, the same direction as iPad trackpad scrolling.
+    // Scrolls by how far the center moved. Moving fingers down is positive, the same direction as iPad trackpad
+    // scrolling.
     fn scroll(&mut self, phase: Phase) -> Vec<Gesture> {
         let center = self.centroid();
         let delta = (center.0 - self.origin.0, center.1 - self.origin.1);
@@ -330,7 +334,8 @@ mod tests {
         );
     }
 
-    // Lifting one finger first neither moves the cursor with the remaining finger nor makes the scroll jump from a shifted center.
+    // Lifting one finger first neither moves the cursor with the remaining finger nor makes the scroll jump from a
+    // shifted center.
     #[test]
     fn two_fingers_scroll_until_both_lift() {
         let mut fingers = Fingers::new();

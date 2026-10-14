@@ -2,7 +2,8 @@ use super::RtpPacket;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-// Conditions for switching to a new group: the current one produced no frame for this long, and the new group sent at least this many packets.
+// Conditions for switching to a new group: the current one produced no frame for this long, and the new group sent at
+// least this many packets.
 const SWITCH_AFTER: Duration = Duration::from_secs(2);
 const MIN_PACKETS: usize = 5;
 
@@ -11,9 +12,10 @@ const MAX_HELD: usize = 256;
 
 /// Picks which group of SSRCs among the received video packets to decode.
 ///
-/// - Each band comes on its own SSRC, and a group is as many consecutive SSRCs as there are bands, the lowest being the top band.
-///   After a resolution change or session switch, the server sends on a new group.
-/// - A group is picked once every band has sent a packet, since a band's first picture is the only one that draws it whole.
+/// - Each band comes on its own SSRC, and a group is as many consecutive SSRCs as there are bands, the lowest being the
+///   top band. After a resolution change or session switch, the server sends on a new group.
+/// - A group is picked once every band has sent a packet, since a band's first picture is the only one that draws it
+///   whole.
 /// - An abandoned group is never picked again, which prevents flip-flopping while the server briefly sends both.
 pub struct Streams {
     bands: u8,

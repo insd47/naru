@@ -1,6 +1,8 @@
 //! H.264 RTP payload (RFC 6184, non-interleaved mode) and decoder config.
 //!
-//! - The server doesn't send SPS and PPS as separate NAL units; it sends them as an ISO BMFF `avcC` box in a config packet whose first byte is `0x92`. That byte has the forbidden bit set and isn't a valid NAL header, so it is checked before the NAL type.
+//! - The server doesn't send SPS and PPS as separate NAL units; it sends them as an ISO BMFF `avcC` box in a config
+//!   packet whose first byte is `0x92`. That byte has the forbidden bit set and isn't a valid NAL header, so it is
+//!   checked before the NAL type.
 //! - A keyframe can arrive as an I slice inside a type 1 NAL unit instead of an IDR (type 5).
 use super::bits::Bits;
 use super::unit::{DecoderConfig, VideoCodec};
@@ -19,7 +21,8 @@ const NAL_FU_A: u8 = 28;
 const NAL_FU_B: u8 = 29;
 
 impl DecoderConfig {
-    /// Builds a decoder config from the `avcC` box in an H.264 config packet's payload. Returns `None` if it isn't a config packet or is malformed.
+    /// Builds a decoder config from the `avcC` box in an H.264 config packet's payload. Returns `None` if it isn't a
+    /// config packet or is malformed.
     pub fn from_h264(payload: &[u8]) -> Option<Self> {
         if payload.first() != Some(&CONFIG_MARKER) {
             return None;
@@ -61,7 +64,8 @@ impl DecoderConfig {
     }
 }
 
-/// Turns one access unit's payloads back into a list of NAL units. Returns `None` if a fragment is missing or malformed.
+/// Turns one access unit's payloads back into a list of NAL units. Returns `None` if a fragment is missing or
+/// malformed.
 pub fn depacketize<'a>(payloads: impl IntoIterator<Item = &'a [u8]>) -> Option<Vec<Vec<u8>>> {
     let mut nals = Vec::new();
     let mut fragment: Option<Vec<u8>> = None;

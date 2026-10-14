@@ -11,7 +11,8 @@ const POINTS_PER_LINE: f32 = 10.0;
 pub enum Event {
     /// Pointer position in layout pixels and buttons
     Pointer { buttons: u8, x: u16, y: u16 },
-    /// Trackpad scroll while fingers touch. The delta is in points, and the direction follows CGEvent (positive is up and left).
+    /// Trackpad scroll while fingers touch. The delta is in points, and the direction follows CGEvent (positive is up
+    /// and left).
     Scroll { phase: Phase, delta: (f32, f32) },
     /// Momentum after the fingers lift, with the same delta as scroll
     Momentum { phase: MomentumPhase, delta: (f32, f32) },
@@ -63,7 +64,8 @@ impl Input {
             Event::Pointer { buttons, x, y } => {
                 self.at = self.clamp((x, y));
 
-                // iPadOS reports the unmoved pointer with every trackpad scroll event, and Firefox ends a scroll on a mouse move.
+                // iPadOS reports the unmoved pointer with every trackpad scroll event, and Firefox ends a scroll on a
+                // mouse move.
                 if self.sent == Some((buttons, self.at)) {
                     return None;
                 }
@@ -337,7 +339,8 @@ mod tests {
         assert!(magnification(narrower) < 0.0);
     }
 
-    // Time is sent as microseconds since the previous event, so double clicks are judged by the real interval regardless of session time.
+    // Time is sent as microseconds since the previous event, so double clicks are judged by the real interval
+    // regardless of session time.
     #[test]
     fn pointer_carries_microseconds_since_the_previous_event() {
         let mut input = input();

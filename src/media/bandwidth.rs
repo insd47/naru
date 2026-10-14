@@ -2,16 +2,16 @@
 //!
 //! - The signal is the trend of one-way delay, as in WebRTC's delay-based estimate: for each frame, how much longer its
 //!   first packet took to arrive than its RTP timestamp advanced, accumulated and fitted to a line. A queue filling up
-//!   tilts the line upward. A fixed delay, a change in how long the Mac takes to encode, and random loss do not, so none
-//!   of them lowers the estimate. Apple's client ignores the same things.
-//! - Once the queue is full its delay stops rising, and the packets it drops show instead. More than 25% of packets lost
-//!   in the last second counts as congestion too. Apple's client kept its estimate through 10% random loss and lowered
-//!   it at 30% and more behind a bottleneck. Above 2% the estimate does not climb, as in WebRTC, since a full queue
-//!   still drops a few packets after the Mac has slowed down to nearly its rate.
+//!   tilts the line upward. A fixed delay, a change in how long the Mac takes to encode, and random loss do not, so
+//!   none of them lowers the estimate. Apple's client ignores the same things.
+//! - Once the queue is full its delay stops rising, and the packets it drops show instead. More than 25% of packets
+//!   lost in the last second counts as congestion too. Apple's client kept its estimate through 10% random loss and
+//!   lowered it at 30% and more behind a bottleneck. Above 2% the estimate does not climb, as in WebRTC, since a full
+//!   queue still drops a few packets after the Mac has slowed down to nearly its rate.
 //! - The first packet of a frame, because the Mac spreads a frame's packets over half the frame interval, so later
 //!   packets arrive later the bigger the frame even with no queue.
-//! - While the delay keeps rising, the estimate falls by 15% every 450 ms, but not below 85% of what arrived in the last
-//!   second. Once it stops rising the estimate holds for 4 seconds, then climbs back linearly to the ceiling.
+//! - While the delay keeps rising, the estimate falls by 15% every 450 ms, but not below 85% of what arrived in the
+//!   last second. Once it stops rising the estimate holds for 4 seconds, then climbs back linearly to the ceiling.
 //! - The numbers follow Apple's client behind a queueing bottleneck: near 85% of the bottleneck within 2.5 to 5.5
 //!   seconds, and back at the ceiling within 10 seconds after it clears.
 

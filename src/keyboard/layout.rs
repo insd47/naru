@@ -4,10 +4,13 @@ use std::collections::HashMap;
 const ABC: &str = "com.apple.keylayout.ABC";
 const EMPTY: char = '\u{FFFD}';
 
-/// For a Mac layout that cannot type Latin letters, converts the character at an ABC position to the one that layout produces at the same position.
+/// For a Mac layout that cannot type Latin letters, converts the character at an ABC position to the one that layout
+/// produces at the same position.
 ///
-/// - The agent maps each received character back to a key in the Mac's current layout and feeds it to the input method. With Dubeolsik, `ㄱ` must be sent instead of `r` to compose.
-/// - Latin layouts (ABC, German, and so on) have no table. Sent as is, the Mac finds the key that produces the character.
+/// - The agent maps each received character back to a key in the Mac's current layout and feeds it to the input method.
+///   With Dubeolsik, `ㄱ` must be sent instead of `r` to compose.
+/// - Latin layouts (ABC, German, and so on) have no table. Sent as is, the Mac finds the key that produces the
+///   character.
 pub struct Layout(HashMap<u32, u32>);
 
 impl Layout {

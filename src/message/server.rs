@@ -14,7 +14,8 @@ const STATUS_CLIPBOARD_CHANGED: u16 = 2;
 /// A message the server sends on the control channel.
 #[derive(Debug, PartialEq)]
 pub enum ServerMessage {
-    /// Framebuffer update. In High Performance mode it carries rectangles such as cursor, layout, and media answers instead of screen pixels.
+    /// Framebuffer update. In High Performance mode it carries rectangles such as cursor, layout, and media answers
+    /// instead of screen pixels.
     FramebufferUpdate(Vec<Rect>),
     /// Notice that the Mac's clipboard changed (status code 2). Request the content with `client::clipboard_request`.
     ClipboardChanged,
@@ -47,12 +48,14 @@ pub enum Rect {
     InputSource(Vec<u8>),
     /// Encoding of a rectangle with a known length that was skipped
     Skipped(i32),
-    /// Encoding with an unknown length. Everything from this rectangle to the end of the message is kept in `rest`, and the walk stops.
+    /// Encoding with an unknown length. Everything from this rectangle to the end of the message is kept in `rest`, and
+    /// the walk stops.
     Unknown { encoding: i32, rest: Vec<u8> },
 }
 
 impl ServerMessage {
-    /// Parses one message from the front of the buffer, returning it with the consumed length, or `None` when it has not fully arrived.
+    /// Parses one message from the front of the buffer, returning it with the consumed length, or `None` when it has
+    /// not fully arrived.
     ///
     /// - An unknown message or rectangle has no known boundary, so it consumes the rest of the buffer.
     pub fn parse(buf: &[u8]) -> Result<Option<(Self, usize)>> {
@@ -164,7 +167,8 @@ impl Rect {
 
 /// Splits received bytes into messages.
 ///
-/// - Push raw TCP bytes during the plaintext stretch and record bodies after it. A large message spans the following records without a type byte, so concatenating bodies is enough.
+/// - Push raw TCP bytes during the plaintext stretch and record bodies after it. A large message spans the following
+///   records without a type byte, so concatenating bodies is enough.
 #[derive(Default)]
 pub struct Messages {
     buffer: Vec<u8>,

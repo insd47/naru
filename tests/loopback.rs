@@ -1,7 +1,9 @@
 //! Checks everything from connecting to receiving the first keyframe against a fake server on the loopback address.
 //!
-//! - Server-side SRP holds for any prime modulus, so it uses a small prime (2^127 − 1). The client assumes no group size.
-//! - Records are sent right after the key exchange message to check that the plaintext/record boundary is split exactly.
+//! - Server-side SRP holds for any prime modulus, so it uses a small prime (2^127 − 1). The client assumes no group
+//!   size.
+//! - Records are sent right after the key exchange message to check that the plaintext/record boundary is split
+//!   exactly.
 use aes::Aes128;
 use aes::cipher::generic_array::GenericArray;
 use aes::cipher::{BlockEncrypt, KeyInit};

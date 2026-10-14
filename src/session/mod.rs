@@ -1,7 +1,10 @@
-//! A session with one server. It owns the sockets and handles connecting, authentication, media negotiation, reception, and reconnecting.
+//! A session with one server. It owns the sockets and handles connecting, authentication, media negotiation, reception,
+//! and reconnecting.
 //!
-//! - `Session::start` returns immediately and reports progress and results as events. The last event is always `Closed`.
-//! - The native layer only receives complete access units and decoder configs. Report decoder errors with `request_keyframe`.
+//! - `Session::start` returns immediately and reports progress and results as events. The last event is always
+//!   `Closed`.
+//! - The native layer only receives complete access units and decoder configs. Report decoder errors with
+//!   `request_keyframe`.
 //! - When media does not start, the session ends as Apple's client does. Only HEVC that brought no video at all is
 //!   retried once from scratch with H.264.
 use crate::error::{Error, Result};
@@ -40,15 +43,18 @@ pub struct Config {
     pub password: String,
     /// Server public key (DER) saved from a previous connection. A mismatch stops the connection with `KeyChanged`.
     pub known_key: Option<Vec<u8>>,
-    /// Virtual display config. With one the Mac's physical screen is hidden; without one the physical screen is streamed as is.
+    /// Virtual display config. With one the Mac's physical screen is hidden; without one the physical screen is
+    /// streamed as is.
     pub display: Option<DisplayConfig>,
     /// Whether to receive audio. Turn it off on devices without an AAC-ELD decoder.
     pub audio: bool,
     /// Whether latency or quality wins when packets are lost
     pub priority: Priority,
-    /// Video codec to request. Request HEVC 4:4:4 only when the device's hardware decoder supports it. If it brings no video at all, the retry uses H.264.
+    /// Video codec to request. Request HEVC 4:4:4 only when the device's hardware decoder supports it. If it brings no
+    /// video at all, the retry uses H.264.
     pub codec: VideoCodec,
-    /// Local UDP ports (audio, video). They default to the server's numbers; set them only when those are unavailable, such as when testing on the server's own machine.
+    /// Local UDP ports (audio, video). They default to the server's numbers; set them only when those are unavailable,
+    /// such as when testing on the server's own machine.
     pub local_ports: Option<(u16, u16)>,
 }
 
@@ -115,14 +121,15 @@ pub enum Event {
     Layout(Layout),
     /// New decoder config. Recreate the decoder with it.
     DecoderConfig(DecoderConfig),
-    /// Audio decoder config (AudioSpecificConfig). Arrives before the first audio of each audio stream; recreate the audio decoder with it.
+    /// Audio decoder config (AudioSpecificConfig). Arrives before the first audio of each audio stream; recreate the
+    /// audio decoder with it.
     AudioConfig(Vec<u8>),
     /// Audio access unit
     Audio(AudioFrame),
     /// Access unit for the decoder. Only arrives after a decoder config, and resumes from a keyframe after a loss.
     Frame(AccessUnit),
-    /// Every band of one instant has arrived as frames, so show the screen they make up. Only for video in several bands,
-    /// whose bands shown one by one as they decode would put the top band ahead of the others.
+    /// Every band of one instant has arrived as frames, so show the screen they make up. Only for video in several
+    /// bands, whose bands shown one by one as they decode would put the top band ahead of the others.
     Present,
     /// Cursor shape, used as the pointer icon
     Cursor(Arc<CursorImage>),
@@ -140,7 +147,8 @@ pub enum Event {
     Closed(Option<Error>),
 }
 
-/// Media reception stats. When the screen freezes, they tell whether the server stopped sending or received packets were dropped.
+/// Media reception stats. When the screen freezes, they tell whether the server stopped sending or received packets
+/// were dropped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
 pub struct MediaStats {
     /// Datagrams received on the video port from the server address, including RTCP
@@ -157,7 +165,8 @@ pub struct MediaStats {
     pub candidates: u32,
     /// Number of offers sent, including those resent after negotiation for resizes and keyframes
     pub offers: u32,
-    /// Number of sequence numbers found missing. The server does not retransmit, so these are lost unless they arrive late.
+    /// Number of sequence numbers found missing. The server does not retransmit, so these are lost unless they arrive
+    /// late.
     pub missing: u64,
     /// Number of packets that filled a gap by arriving out of order
     pub filled: u64,
@@ -165,7 +174,8 @@ pub struct MediaStats {
     pub losses: u64,
 }
 
-/// The channel the session sends events through. It remembers the last announced stage and reports failures as failures of that stage.
+/// The channel the session sends events through. It remembers the last announced stage and reports failures as failures
+/// of that stage.
 struct Events {
     sender: mpsc::Sender<Event>,
     stage: Stage,
@@ -224,7 +234,8 @@ enum Command {
 #[derive(Clone)]
 pub struct Session {
     commands: mpsc::UnboundedSender<Command>,
-    // Closing is signaled separately from commands, which are only read while the engine runs, so it also works while connecting or waiting to retry.
+    // Closing is signaled separately from commands, which are only read while the engine runs, so it also works while
+    // connecting or waiting to retry.
     closed: Arc<Notify>,
 }
 
@@ -239,9 +250,11 @@ impl Session {
         (Self { commands, closed }, events_receiver)
     }
 
-    /// Presses or releases a key. The key is an X11 keysym of what the Mac should type; Command is Super (`0xffeb`) and Option is Alt (`0xffe9`).
+    /// Presses or releases a key. The key is an X11 keysym of what the Mac should type; Command is Super (`0xffeb`) and
+    /// Option is Alt (`0xffe9`).
     ///
-    /// - It goes to the Mac as is. Choosing it is the client's job; the FFI's `character` gives what a Latin key types in a language.
+    /// - It goes to the Mac as is. Choosing it is the client's job; the FFI's `character` gives what a Latin key types
+    ///   in a language.
     /// - Release with the keysym that was pressed, so no key stays held on the Mac if the language changed in between.
     pub fn key(&self, keysym: u32, down: bool) -> Result<()> {
         self.send(Command::Key { keysym, down })
@@ -252,19 +265,21 @@ impl Session {
         self.input(input::Event::Pointer { buttons, x, y })
     }
 
-    /// Trackpad scroll while fingers touch. The delta is in points, and the direction follows CGEvent (positive is up and left).
+    /// Trackpad scroll while fingers touch. The delta is in points, and the direction follows CGEvent (positive is up
+    /// and left).
     ///
     /// - The scroll happens at the last pointer position.
-    /// - As from a Mac trackpad: `MayBegin` when fingers rest, `Began` with the first movement, then `Changed`, and `Ended`
-    ///   with no delta when they lift. Fingers that lift without moving end with `Cancelled`.
+    /// - As from a Mac trackpad: `MayBegin` when fingers rest, `Began` with the first movement, then `Changed`, and
+    ///   `Ended` with no delta when they lift. Fingers that lift without moving end with `Cancelled`.
     pub fn scroll(&self, phase: Phase, delta: (f32, f32)) -> Result<()> {
         self.input(input::Event::Scroll { phase, delta })
     }
 
-    /// Momentum after a trackpad scroll, as the client's system decelerates it. The delta is the same as [`Self::scroll`].
+    /// Momentum after a trackpad scroll, as the client's system decelerates it. The delta is the same as
+    /// [`Self::scroll`].
     ///
-    /// - `Began` follows the scroll's `Ended` and carries the first movement. `Ended` has no delta and also ends momentum
-    ///   that fingers touching down interrupt, before the next scroll.
+    /// - `Began` follows the scroll's `Ended` and carries the first movement. `Ended` has no delta and also ends
+    ///   momentum that fingers touching down interrupt, before the next scroll.
     pub fn momentum(&self, phase: MomentumPhase, delta: (f32, f32)) -> Result<()> {
         self.input(input::Event::Momentum { phase, delta })
     }
@@ -291,12 +306,14 @@ impl Session {
         self.send(Command::InputSource(id.to_owned()))
     }
 
-    /// Puts text on the Mac's clipboard. Past the same size limit used when receiving, nothing is sent and `TooLong` is returned.
+    /// Puts text on the Mac's clipboard. Past the same size limit used when receiving, nothing is sent and `TooLong` is
+    /// returned.
     pub fn clipboard(&self, text: &str) -> Result<()> {
         self.send(Command::Clipboard(clipboard::message(text)?))
     }
 
-    /// Requests a keyframe. Call it after recreating the decoder or dropping frames. The caller discards frames until the keyframe arrives.
+    /// Requests a keyframe. Call it after recreating the decoder or dropping frames. The caller discards frames until
+    /// the keyframe arrives.
     pub fn request_keyframe(&self) -> Result<()> {
         self.send(Command::Keyframe)
     }
@@ -365,8 +382,8 @@ async fn attempt_session(
     let local_ports = config.local_ports.unwrap_or((config.port, config.port + 1));
     let sockets = Sockets::bind(server, config.port, local_ports)?;
 
-    // Send UDP during the handshake so the local firewall accepts the server's media as replies. It stops once the record layer is on.
-    // It lives in a JoinSet so it also stops when the attempt is dropped midway.
+    // Send UDP during the handshake so the local firewall accepts the server's media as replies. It stops once the
+    // record layer is on. It lives in a JoinSet so it also stops when the attempt is dropped midway.
     let mut punch = JoinSet::new();
     punch.spawn(sockets.clone().punch());
     let control = Control::connect(config, server, events).await;

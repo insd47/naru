@@ -132,8 +132,8 @@ impl Assembler {
         self.stalled_since.map(|since| since + HOLD)
     }
 
-    // Finds the last sequence number of the unit starting at `start`. A config packet is a unit by itself.
-    // A packet with the marker bit ends the unit; a timestamp change without a marker also ends it at the previous packet.
+    // Finds the last sequence number of the unit starting at `start`. A config packet is a unit by itself. A packet
+    // with the marker bit ends the unit; a timestamp change without a marker also ends it at the previous packet.
     fn unit_end(&self, start: u64) -> Option<u64> {
         let first = self.packets.get(&start)?;
 
@@ -157,7 +157,8 @@ impl Assembler {
         }
     }
 
-    // Drops the unit with the gap and resumes after the first marker past the gap. If no marker has arrived yet, keeps waiting.
+    // Drops the unit with the gap and resumes after the first marker past the gap. If no marker has arrived yet, keeps
+    // waiting.
     fn skip_damaged(&mut self, next: u64) -> Option<Reassembled> {
         let gap = (next..).find(|sequence| !self.packets.contains_key(sequence))?;
         let marker = self

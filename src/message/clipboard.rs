@@ -1,7 +1,8 @@
 //! The clipboard transfer message (`0x1f`).
 //!
 //! - The content is a zlib-compressed list of items, each with a type identifier (UTI), aliases, and data.
-//! - Text travels as a `public.utf8-plain-text` item, because standard RFB ClientCutText does not paste in current apps.
+//! - Text travels as a `public.utf8-plain-text` item, because standard RFB ClientCutText does not paste in current
+//!   apps.
 use super::zlib;
 use crate::error::{Error, Result};
 use crate::reader::Reader;
@@ -62,7 +63,8 @@ pub fn text(message: &[u8]) -> Result<Option<String>> {
     Ok(None)
 }
 
-/// Builds a clipboard message with a single text item, failing with `TooLong` past the same size limit used when receiving.
+/// Builds a clipboard message with a single text item, failing with `TooLong` past the same size limit used when
+/// receiving.
 pub fn message(text: &str) -> Result<Vec<u8>> {
     let len = text.len() + TEXT.len() + 24;
 
@@ -78,7 +80,8 @@ pub fn message(text: &str) -> Result<Vec<u8>> {
     content.extend_from_slice(&length(text.len()));
     content.extend_from_slice(text.as_bytes());
 
-    // End with a sync flush and no final block, like Apple's client. With a final block the Mac drops the content and just clears the clipboard.
+    // End with a sync flush and no final block, like Apple's client. With a final block the Mac drops the content and
+    // just clears the clipboard.
     let mut compressor = Compress::new(Compression::default(), true);
     let mut compressed = Vec::with_capacity(content.len() + 64);
 
@@ -100,7 +103,8 @@ pub fn message(text: &str) -> Result<Vec<u8>> {
     Ok(message)
 }
 
-// Length fields are `u32`. The content was checked against [`MAX_CONTENT_BYTES`], and compression does not grow it past that.
+// Length fields are `u32`. The content was checked against [`MAX_CONTENT_BYTES`], and compression does not grow it past
+// that.
 fn length(len: usize) -> [u8; 4] {
     u32::try_from(len)
         .expect("within the clipboard size limit")

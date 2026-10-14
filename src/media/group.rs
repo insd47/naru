@@ -21,19 +21,21 @@ pub enum Assembled {
     Config(DecoderConfig),
     /// Access unit for the decoder, with its DONL if the codec carries one
     Frame { unit: AccessUnit, donl: Option<u16> },
-    /// Every band of one instant has gone out, so the screen they make up can be shown. Only for video in several bands,
-    /// and only while every band's latest picture is intact.
+    /// Every band of one instant has gone out, so the screen they make up can be shown. Only for video in several
+    /// bands, and only while every band's latest picture is intact.
     Present,
     /// An access unit that couldn't be recovered in time was dropped. Request a keyframe.
     Lost,
 }
 
-/// What to favor after an unrecoverable loss in H.264. Each app picks it for its decoder; Screen Sharing's quality setting applies only to standard connections.
+/// What to favor after an unrecoverable loss in H.264. Each app picks it for its decoder; Screen Sharing's quality
+/// setting applies only to standard connections.
 ///
 /// - HEVC follows its references instead and hides only the pictures that cannot decode intact, like Apple's client.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Enum)]
 pub enum Priority {
-    /// Drops only the lost unit and keeps emitting frames. Parts of the screen may be corrupted until a keyframe arrives.
+    /// Drops only the lost unit and keeps emitting frames. Parts of the screen may be corrupted until a keyframe
+    /// arrives.
     Latency,
     /// Emits nothing until a keyframe arrives. The screen stays on the last intact frame meanwhile.
     #[default]
@@ -51,7 +53,8 @@ pub enum Priority {
 ///   come in the same unit as the keyframe, so that unit emits the config first and then the unit.
 /// - With several bands, an instant ends when its bottom band goes out, a band of a later instant goes out, or no band
 ///   follows for a moment. Showing each band as it decodes would show the top one ahead of the others.
-/// - For H.264, [`Priority`] decides whether units whose reference was lost are emitted after a loss, and a buffer overflow always waits for a keyframe.
+/// - For H.264, [`Priority`] decides whether units whose reference was lost are emitted after a loss, and a buffer
+///   overflow always waits for a keyframe.
 /// - HEVC pictures that do not decode intact, because something they predict from was lost, are marked so on the unit
 ///   and not shown. While any band's latest picture is lost or not intact, the screen is not shown either, so it never
 ///   pairs bands from different moments; Apple's client likewise shows bands only as a whole screen during losses.
@@ -159,7 +162,8 @@ impl Group {
         }
     }
 
-    // A unit arriving after a later one already went ahead without it can no longer be decoded in order, so it counts as lost.
+    // A unit arriving after a later one already went ahead without it can no longer be decoded in order, so it counts
+    // as lost.
     fn queue(&mut self, unit: AccessUnit, donl: u16, now: Instant) {
         let highest = self.waiting.last_key_value().map(|(&key, _)| key).max(self.released);
         let key = sequence::extend(donl, highest);
@@ -186,7 +190,8 @@ impl Group {
         }
     }
 
-    // Whether a band is still assembling a unit that decodes before this one: an earlier instant, or the same instant higher up.
+    // Whether a band is still assembling a unit that decodes before this one: an earlier instant, or the same instant
+    // higher up.
     fn preceded(&self, unit: &AccessUnit) -> bool {
         self.bands.iter().enumerate().any(|(band, assembler)| {
             assembler.incomplete().is_some_and(|timestamp| {
@@ -440,7 +445,8 @@ mod tests {
         assert_eq!(summary(&drain(&mut group, now + MAX_WAIT)), ["2:12"]);
     }
 
-    // The top band of the next instant ends the one before, and an instant whose lower bands did not change ends on its own.
+    // The top band of the next instant ends the one before, and an instant whose lower bands did not change ends on its
+    // own.
     #[test]
     fn instants_end_at_the_next_instant_or_after_a_moment() {
         let now = Instant::now();
@@ -455,7 +461,8 @@ mod tests {
         assert_eq!(group.deadline(), None);
     }
 
-    // A band whose picture was lost holds the screen until it has an intact picture again, while the others go on decoding.
+    // A band whose picture was lost holds the screen until it has an intact picture again, while the others go on
+    // decoding.
     #[test]
     fn a_lost_band_holds_the_screen_until_it_is_intact_again() {
         let now = Instant::now();

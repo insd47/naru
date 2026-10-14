@@ -20,7 +20,8 @@ type Ctr<C> = ctr::Ctr128BE<C>;
 
 /// SRTP and SRTCP cipher state built from one master key blob.
 ///
-/// - The rollover counter (ROC) of received RTP is tracked per SSRC. A shared one stalls the stream after 65,536 packets.
+/// - The rollover counter (ROC) of received RTP is tracked per SSRC. A shared one stalls the stream after 65,536
+///   packets.
 pub struct SrtpContext {
     rtp: SessionKeys,
     rtcp: SessionKeys,
@@ -56,7 +57,8 @@ impl SrtpContext {
         }
     }
 
-    /// Authenticates and decrypts a received SRTP packet into a plaintext RTP packet. Returns `None` on authentication failure, and the packet should be dropped.
+    /// Authenticates and decrypts a received SRTP packet into a plaintext RTP packet. Returns `None` on authentication
+    /// failure, and the packet should be dropped.
     pub fn unprotect_rtp(&mut self, packet: &[u8]) -> Option<Vec<u8>> {
         let header_len = RtpPacket::header_len(packet)?;
         let body_len = packet.len().checked_sub(TAG_BYTES).filter(|&len| len >= header_len)?;
@@ -101,7 +103,8 @@ impl SrtpContext {
         Some(protected)
     }
 
-    /// Encrypts an RTCP compound packet with SRTCP. The first 8 bytes (the first packet's header and sender SSRC) stay in plaintext.
+    /// Encrypts an RTCP compound packet with SRTCP. The first 8 bytes (the first packet's header and sender SSRC) stay
+    /// in plaintext.
     pub fn protect_rtcp(&mut self, compound: &[u8]) -> Option<Vec<u8>> {
         let ssrc = u32::from_be_bytes(compound.get(4..8)?.try_into().ok()?);
         let index = self.rtcp_index;
@@ -260,7 +263,8 @@ mod tests {
         assert_eq!(auth.to_vec(), hex("CEBE321F6FF7716B6FD4AB49AF256A156D38BAA4"));
     }
 
-    // The two packets below were computed independently with OpenSSL's AES-256 and Python's hmac. The master blob is 0, 1, ..., 45.
+    // The two packets below were computed independently with OpenSSL's AES-256 and Python's hmac. The master blob is 0,
+    // 1, ..., 45.
     const RTP: &str =
         "8060123401020304deadbeef857bd59c5e9a1978315235b481e5749b10ebb1aea63b2b8200ddd2ba146775f2a80b858f6a983c8f13dd";
     const RTCP: &str = "80c9000111223344b73ebd2f6916ba139338494b800000058a5a24ca6e4543a3661f";

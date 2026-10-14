@@ -1,9 +1,12 @@
 //! The media offer (`0x1c`) and its answer.
 //!
 //! - The offer is one binary plist each for audio and video, holding a zlib-compressed protobuf (MediaBlob).
-//! - By default the video offer lists only codec bank 123 and requests one tile, which yields a single H.264 4:2:0 stream. Listing bank 100 makes the server send HEVC 4:4:4 in four bands, which typical mobile hardware decoders can't decode.
+//! - By default the video offer lists only codec bank 123 and requests one tile, which yields a single H.264 4:2:0
+//!   stream. Listing bank 100 makes the server send HEVC 4:4:4 in four bands, which typical mobile hardware decoders
+//!   can't decode.
 //! - The audio offer can't be omitted. To turn audio off, a low requested bitrate stops the server from sending it.
-//! - The client generates the SRTP master keys and sends them in the offer, so compromising the control channel also compromises the media.
+//! - The client generates the SRTP master keys and sends them in the offer, so compromising the control channel also
+//!   compromises the media.
 use crate::media::VideoCodec;
 use blob::{AnswerBlob, AudioStream, AudioTier, CodecBank, EndpointInfo, MediaBlob, Resolution, VideoStream};
 use flate2::Compression;
@@ -225,8 +228,8 @@ impl Offer {
 impl Answer {
     /// Finds the video answer in a media stream rectangle's body. Returns `None` if there is no answer.
     pub fn find(body: &[u8]) -> Option<Self> {
-        // The body may hold several plists, or other bytes may follow a plist.
-        // A binary plist is parsed from its trailing 32-byte trailer, so for each marker every end position that looks like a trailer is tried.
+        // The body may hold several plists, or other bytes may follow a plist. A binary plist is parsed from its
+        // trailing 32-byte trailer, so for each marker every end position that looks like a trailer is tried.
         (0..body.len())
             .filter(|&start| body[start..].starts_with(PLIST_MARKER))
             .flat_map(|start| trailer_ends(&body[start..]).map(move |end| &body[start..start + end]))

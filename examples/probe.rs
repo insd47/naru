@@ -244,7 +244,8 @@ async fn session(args: Args) -> Result<()> {
                 bytes += unit.nals.iter().map(Vec::len).sum::<usize>();
 
                 if let Some(out) = out.as_mut() {
-                    // The decoder config arrives out of band, so SPS and PPS go before keyframes for the file to play on its own.
+                    // The decoder config arrives out of band, so SPS and PPS go before keyframes for the file to play
+                    // on its own.
                     if unit.keyframe
                         && !unit.has_sps()
                         && let Some(config) = &decoder
@@ -277,7 +278,8 @@ async fn session(args: Args) -> Result<()> {
     Ok(())
 }
 
-// Presses and releases a key per character, then Return. Characters outside Latin-1 go as Unicode keysyms (0x0100_0000 + code point).
+// Presses and releases a key per character, then Return. Characters outside Latin-1 go as Unicode keysyms (0x0100_0000
+// + code point).
 async fn type_text(session: Session, text: String) {
     const RETURN: u32 = 0xff0d;
     const PAUSE: Duration = Duration::from_millis(40);

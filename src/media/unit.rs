@@ -15,7 +15,8 @@ pub enum VideoCodec {
 impl VideoCodec {
     /// Number of horizontal bands the offer requests, each sent on its own SSRC.
     ///
-    /// - HEVC takes four, like Apple's client: an LTR acknowledgment names a picture by its DONL, which only four bands carry.
+    /// - HEVC takes four, like Apple's client: an LTR acknowledgment names a picture by its DONL, which only four bands
+    ///   carry.
     /// - H.264 takes one, since bands that reference each other smear in an ordinary decoder.
     pub fn bands(self) -> u8 {
         match self {
@@ -27,7 +28,8 @@ impl VideoCodec {
 
 /// Configuration for creating a decoder.
 ///
-/// - H.264 takes it from the config packet's `avcC`; HEVC from the parameter sets that arrive in-stream with the keyframe.
+/// - H.264 takes it from the config packet's `avcC`; HEVC from the parameter sets that arrive in-stream with the
+///   keyframe.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct DecoderConfig {
     pub codec: VideoCodec,
@@ -69,8 +71,9 @@ pub struct AccessUnit {
     pub ssrc: u32,
     /// Band the picture covers, counted from the top; always 0 for H.264
     ///
-    /// - Each HEVC band is a picture of its own, a quarter of the height rounded up to a multiple of 16, and the bands stack
-    ///   from the top. Bands that did not change are not sent, so the picture last decoded for a band stays on screen.
+    /// - Each HEVC band is a picture of its own, a quarter of the height rounded up to a multiple of 16, and the bands
+    ///   stack from the top. Bands that did not change are not sent, so the picture last decoded for a band stays on
+    ///   screen.
     pub band: u8,
     /// RTP timestamp, at 24 kHz
     pub timestamp: u32,

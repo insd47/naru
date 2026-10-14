@@ -10,7 +10,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 
-// Wait after closing the warm-up connection. With a warm-up, the server does not drop TCP when moving from the lock screen to the desktop.
+// Wait after closing the warm-up connection. With a warm-up, the server does not drop TCP when moving from the lock
+// screen to the desktop.
 const WARMUP_DELAY: Duration = Duration::from_millis(1400);
 
 // The server needs a moment after ViewerInfo with the encryption start request, and again after the activation request.
@@ -39,7 +40,8 @@ pub struct Control {
 impl Control {
     /// Activates the record layer after the warm-up connection, handshake, authentication, and plaintext prelude.
     ///
-    /// - TCP connects to the same IPv4 address as UDP. Connecting by host name may put only TCP on IPv6, and then media never arrives.
+    /// - TCP connects to the same IPv4 address as UDP. Connecting by host name may put only TCP on IPv6, and then media
+    ///   never arrives.
     pub async fn connect(config: &Config, server: IpAddr, events: &mut Events) -> Result<Self> {
         let address = SocketAddr::from((server, config.port));
 
@@ -70,7 +72,8 @@ impl Control {
         &self.keys
     }
 
-    /// What already arrived while connecting: rectangles from the plaintext stretch and bodies of records that came in the same read right after the key exchange
+    /// What already arrived while connecting: rectangles from the plaintext stretch and bodies of records that came in
+    /// the same read right after the key exchange
     pub fn backlog(&mut self) -> Result<(Vec<Rect>, Vec<Vec<u8>>)> {
         Ok((std::mem::take(&mut self.early), self.opened()?))
     }
@@ -87,7 +90,8 @@ impl Control {
         self.opened()
     }
 
-    /// Makes closing reset the connection immediately (RST). Reconnecting only works once no session lingers on the server.
+    /// Makes closing reset the connection immediately (RST). Reconnecting only works once no session lingers on the
+    /// server.
     pub fn abort(&self) {
         let _ = SockRef::from(&self.stream).set_linger(Some(Duration::ZERO));
     }
@@ -161,7 +165,8 @@ async fn authenticate(stream: &mut TcpStream, key: &ServerKey, config: &Config) 
 
     stream.write_all(&proof.packet).await?;
 
-    // The result follows the proof block. The server proof's position is not certain, so a failed check does not block the connection.
+    // The result follows the proof block. The server proof's position is not certain, so a failed check does not block
+    // the connection.
     let block = message(stream).await?;
 
     if stream.read_u32().await? != 0 {
@@ -244,7 +249,8 @@ async fn server_init(stream: &mut TcpStream) -> Result<String> {
     Ok(computer_name(&name))
 }
 
-// The name field has a binary header containing NULs and NUL padding before the computer name. The name follows the last NUL.
+// The name field has a binary header containing NULs and NUL padding before the computer name. The name follows the
+// last NUL.
 fn computer_name(bytes: &[u8]) -> String {
     let start = bytes.iter().rposition(|&byte| byte == 0).map_or(0, |at| at + 1);
     String::from_utf8_lossy(&bytes[start..]).into_owned()

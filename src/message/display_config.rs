@@ -1,6 +1,7 @@
 use crate::error::{Error, Result};
 
-// The server replaces any larger pixel size with one of its own choosing. Portrait displays use the limit with width and height swapped.
+// The server replaces any larger pixel size with one of its own choosing. Portrait displays use the limit with width
+// and height swapped.
 const MAX_PIXELS: (u32, u32) = (3840, 2160);
 
 const NAME_BYTES: usize = 120;
@@ -111,7 +112,8 @@ impl Mode {
         }
     }
 
-    /// Builds a mode whose logical size is shrunk, keeping the aspect ratio, until its pixels fit the server's limit (3840×2160 landscape, 2160×3840 portrait).
+    /// Builds a mode whose logical size is shrunk, keeping the aspect ratio, until its pixels fit the server's limit
+    /// (3840×2160 landscape, 2160×3840 portrait).
     pub fn fitting(logical: (u32, u32), scale: f64) -> Self {
         let (max_width, max_height) = limit(logical);
         let ratio = (f64::from(max_width) / (f64::from(logical.0) * scale))
