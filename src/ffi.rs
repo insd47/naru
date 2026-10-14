@@ -204,7 +204,12 @@ pub enum Failure {
     Unreachable,
     /// The server does not support this client's authentication method.
     Unsupported,
-    /// The server never started sending video.
+    /// No video packet arrived at all. Something on the path, such as a firewall, router, or VPN, blocks the Mac's UDP.
+    MediaBlocked,
+    /// Video arrived, but too much of it was lost to start. The path is too slow or unreliable for a High Performance
+    /// connection, as the Mac needs about 21 Mbps at the least.
+    SlowNetwork,
+    /// The server never started sending video for another reason.
     NoMedia,
     /// Any other error
     Other,
@@ -223,6 +228,9 @@ impl From<&Error> for Failure {
             Error::OtherUser(name) => Self::OtherUser { name: name.clone() },
             Error::Io(_) | Error::Resolve(_) | Error::Timeout => Self::Unreachable,
             Error::Unsupported => Self::Unsupported,
+            Error::NoMedia(stats) if stats.datagrams == 0 => Self::MediaBlocked,
+            // Four bands start through 10% random loss, so more than one packet in ten missing points at the path.
+            Error::NoMedia(stats) if stats.missing * 10 > stats.authenticated + stats.missing => Self::SlowNetwork,
             Error::NoMedia(_) => Self::NoMedia,
             _ => Self::Other,
         }
@@ -418,4 +426,36 @@ pub fn character(latin: u32, language: String, source: Option<InputSource>) -> O
 #[uniffi::export]
 pub fn input_source(language: String, current: Option<InputSource>) -> Option<String> {
     crate::keyboard::source(&language, current.as_ref())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Failure;
+    use crate::{Error, MediaStats};
+
+    fn failure(datagrams: u64, authenticated: u64, missing: u64) -> Failure {
+        let stats = MediaStats {
+            datagrams,
+            authenticated,
+            largest_bytes: 1384,
+            ssrc: None,
+            highest: None,
+            candidates: 0,
+            offers: 1,
+            missing,
+            filled: 0,
+            losses: 0,
+        };
+
+        Failure::from(&Error::NoMedia(stats))
+    }
+
+    #[test]
+    fn media_failures_tell_a_blocked_path_from_a_slow_one() {
+        assert!(matches!(failure(0, 0, 0), Failure::MediaBlocked));
+        assert!(matches!(failure(490, 487, 291), Failure::SlowNetwork));
+        assert!(matches!(failure(1000, 900, 101), Failure::SlowNetwork));
+        assert!(matches!(failure(1000, 900, 100), Failure::NoMedia));
+        assert!(matches!(failure(40, 0, 0), Failure::NoMedia));
+    }
 }
