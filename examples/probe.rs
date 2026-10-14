@@ -166,6 +166,7 @@ async fn session(args: Args) -> Result<()> {
 
     let mut out = args.out.as_ref().map(File::create).transpose()?.map(BufWriter::new);
 
+    let mut bands = vec![0u64; usize::from(config.codec.bands())];
     let started = Instant::now();
     let (session, mut events) = Session::start(config);
 
@@ -177,7 +178,6 @@ async fn session(args: Args) -> Result<()> {
     let mut closing = false;
     let mut decoder: Option<DecoderConfig> = None;
     let (mut frames, mut keyframes, mut bytes) = (0u64, 0u64, 0usize);
-    let mut bands = [0u64; 4];
     let mut last_frame = None;
     let mut largest_bytes = 0;
 
@@ -239,7 +239,7 @@ async fn session(args: Args) -> Result<()> {
             Event::Frame(unit) => {
                 frames += 1;
                 keyframes += u64::from(unit.keyframe);
-                bands[usize::from(unit.band).min(3)] += 1;
+                bands[usize::from(unit.band)] += 1;
                 last_frame = Some(at.clone());
                 bytes += unit.nals.iter().map(Vec::len).sum::<usize>();
 
