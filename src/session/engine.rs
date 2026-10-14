@@ -36,7 +36,7 @@ pub struct Engine {
     pixels: Option<(u16, u16)>,
     // The latest resize asked before the first frame, sent once it arrives, since its framebuffer request derails the
     // start
-    display: Option<Vec<u8>>,
+    held_resize: Option<Vec<u8>>,
     // An input source the Mac is switching to, holding keys until it reports it
     switching: Option<Switching>,
 }
@@ -68,7 +68,7 @@ impl Engine {
             messages: Messages::default(),
             cursors: Cursors::default(),
             pixels: None,
-            display: None,
+            held_resize: None,
             switching: None,
         }
     }
@@ -263,10 +263,10 @@ impl Engine {
         }
 
         // No framebuffer requests until the first keyframe, since an update without parameter sets derails the start.
-        if self.media.last_frame().is_some() {
+        if self.media.framed() {
             self.control.send(&client::framebuffer_request(true, 1, 1)).await?;
 
-            if let Some(display) = self.display.take() {
+            if let Some(display) = self.held_resize.take() {
                 self.resize(&display).await?;
             }
         }
@@ -309,13 +309,13 @@ impl Engine {
                 self.media.request_keyframe(now).await;
                 Ok(())
             }
-            Command::Resize(display) if self.media.last_frame().is_none() => {
-                self.display = Some(display);
+            Command::Resize(display) if !self.media.framed() => {
+                self.held_resize = Some(display);
                 Ok(())
             }
             Command::Resize(display) => {
                 // A newer size replaces one still held for the first frame.
-                self.display = None;
+                self.held_resize = None;
                 self.resize(&display).await
             }
         }

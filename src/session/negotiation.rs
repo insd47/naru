@@ -82,7 +82,7 @@ impl Negotiation {
 
         self.silent = 0;
 
-        if answer.size.is_some() {
+        if answer.ready {
             self.answered = Some(now);
             return true;
         }

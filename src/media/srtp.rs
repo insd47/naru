@@ -120,27 +120,6 @@ impl SrtpContext {
         Some(protected)
     }
 
-    /// Authenticates and decrypts a received SRTCP packet into an RTCP compound packet.
-    pub fn unprotect_rtcp(&mut self, packet: &[u8]) -> Option<Vec<u8>> {
-        let body_len = packet.len().checked_sub(TAG_BYTES).filter(|&len| len >= 12)?;
-        let (body, tag) = packet.split_at(body_len);
-
-        let mut mac = self.rtcp.mac();
-        mac.update(body);
-        mac.verify_truncated_left(tag).ok()?;
-
-        let (compound, trailer) = body.split_at(body_len - 4);
-        let trailer = u32::from_be_bytes(trailer.try_into().ok()?);
-        let ssrc = u32::from_be_bytes(compound[4..8].try_into().ok()?);
-        let mut plain = compound.to_vec();
-
-        if trailer & 1 << 31 != 0 {
-            self.rtcp.apply(ssrc, u64::from(trailer & 0x7fff_ffff), &mut plain[8..]);
-        }
-
-        Some(plain)
-    }
-
     /// Highest extended sequence number received on this SSRC (`ROC × 65536 + sequence number`), for receiver reports
     pub fn highest_received(&self, ssrc: u32) -> Option<u32> {
         let state = self.received.get(&ssrc)?;
@@ -285,7 +264,6 @@ mod tests {
         let compound = hex("80c900011122334481ce000211223344deadbeef");
 
         assert_eq!(context.protect_rtcp(&compound).unwrap(), hex(RTCP));
-        assert_eq!(SrtpContext::new(&blob()).unprotect_rtcp(&hex(RTCP)).unwrap(), compound);
     }
 
     #[test]

@@ -59,8 +59,7 @@ enum Mode {
     /// Two fingers that have not moved yet. Lifting is a right click.
     Pair,
     Scroll,
-    /// Distance between the two fingers at the start
-    Pinch(f32),
+    Pinch,
     /// Three or more fingers. These are system gestures, so nothing is sent until all fingers lift.
     Ignore,
 }
@@ -151,9 +150,9 @@ impl Touchpad {
             }
             Some(Mode::Pair) if self.fingers.len() == 2 => self.classify(),
             Some(Mode::Scroll) => self.scroll(Phase::Changed),
-            Some(Mode::Pinch(base)) if self.fingers.len() == 2 => vec![Gesture::Magnify {
+            Some(Mode::Pinch) if self.fingers.len() == 2 => vec![Gesture::Magnify {
                 phase: Phase::Changed,
-                scale: self.spread() / base,
+                scale: self.spread() / self.base_spread,
             }],
             _ => Vec::new(),
         }
@@ -192,7 +191,7 @@ impl Touchpad {
         self.travel = self.travel.max(moved);
 
         if self.base_spread > 0.0 && (self.spread() - self.base_spread).abs() > PINCH_SLOP {
-            self.mode = Some(Mode::Pinch(self.base_spread));
+            self.mode = Some(Mode::Pinch);
             return vec![Gesture::Magnify {
                 phase: Phase::Began,
                 scale: 1.0,
@@ -225,9 +224,9 @@ impl Touchpad {
                 phase: Phase::Ended,
                 delta: (0.0, 0.0),
             }],
-            Some(Mode::Pinch(base)) => vec![Gesture::Magnify {
+            Some(Mode::Pinch) => vec![Gesture::Magnify {
                 phase: Phase::Ended,
-                scale: self.spread() / base,
+                scale: self.spread() / self.base_spread,
             }],
             _ => Vec::new(),
         }

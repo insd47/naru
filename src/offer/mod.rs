@@ -76,7 +76,6 @@ pub struct Offer {
 }
 
 /// The four SRTP key blobs carried in the offer.
-#[derive(Clone)]
 pub struct MediaKeys {
     /// Audio RTCP sent by the client
     pub audio_send: [u8; KEY_BLOB_BYTES],
@@ -91,8 +90,8 @@ pub struct MediaKeys {
 /// Video negotiation result returned by the server.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Answer {
-    /// Canvas size in pixels; absent while the server's encoder isn't ready yet
-    pub size: Option<(u32, u32)>,
+    /// Whether the server's encoder is ready, which it shows by naming the canvas size
+    pub ready: bool,
 }
 
 impl Offer {
@@ -252,10 +251,7 @@ impl Answer {
         let video = AnswerBlob::decode(decoded.as_slice()).ok()?.video?;
 
         Some(Self {
-            size: video
-                .width
-                .zip(video.height)
-                .filter(|&(width, height)| width > 0 && height > 0),
+            ready: video.width.unwrap_or(0) > 0 && video.height.unwrap_or(0) > 0,
         })
     }
 }
@@ -442,12 +438,7 @@ mod tests {
         plist::Value::Dictionary(dict).to_writer_binary(&mut body).unwrap();
         body.extend_from_slice(b"trailing bytes after the plist");
 
-        assert_eq!(
-            Answer::find(&body),
-            Some(Answer {
-                size: Some((2560, 1600)),
-            })
-        );
+        assert_eq!(Answer::find(&body), Some(Answer { ready: true }));
     }
 
     #[test]
@@ -468,7 +459,7 @@ mod tests {
         let mut body = Vec::new();
         plist::Value::Dictionary(dict).to_writer_binary(&mut body).unwrap();
 
-        assert_eq!(Answer::find(&body).unwrap().size, None);
+        assert_eq!(Answer::find(&body), Some(Answer { ready: false }));
         assert_eq!(Answer::find(b"no plist here"), None);
     }
 

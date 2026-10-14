@@ -11,6 +11,8 @@ mod languages;
 mod layout;
 mod tables;
 
+const ABC: &str = "com.apple.keylayout.ABC";
+
 /// What to send so the Mac types what this Latin key means in `language`, given the Mac's current input source.
 ///
 /// - `latin` is the keysym of the Latin letter, digit, or symbol on the physical key, shifted as typed. `language` is

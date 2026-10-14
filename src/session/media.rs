@@ -80,19 +80,26 @@ pub struct Media {
     audio_ssrc: u32,
     video_receive: SrtpContext,
     audio_receive: SrtpContext,
-    // SSRC of the audio stream whose decoder config was announced. The server restarts audio with a new SSRC on resize.
-    audio_stream: Option<u32>,
     // Video RTCP goes out with the video key and audio RTCP with the audio key, as the server checks each port with its
     // own.
     video_send: SrtpContext,
     audio_send: SrtpContext,
+    // SSRC of the audio stream whose decoder config was announced. The server restarts audio with a new SSRC on resize.
+    audio_stream: Option<u32>,
     streams: Streams,
     group: Option<Group>,
-    last_keyframe_request: Option<Instant>,
+    // Whether a decoder config has ever arrived, and when a frame and a packet last did
+    started: bool,
+    last_frame: Option<Instant>,
+    last_packet: Option<Instant>,
+    last_timestamp: u32,
+    // Decoder resets since the last frame
+    stall_resets: usize,
     // The app's decoder lost its references, or an H.264 unit was lost, and no keyframe has arrived since. Requests
     // repeat until one arrives rather than going out once and possibly being lost or swallowed by the rate limit, and
     // nothing is acknowledged meanwhile, since the decoder no longer holds what the server would predict from.
     awaiting_keyframe: bool,
+    last_keyframe_request: Option<Instant>,
     fir_sequence: u8,
     // Keyframe requests sent since the last keyframe arrived
     unanswered: u32,
@@ -102,23 +109,17 @@ pub struct Media {
     // Picture size from the latest decoder config, which refresh requests name. Before the first it is not known yet
     // and goes out as 0.
     picture_size: (u16, u16),
-    // Counts for diagnosing why media did not start.
-    datagrams: u64,
-    authenticated: u64,
-    largest_bytes: u32,
-    // Sequence numbers found missing, packets filled by previous groups, and unrecovered losses
-    missing: u64,
-    filled: u64,
-    losses: u64,
-    last_packet: Option<Instant>,
-    last_timestamp: u32,
     bandwidth: Bandwidth,
     // When the first receiver feedback went out, the start of its clock
     feedback_started: Option<Instant>,
-    last_frame: Option<Instant>,
-    configured: bool,
-    // Decoder resets since the last frame
-    stall_resets: usize,
+    // Counts for the stats, which tell why media did not start or froze. Missing sequence numbers also drive refresh
+    // requests.
+    datagrams: u64,
+    authenticated: u64,
+    largest_bytes: u32,
+    missing: u64,
+    filled: u64,
+    losses: u64,
 }
 
 impl Media {
@@ -130,31 +131,31 @@ impl Media {
             audio_ssrc: offer.audio_ssrc,
             video_receive: SrtpContext::new(&offer.keys.video_receive),
             audio_receive: SrtpContext::new(&offer.keys.audio_receive),
-            audio_stream: None,
             video_send: SrtpContext::new(&offer.keys.video_send),
             audio_send: SrtpContext::new(&offer.keys.audio_send),
+            audio_stream: None,
             streams: Streams::new(codec.bands()),
             group: None,
-            last_keyframe_request: None,
+            started: false,
+            last_frame: None,
+            last_packet: None,
+            last_timestamp: 0,
+            stall_resets: 0,
             awaiting_keyframe: false,
+            last_keyframe_request: None,
             fir_sequence: 0,
             unanswered: 0,
             last_refresh_request: None,
             refreshed_missing: 0,
             picture_size: (0, 0),
+            bandwidth: Bandwidth::default(),
+            feedback_started: None,
             datagrams: 0,
             authenticated: 0,
             largest_bytes: 0,
             missing: 0,
             filled: 0,
             losses: 0,
-            last_packet: None,
-            last_timestamp: 0,
-            bandwidth: Bandwidth::default(),
-            feedback_started: None,
-            last_frame: None,
-            configured: false,
-            stall_resets: 0,
         }
     }
 
@@ -194,7 +195,6 @@ impl Media {
                 // the previous generation's references.
                 self.filled += self.group.as_ref().map_or(0, Group::filled);
                 self.group = Some(Group::new(self.codec, base));
-                self.configured = false;
                 packets
             }
             Routed::Held => return,
@@ -246,7 +246,7 @@ impl Media {
         while let Some(output) = self.group.as_mut().and_then(|group| group.next(now)) {
             match output {
                 Assembled::Config(config) => {
-                    self.configured = true;
+                    self.started = true;
                     self.picture_size = (
                         u16::try_from(config.width).unwrap_or(u16::MAX),
                         u16::try_from(config.height).unwrap_or(u16::MAX),
@@ -289,14 +289,14 @@ impl Media {
         }
     }
 
-    /// Whether a decoder config or frame has ever arrived
+    /// Whether a decoder config has ever arrived
     pub fn started(&self) -> bool {
-        self.configured || self.last_frame.is_some()
+        self.started
     }
 
-    /// When the last frame went out
-    pub fn last_frame(&self) -> Option<Instant> {
-        self.last_frame
+    /// Whether a frame has ever gone out
+    pub fn framed(&self) -> bool {
+        self.last_frame.is_some()
     }
 
     /// Whether the server is currently sending packets. It stops for a still screen.

@@ -275,7 +275,7 @@ async fn session_prompt(stream: &mut TcpStream) -> Result<Vec<u8>> {
         return Ok(head);
     }
 
-    let mut rest = [0; PROMPT_BYTES - 4];
+    let mut rest = [0; PROMPT_BYTES - PROMPT_MARKER.len()];
     stream.read_exact(&mut rest).await?;
 
     let name = &rest[8..];

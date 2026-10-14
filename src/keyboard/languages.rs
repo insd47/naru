@@ -1,3 +1,4 @@
+use super::ABC;
 use super::tables::TABLES;
 
 /// A client language and the Mac layout used to type it
@@ -64,8 +65,6 @@ const METHODS: [(&str, &str); 8] = [
     ("vi",      "com.apple.inputmethod.VietnameseIM.VietnameseTelex"),
     ("ta",      "com.apple.inputmethod.Tamil.Tamil99"),
 ];
-
-const LATIN: &str = "com.apple.keylayout.ABC";
 
 /// ID of the Mac layout used to type the client language (a BCP 47 tag), or `None` for languages that send Latin
 /// letters as is.
@@ -151,7 +150,7 @@ fn keys(language: &str) -> Option<(String, Option<String>)> {
 ///   layout, and Latin languages get ABC.
 pub fn source(language: &str, mac: Option<&str>) -> String {
     let Some((key, regional)) = keys(language) else {
-        return LATIN.to_owned();
+        return ABC.to_owned();
     };
     let same_language = |mac: &&str| {
         MODES.iter().any(|mode| mode.id == *mac && mode.language == key)
@@ -166,7 +165,7 @@ pub fn source(language: &str, mac: Option<&str>) -> String {
         .or_else(|| regional.as_deref().and_then(method))
         .or_else(|| method(&key))
         .or_else(|| layout(language, None))
-        .unwrap_or(LATIN)
+        .unwrap_or(ABC)
         .to_owned()
 }
 

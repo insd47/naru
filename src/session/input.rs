@@ -77,12 +77,12 @@ impl Input {
                     self.remainder = (0.0, 0.0);
                 }
 
-                Some(self.scroll_message(delta, trackpad_lines(delta), Some(phase), None, true))
+                Some(self.scroll(delta, trackpad_lines(delta), Some(phase), None, true))
             }
             Event::Momentum { phase, delta } => {
-                Some(self.scroll_message(delta, trackpad_lines(delta), None, Some(phase), true))
+                Some(self.scroll(delta, trackpad_lines(delta), None, Some(phase), true))
             }
-            Event::Wheel { points, lines } => Some(self.scroll_message(points, lines, None, None, false)),
+            Event::Wheel { points, lines } => Some(self.scroll(points, lines, None, None, false)),
             Event::Magnify { phase, scale } => Some(self.magnify(phase, scale)),
         }
     }
@@ -118,7 +118,8 @@ impl Input {
         .encode()
         .to_vec()
     }
-    fn scroll_message(
+
+    fn scroll(
         &mut self,
         delta: (f32, f32),
         lines: (f32, f32),

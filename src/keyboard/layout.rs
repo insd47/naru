@@ -1,7 +1,6 @@
+use super::ABC;
 use super::tables::{TABLES, Table};
-use std::collections::HashMap;
 
-const ABC: &str = "com.apple.keylayout.ABC";
 const EMPTY: char = '\u{FFFD}';
 
 /// For a Mac layout that cannot type Latin letters, converts the character at an ABC position to the one that layout
@@ -11,30 +10,33 @@ const EMPTY: char = '\u{FFFD}';
 ///   With Dubeolsik, `ㄱ` must be sent instead of `r` to compose.
 /// - Latin layouts (ABC, German, and so on) have no table. Sent as is, the Mac finds the key that produces the
 ///   character.
-pub struct Layout(HashMap<u32, u32>);
+pub struct Layout {
+    abc: &'static Table,
+    target: &'static Table,
+}
 
 impl Layout {
     /// Conversion table for a Mac layout, or `None` for a Latin layout with nothing to convert or an unknown layout.
     pub fn find(id: &str) -> Option<Self> {
-        let abc = table(ABC)?;
-        let target = table(id)?;
+        (id != ABC).then_some(())?;
 
-        let pairs = abc
-            .base
-            .chars()
-            .zip(target.base.chars())
-            .chain(abc.shift.chars().zip(target.shift.chars()));
-        let map = pairs
-            .filter(|&(latin, char)| latin != char && char != EMPTY)
-            .map(|(latin, char)| (keysym(latin), keysym(char)))
-            .collect::<HashMap<_, _>>();
-
-        (!map.is_empty()).then_some(Self(map))
+        Some(Self {
+            abc: table(ABC)?,
+            target: table(id)?,
+        })
     }
 
     /// The keysym to send in this layout, unchanged when there is nothing to convert
-    pub fn translate(&self, keysym: u32) -> u32 {
-        self.0.get(&keysym).copied().unwrap_or(keysym)
+    pub fn translate(&self, latin: u32) -> u32 {
+        let rows = [(self.abc.base, self.target.base), (self.abc.shift, self.target.shift)];
+
+        rows.iter()
+            .find_map(|(abc, target)| {
+                let column = abc.chars().position(|char| keysym(char) == latin)?;
+                target.chars().nth(column)
+            })
+            .filter(|&char| char != EMPTY)
+            .map_or(latin, keysym)
     }
 }
 
@@ -52,7 +54,8 @@ fn keysym(char: char) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ABC, Layout, keysym, table};
+    use super::{Layout, keysym, table};
+    use crate::keyboard::ABC;
     use crate::keyboard::tables::TABLES;
 
     // Checks the generated table against the Dubeolsik chart.
