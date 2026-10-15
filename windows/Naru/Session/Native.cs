@@ -13,6 +13,7 @@ internal static unsafe partial class Native
     public const uint ImeCmodeNative = 0x1;
 
     public const uint VkCancel = 0x03;
+    public const uint VkBack = 0x08;
     public const uint VkTab = 0x09;
     public const uint VkReturn = 0x0d;
     public const uint VkShift = 0x10;
@@ -21,6 +22,17 @@ internal static unsafe partial class Native
     public const uint VkHangul = 0x15;
     public const uint VkHanja = 0x19;
     public const uint VkEscape = 0x1b;
+    public const uint VkSpace = 0x20;
+    public const uint VkPrior = 0x21;
+    public const uint VkNext = 0x22;
+    public const uint VkEnd = 0x23;
+    public const uint VkHome = 0x24;
+    public const uint VkLeft = 0x25;
+    public const uint VkUp = 0x26;
+    public const uint VkRight = 0x27;
+    public const uint VkDown = 0x28;
+    public const uint VkInsert = 0x2d;
+    public const uint VkDelete = 0x2e;
     public const uint VkLWin = 0x5b;
     public const uint VkRWin = 0x5c;
     public const uint VkLShift = 0xa0;

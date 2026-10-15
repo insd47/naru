@@ -57,11 +57,9 @@ internal static class Diagnostics
     // The log stays open for writing while the app runs.
     private static string Read()
     {
-        var path = Path.Combine(Windows.Storage.ApplicationData.Current.LocalFolder.Path, "naru.log");
-
         try
         {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var stream = new FileStream(Log.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var reader = new StreamReader(stream);
             return reader.ReadToEnd();
         }

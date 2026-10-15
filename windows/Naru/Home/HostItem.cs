@@ -58,6 +58,13 @@ public sealed class HostItem : INotifyPropertyChanged
     public static HostItem From(Found found, Presence presence) =>
         new() { Id = found.Id, Found = found, Title = found.Name, Presence = presence };
 
+    public void Update(Found found, Presence presence)
+    {
+        Found = found;
+        Title = found.Name;
+        Presence = presence;
+    }
+
     public void Update(Host host, Presence presence)
     {
         Host = host;

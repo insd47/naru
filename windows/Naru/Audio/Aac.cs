@@ -17,8 +17,10 @@ internal sealed partial class Aac : IDisposable
     private const string Library = "libAACdec";
     private const int RawTransport = 0;
 
-    // Large enough for any frame the decoder can produce: 2048 samples per channel, 8 channels.
-    private readonly short[] pcm = new short[2048 * 8];
+    /// <summary>Samples in the largest frame the decoder can produce: 2048 per channel, 8 channels</summary>
+    public const int MaxSamples = 2048 * 8;
+
+    private readonly short[] pcm = new short[MaxSamples];
     private nint handle;
 
     public Aac(byte[] config)

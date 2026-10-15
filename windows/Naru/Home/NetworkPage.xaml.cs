@@ -58,9 +58,7 @@ public sealed partial class NetworkPage : Page
 
             if (items.FirstOrDefault(item => item.Id == found.Id) is { } existing)
             {
-                existing.Found = found;
-                existing.Title = found.Name;
-                existing.Presence = presence;
+                existing.Update(found, presence);
             }
             else
             {

@@ -31,7 +31,7 @@ internal static partial class Program
         Application.Start(_ =>
         {
             SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread()));
-            var app = new App();
+            new App();
         });
 
         return 0;

@@ -18,7 +18,7 @@ namespace Naru.Session;
 /// <item>The hook runs on the UI thread that installed it and must return quickly, or Windows removes it.</item>
 /// </list>
 /// </remarks>
-internal sealed class Keyboard
+internal sealed class Keyboard : IDisposable
 {
     private const int KoreanLanguage = 0x0412;
 
@@ -175,24 +175,21 @@ internal sealed class Keyboard
             _ => false,
         };
 
-        if (local)
+        if (local && (vk is VkLWin or VkRWin || (alt && vk is VkTab or VkEscape) || (control && vk == VkEscape)))
         {
-            if (vk is VkLWin or VkRWin || (alt && vk is VkTab or VkEscape) || (control && vk == VkEscape))
-            {
-                return false;
-            }
-
-            // Alt also goes to Windows, which needs it for Alt+Tab. The Mac still gets it as Command.
-            if (vk is VkLMenu or VkRMenu)
-            {
-                Send(keys.Translate(vk, scan, extended, down, layout, held, language, connection.Source));
-                return false;
-            }
+            return false;
         }
 
-        Report(layout);
+        // Alt also goes to Windows, which needs it for Alt+Tab. The Mac still gets it as Command.
+        var shared = local && vk is VkLMenu or VkRMenu;
+
+        if (!shared)
+        {
+            Report(layout);
+        }
+
         Send(keys.Translate(vk, scan, extended, down, layout, held, language, connection.Source));
-        return true;
+        return !shared;
     }
 
     private void Send(List<(uint Keysym, bool Down)> events)

@@ -23,7 +23,7 @@ internal sealed unsafe class Speaker : IDisposable
 
     // More slots than frames that may be queued, so the slot written next has always finished playing.
     private const int Slots = MaxQueued + 2;
-    private const int SlotBytes = 2048 * 8 * sizeof(short);
+    private const int SlotBytes = Aac.MaxSamples * sizeof(short);
 
     private readonly Aac decoder;
     private readonly IXAudio2 engine;

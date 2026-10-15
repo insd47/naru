@@ -27,6 +27,8 @@ internal sealed unsafe class Keys(bool swapCommandOption)
     private const uint OptionLeft = 0xffe7;
     private const uint OptionRight = 0xffe8;
 
+    private static readonly HashSet<uint> ShortcutModifiers = [VkLControl, VkRControl, VkLMenu, VkRMenu, VkLWin, VkRWin];
+
     private static readonly Dictionary<uint, uint> Special = new()
     {
         [VkLShift] = 0xffe1,
@@ -35,19 +37,19 @@ internal sealed unsafe class Keys(bool swapCommandOption)
         [VkRControl] = 0xffe4,
         [VkEscape] = 0xff1b,
         [VkTab] = 0xff09,
-        [0x08] = 0xff08, // Backspace
+        [VkBack] = 0xff08,
         [VkReturn] = 0xff0d,
-        [0x2e] = 0xffff, // Delete
-        [0x2d] = 0xff63, // Insert
-        [0x24] = 0xff50, // Home
-        [0x23] = 0xff57, // End
-        [0x21] = 0xff55, // Page Up
-        [0x22] = 0xff56, // Page Down
-        [0x25] = 0xff51, // Left
-        [0x26] = 0xff52, // Up
-        [0x27] = 0xff53, // Right
-        [0x28] = 0xff54, // Down
-        [0x20] = 0x20, // Space
+        [VkDelete] = 0xffff,
+        [VkInsert] = 0xff63,
+        [VkHome] = 0xff50,
+        [VkEnd] = 0xff57,
+        [VkPrior] = 0xff55,
+        [VkNext] = 0xff56,
+        [VkLeft] = 0xff51,
+        [VkUp] = 0xff52,
+        [VkRight] = 0xff53,
+        [VkDown] = 0xff54,
+        [VkSpace] = 0x20,
     };
 
     private readonly Dictionary<uint, uint> pressed = [];
@@ -146,7 +148,7 @@ internal sealed unsafe class Keys(bool swapCommandOption)
         var keysyms = Characters(vk, scan, layout, held).Select(ToKeysym);
 
         // Shortcuts send the Latin key itself.
-        if (held.Overlaps([VkLControl, VkRControl, VkLMenu, VkRMenu, VkLWin, VkRWin]))
+        if (held.Overlaps(ShortcutModifiers))
         {
             return keysyms.ToList();
         }
@@ -163,7 +165,7 @@ internal sealed unsafe class Keys(bool swapCommandOption)
     private static List<char> Characters(uint vk, uint scan, nint layout, IReadOnlySet<uint> held)
     {
         var state = stackalloc byte[256];
-        var shortcut = held.Overlaps([VkLControl, VkRControl, VkLMenu, VkRMenu, VkLWin, VkRWin]);
+        var shortcut = held.Overlaps(ShortcutModifiers);
 
         if (!shortcut && held.Overlaps([VkLShift, VkRShift]))
         {

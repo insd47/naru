@@ -45,7 +45,7 @@ internal sealed class Preferences
         set => Write("sharedClipboard", value);
     }
 
-    // Stored values are strings and plain types so they still read back if enum names change.
+    // The settings store holds only plain types, so an enum is stored by name, which reads back if its values are reordered.
     private T Read<T>(string key, T fallback) => store.Values[key] is T value ? value : fallback;
 
     private void Write<T>(string key, T value) => store.Values[key] = value;

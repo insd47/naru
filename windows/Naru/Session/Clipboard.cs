@@ -15,7 +15,7 @@ namespace Naru.Session;
 /// <item>Call only on the UI thread.</item>
 /// </list>
 /// </remarks>
-internal sealed class Clipboard
+internal sealed class Clipboard : IDisposable
 {
     private readonly Connection connection;
     private readonly Preferences preferences;
