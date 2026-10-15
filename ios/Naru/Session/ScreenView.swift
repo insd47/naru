@@ -149,12 +149,28 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
 
     func insertText(_ text: String) {
         Diagnostics.input.log("Text input: insert, in the key window: \(self.window?.isKeyWindow == true), key held: \(!self.typing.isEmpty)")
+        reclaimPresses()
         repeatHeld()
     }
 
     func deleteBackward() {
         Diagnostics.input.log("Text input: delete, key held: \(!self.typing.isEmpty)")
+        reclaimPresses()
         repeatHeld()
+    }
+
+    // Text with no key down means the key presses go to another responder while the text system still writes here, as
+    // an iPad's diagnostics showed right after the session screen opened. Becoming first responder again, as reopening the
+    // screen did there, brings the presses back. It waits for the text system to return first.
+    private func reclaimPresses() {
+        guard typing.isEmpty else { return }
+
+        Diagnostics.input.log("Text input without a key press; taking the keyboard again")
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil else { return }
+            _ = self.resignFirstResponder()
+            _ = self.becomeFirstResponder()
+        }
     }
 
     // The Mac does not repeat held keys. iPadOS reports a held key's repeats only as text input, at the user's repeat
