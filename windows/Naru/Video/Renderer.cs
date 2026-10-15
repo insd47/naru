@@ -190,7 +190,8 @@ internal sealed class Renderer : IDisposable
         processorSize = size;
     }
 
-    private void Release()
+    /// <summary>Lets go of the textures drawn so far, before their owner releases them. A view keeps its texture alive, and a new texture may reuse an old one's address.</summary>
+    public void Forget()
     {
         foreach (var input in inputs.Values)
         {
@@ -198,6 +199,11 @@ internal sealed class Renderer : IDisposable
         }
 
         inputs.Clear();
+    }
+
+    private void Release()
+    {
+        Forget();
         processor?.Dispose();
         processor = null;
         enumerator?.Dispose();

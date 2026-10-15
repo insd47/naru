@@ -1,7 +1,7 @@
 namespace Naru.Video;
 
 /// <summary>The fields of an HEVC SPS the decoder needs.</summary>
-internal readonly record struct HevcSps(uint Width, uint Height, uint ChromaFormat, uint MaxNumReorderPics);
+internal readonly record struct HevcSps(uint Width, uint Height, uint ChromaFormat);
 
 /// <summary>
 /// Reads and rewrites sequence parameter sets.
@@ -33,7 +33,7 @@ internal static class Sps
         }
     }
 
-    /// <summary>The coded size, chroma format, and reorder depth of an HEVC SPS NAL (without a start code), or null if it cannot be parsed.</summary>
+    /// <summary>The coded size and chroma format of an HEVC SPS NAL (without a start code), or null if it cannot be parsed.</summary>
     /// <remarks>Media Foundation's HEVC decoder needs the frame size before it offers a 4:4:4 output.</remarks>
     public static HevcSps? Hevc(byte[] nal)
     {
@@ -78,30 +78,7 @@ internal static class Sps
 
             var width = reader.Ue();
             var height = reader.Ue();
-
-            if (reader.Flag())
-            {
-                reader.Ue();
-                reader.Ue();
-                reader.Ue();
-                reader.Ue();
-            }
-
-            reader.Ue();
-            reader.Ue();
-            reader.Ue();
-
-            // sps_max_num_reorder_pics of the highest sub-layer, which is the one decoded.
-            uint reorder = 0;
-
-            for (var layer = reader.Flag() ? 0 : subLayers; layer <= subLayers; layer++)
-            {
-                reader.Ue();
-                reorder = reader.Ue();
-                reader.Ue();
-            }
-
-            return new HevcSps(width, height, chromaFormat, reorder);
+            return new HevcSps(width, height, chromaFormat);
         }
         catch (FormatException)
         {

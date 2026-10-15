@@ -30,8 +30,8 @@ internal sealed class Decoder : IDisposable
     private readonly IMFTransform transform;
     private readonly byte[] parameters;
     private readonly Guid output;
-    private bool studioRange = true;
     private readonly byte bands;
+    private bool studioRange = true;
     private long decoded;
 
     public string Name { get; }
@@ -44,7 +44,7 @@ internal sealed class Decoder : IDisposable
         var hevc = config.Codec == VideoCodec.Hevc;
         bands = Math.Max(config.Bands, (byte)1);
         var sps = config.Sps.FirstOrDefault() ?? throw new InvalidOperationException("no SPS");
-        byte[][] sets = hevc ? [.. config.Vps, .. config.Sps, .. config.Pps] : [Sps.WithoutReordering(sps), .. config.Pps];
+        var sets = hevc ? config.Vps.Concat(config.Sps).Concat(config.Pps) : config.Pps.Prepend(Sps.WithoutReordering(sps));
         parameters = [.. sets.SelectMany(nal => StartCode.Concat(nal))];
         output = hevc ? Mf.Ayuv : Mf.Nv12;
 
@@ -214,11 +214,6 @@ internal sealed class Decoder : IDisposable
             if (parsed.ChromaFormat != 3)
             {
                 throw new InvalidOperationException($"HEVC chroma format {parsed.ChromaFormat} is not 4:4:4");
-            }
-
-            if (parsed.MaxNumReorderPics != 0)
-            {
-                Log.Info($"HEVC SPS allows reordering {parsed.MaxNumReorderPics} pictures, which may delay output");
             }
 
             MediaFactory.MFSetAttributeSize(type, Mf.FrameSize, parsed.Width, parsed.Height);

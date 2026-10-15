@@ -64,11 +64,6 @@ internal sealed class Canvas : IDisposable
     /// <summary>Copies a decoded band into its place.</summary>
     public void Place(Picture picture)
     {
-        if (picture.Band >= Rows)
-        {
-            return;
-        }
-
         var region = new Box(0, 0, 0, (int)Band.Width, (int)Band.Height, 1);
         context.CopySubresourceRegion(Texture, 0, 0, picture.Band * Band.Height, 0, picture.Texture, picture.Slice, region);
     }

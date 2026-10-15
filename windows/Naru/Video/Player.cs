@@ -14,7 +14,7 @@ namespace Naru.Video;
 /// <list type="bullet">
 /// <item>The decoder and renderer live on one dedicated thread. Calls from any thread are posted there and handled in order.</item>
 /// <item>A decoder exists only while a config (VPS, SPS, PPS) exists. When it changes, a new one is created and fed from a keyframe.</item>
-/// <item>A keyframe is requested when the decoder failed or input backed up. The session requests one itself for a new config and for stall recovery.</item>
+/// <item>A keyframe is requested when the decoder failed or input backed up. The session repeats the request until one arrives, and a new config comes with its keyframe.</item>
 /// <item>Each new decoder raises <see cref="FirstFrame"/> once it presents its first picture. The screen is black until then.</item>
 /// <item>HEVC bands go into a canvas as they decode, and the canvas is presented when the session says an instant is complete.</item>
 /// <item>Work arriving after <see cref="Dispose"/> is ignored.</item>
@@ -26,9 +26,6 @@ internal sealed class Player : IDisposable
     // the count per second depends on the frame rate and the number of bands. Decoding catches up far faster than real
     // time, while a drop costs a keyframe, so this tolerates passing hiccups such as a new decoder.
     private static readonly TimeSpan Backlog = TimeSpan.FromSeconds(0.5);
-
-    // Interval between keyframe re-requests while waiting. The session also enforces a minimum interval between requests.
-    private static readonly TimeSpan KeyframeRetry = TimeSpan.FromSeconds(1);
 
     private readonly Action requestKeyframe;
     private readonly BlockingCollection<Action> work = [];
@@ -47,7 +44,6 @@ internal sealed class Player : IDisposable
 
     // After a new decoder is created, nothing is decoded until a keyframe arrives.
     private bool awaitingKeyframe = true;
-    private long requestedAt;
 
     // Stats arrive every half second; one line per 10 s keeps the log readable for the rest of the session.
     private const int ReportsPerLine = 20;
@@ -86,7 +82,7 @@ internal sealed class Player : IDisposable
             {
                 queue.TryEnqueue(() => created.Attach(panel));
                 shown = false;
-                Ask();
+                requestKeyframe();
             }
         });
     }
@@ -94,17 +90,12 @@ internal sealed class Player : IDisposable
     public void Resize(uint width, uint height, float scale) => Post(() => Guard("resize", () => renderer?.Resize(width, height, scale)));
 
     /// <summary>The visible size of the Mac's screen in pixels, which the decoded picture may pad.</summary>
-    public void Show(uint width, uint height) => Post(() => (visibleWidth, visibleHeight) = (width, height));
+    public void Crop(uint width, uint height) => Post(() => (visibleWidth, visibleHeight) = (width, height));
 
-    // The server resends the same config with every keyframe. The decoder is kept for an identical config and recreated only when it changes.
-    // When recreating, the following keyframe arrives shortly, so none is requested.
     public void Configure(DecoderConfig next) => Post(() =>
     {
-        if (decoder == null || config is not { } current || !Same(current, next))
-        {
-            config = next;
-            Rebuild(keyframe: false);
-        }
+        config = next;
+        Rebuild(keyframe: false);
     });
 
     public void Queue(AccessUnit unit)
@@ -149,10 +140,6 @@ internal sealed class Player : IDisposable
             canvas?.Dispose();
             renderer?.Dispose();
             graphics?.Dispose();
-            decoder = null;
-            canvas = null;
-            renderer = null;
-            graphics = null;
         });
         work.CompleteAdding();
     }
@@ -207,7 +194,7 @@ internal sealed class Player : IDisposable
             {
                 Log.Info("Video backed up; dropping pending frames");
                 awaitingKeyframe = true;
-                Ask();
+                requestKeyframe();
             }
 
             dropped += 1;
@@ -217,12 +204,6 @@ internal sealed class Player : IDisposable
         if (awaitingKeyframe && !unit.Keyframe)
         {
             dropped += 1;
-
-            if (Stopwatch.GetElapsedTime(requestedAt) >= KeyframeRetry)
-            {
-                Ask();
-            }
-
             return;
         }
 
@@ -236,7 +217,13 @@ internal sealed class Player : IDisposable
         catch (Exception error) when (error is SharpGenException or InvalidOperationException or COMException)
         {
             Log.Error("Decoder error", error);
-            Rebuild(keyframe: true);
+
+            // A picture predicted from a lost one may fail without anything being wrong with the decoder.
+            if (unit.Intact)
+            {
+                Rebuild(keyframe: true);
+            }
+
             return;
         }
 
@@ -265,6 +252,7 @@ internal sealed class Player : IDisposable
     {
         if (canvas is not { } existing || existing.Band != band || existing.Rows != rows)
         {
+            renderer?.Forget();
             canvas?.Dispose();
             canvas = null;
             canvas = new Canvas(graphics!, band, rows, picture.StudioRange);
@@ -296,6 +284,7 @@ internal sealed class Player : IDisposable
 
     private void Rebuild(bool keyframe)
     {
+        renderer?.Forget();
         decoder?.Dispose();
         decoder = null;
         awaitingKeyframe = true;
@@ -315,21 +304,8 @@ internal sealed class Player : IDisposable
 
         if (keyframe)
         {
-            Ask();
+            requestKeyframe();
         }
-    }
-
-    private static bool Same(DecoderConfig a, DecoderConfig b)
-    {
-        static bool Equal(byte[][] x, byte[][] y) => x.Length == y.Length && x.Zip(y).All(pair => pair.First.AsSpan().SequenceEqual(pair.Second));
-
-        return a.Codec == b.Codec && Equal(a.Vps, b.Vps) && Equal(a.Sps, b.Sps) && Equal(a.Pps, b.Pps);
-    }
-
-    private void Ask()
-    {
-        requestedAt = Stopwatch.GetTimestamp();
-        requestKeyframe();
     }
 
     private static T? Guard<T>(string what, Func<T> create) where T : class
@@ -351,7 +327,7 @@ internal sealed class Player : IDisposable
         {
             action();
         }
-        catch (Exception error) when (error is SharpGenException or COMException)
+        catch (Exception error) when (error is SharpGenException or InvalidOperationException or COMException)
         {
             Log.Error($"Cannot {what}", error);
         }

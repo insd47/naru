@@ -23,6 +23,9 @@ internal sealed class Connection : SessionListener
 
     public Player Video { get; }
 
+    /// <summary>The Mac's latest input source, which decides what keys type there. Written on the session's event thread.</summary>
+    public InputSource? Source => source;
+
     public Connection(Config config, Action<Event> listener)
     {
         this.listener = listener;
@@ -51,9 +54,6 @@ internal sealed class Connection : SessionListener
 
     public void Resize(DisplayMode mode) => session.Resize(mode);
 
-    /// <summary>The Mac's latest input source, which decides what keys type there. Written on the session's event thread.</summary>
-    public InputSource? Source => source;
-
     public void Disconnect() => session.Disconnect();
 
     // Video and audio arrive dozens of times per second, so they are neither logged nor passed to the UI.
@@ -63,26 +63,16 @@ internal sealed class Connection : SessionListener
         {
             case Event.Frame frame:
                 Video.Queue(frame.Unit);
-                break;
+                return;
             case Event.Present:
                 Video.Present();
-                break;
+                return;
             case Event.Audio audioEvent:
                 Play(audioEvent.AudioFrame);
-                break;
+                return;
             case Event.Stats stats:
                 Video.Report(stats.StatsValue);
-                break;
-            default:
-                Announce(@event);
-                break;
-        }
-    }
-
-    private void Announce(Event @event)
-    {
-        switch (@event)
-        {
+                return;
             case Event.Source changed:
                 source = changed.SourceValue;
                 break;
@@ -93,7 +83,7 @@ internal sealed class Connection : SessionListener
                 Video.Reset();
                 break;
             case Event.Layout layout:
-                Video.Show(layout.PixelWidth, layout.PixelHeight);
+                Video.Crop(layout.PixelWidth, layout.PixelHeight);
                 break;
             case Event.AudioConfig audioConfig:
                 StartAudio(audioConfig.Config);
@@ -101,7 +91,6 @@ internal sealed class Connection : SessionListener
         }
 
         Log.Info(Describe(@event));
-
         listener(@event);
 
         // The core session is left to the finalizer: input may still arrive from the UI, and the core ignores it once closed.
