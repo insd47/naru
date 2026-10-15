@@ -57,14 +57,15 @@ public partial class App : Application
         }
     }
 
-    // The connection window reports failures while it is open. Without it, it reopens to report this one.
+    // The connection window reports failures, reopening to report one after it was closed.
     private void OnFailed(Host host, Core.Failure failure)
     {
         if (window == null)
         {
             ShowConnections();
-            window!.Connector.Report(host, failure);
         }
+
+        window!.Connector.Report(host, failure);
     }
 
     /// <summary>Brings the connection window forward, reopening it if it was closed.</summary>

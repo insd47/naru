@@ -103,6 +103,7 @@ internal sealed partial class SessionWindow : Window
         Activated += OnActivated;
         Closed += (_, _) =>
         {
+            closed = true;
             keyboard.Dispose();
             clipboard.Dispose();
             cursor.Dispose();
@@ -153,12 +154,11 @@ internal sealed partial class SessionWindow : Window
         }
     }
 
-    /// <summary>The session ended. The window closes without disconnecting again.</summary>
+    /// <summary>The session ended. The window closes without disconnecting again, unless the user already closed it.</summary>
     public void Ended()
     {
         if (!closed)
         {
-            closed = true;
             chrome.Close();
             Close();
         }

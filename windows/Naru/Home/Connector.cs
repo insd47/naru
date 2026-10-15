@@ -32,13 +32,11 @@ internal sealed class Connector
         this.root = root;
         this.window = window;
         sessions.Changed += OnChanged;
-        sessions.Failed += Report;
     }
 
     public void Detach()
     {
         sessions.Changed -= OnChanged;
-        sessions.Failed -= Report;
     }
 
     /// <summary>Focuses the session window of a Mac in session, or connects with the saved password, or asks for one.</summary>
