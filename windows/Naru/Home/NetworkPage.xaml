@@ -23,7 +23,7 @@
 
         <Grid Grid.Row="1" Padding="36,20,36,16">
             <TextBlock Text="Network" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
-            <Button HorizontalAlignment="Right" Click="OnAdd" ToolTipService.ToolTip="New Connection (Ctrl+N)" KeyboardAcceleratorPlacementMode="Hidden">
+            <Button HorizontalAlignment="Right" Click="OnAdd" ToolTipService.ToolTip="New Connection">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon Glyph="&#xE710;" FontSize="14" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                     <TextBlock Text="New Connection" />

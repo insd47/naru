@@ -30,7 +30,7 @@
                             <TextBlock Text="Swap Alt and Command" />
                             <TextBlock Text="Alt sends Command and the Windows key sends Option, matching the keys on a Mac keyboard." Style="{StaticResource Detail}" />
                         </StackPanel>
-                        <ToggleSwitch x:Name="Swap" Grid.Column="1" OnContent="" OffContent="" MinWidth="0" Toggled="OnSwap" />
+                        <ToggleSwitch Grid.Column="1" OnContent="" OffContent="" MinWidth="0" IsOn="{x:Bind preferences.SwapCommandOption, Mode=TwoWay}" />
                     </Grid>
                 </Border>
                 <Border Style="{StaticResource Card}">
@@ -43,7 +43,7 @@
                             <TextBlock Text="Sync keyboard language" />
                             <TextBlock Text="The Mac switches its input source with this computer's language. Works best with one language besides English on the Mac." Style="{StaticResource Detail}" />
                         </StackPanel>
-                        <ToggleSwitch x:Name="SyncLanguage" Grid.Column="1" OnContent="" OffContent="" MinWidth="0" Toggled="OnSyncLanguage" />
+                        <ToggleSwitch Grid.Column="1" OnContent="" OffContent="" MinWidth="0" IsOn="{x:Bind preferences.SyncKeyboardLanguage, Mode=TwoWay}" />
                     </Grid>
                 </Border>
                 <Border Style="{StaticResource Card}">
@@ -56,7 +56,7 @@
                             <TextBlock Text="Windows key combinations" />
                             <TextBlock Text="Where shortcuts like Alt+Tab and the Windows key go, as in Remote Desktop." Style="{StaticResource Detail}" />
                         </StackPanel>
-                        <ComboBox x:Name="WindowsKeys" Grid.Column="1" VerticalAlignment="Center" MinWidth="200" SelectionChanged="OnWindowsKeys">
+                        <ComboBox x:Name="KeyCombinations" Grid.Column="1" VerticalAlignment="Center" MinWidth="200">
                             <x:String>On this computer</x:String>
                             <x:String>On the Mac</x:String>
                             <x:String>Only in full screen</x:String>
@@ -76,7 +76,7 @@
                         <TextBlock Text="Use shared clipboard" />
                         <TextBlock Text="Text you copy on either computer can be pasted on the other." Style="{StaticResource Detail}" />
                     </StackPanel>
-                    <ToggleSwitch x:Name="Clipboard" Grid.Column="1" OnContent="" OffContent="" MinWidth="0" Toggled="OnClipboard" />
+                    <ToggleSwitch Grid.Column="1" OnContent="" OffContent="" MinWidth="0" IsOn="{x:Bind preferences.SharedClipboard, Mode=TwoWay}" />
                 </Grid>
             </Border>
 

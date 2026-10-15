@@ -14,21 +14,18 @@ namespace Naru;
 public sealed partial class SettingsPage : Page
 {
     private readonly Preferences preferences = App.Current.Preferences;
-    private readonly bool loaded;
 
     public SettingsPage()
     {
         InitializeComponent();
 
-        Swap.IsOn = preferences.SwapCommandOption;
-        SyncLanguage.IsOn = preferences.SyncKeyboardLanguage;
-        WindowsKeys.SelectedIndex = (int)preferences.WindowsKeys;
-        Clipboard.IsOn = preferences.SharedClipboard;
+        // Wired after the initial selection, which raises a change of its own.
+        KeyCombinations.SelectedIndex = (int)preferences.WindowsKeys;
+        KeyCombinations.SelectionChanged += (_, _) => preferences.WindowsKeys = (WindowsKeys)KeyCombinations.SelectedIndex;
 
         var version = Package.Current.Id.Version;
         Version.Text = $"Cross over to your Mac. Version {version.Major}.{version.Minor}.{version.Build}";
         ShowCodec();
-        loaded = true;
     }
 
     // Shows whether sessions get HEVC 4:4:4 or H.264. The check may still be running from launch.
@@ -38,39 +35,6 @@ public sealed partial class SettingsPage : Page
         Codec.Text = hevc
             ? "Video: HEVC 4:4:4, decoded by the graphics card."
             : "Video: H.264. This PC can't decode HEVC 4:4:4 in hardware, so text may look softer.";
-    }
-
-    // Controls raise change events while the page sets their initial values, which must not write back.
-    private void OnSwap(object sender, RoutedEventArgs e)
-    {
-        if (loaded)
-        {
-            preferences.SwapCommandOption = Swap.IsOn;
-        }
-    }
-
-    private void OnSyncLanguage(object sender, RoutedEventArgs e)
-    {
-        if (loaded)
-        {
-            preferences.SyncKeyboardLanguage = SyncLanguage.IsOn;
-        }
-    }
-
-    private void OnWindowsKeys(object sender, SelectionChangedEventArgs e)
-    {
-        if (loaded)
-        {
-            preferences.WindowsKeys = (WindowsKeys)WindowsKeys.SelectedIndex;
-        }
-    }
-
-    private void OnClipboard(object sender, RoutedEventArgs e)
-    {
-        if (loaded)
-        {
-            preferences.SharedClipboard = Clipboard.IsOn;
-        }
     }
 
     private async void OnExport(object sender, RoutedEventArgs e)
