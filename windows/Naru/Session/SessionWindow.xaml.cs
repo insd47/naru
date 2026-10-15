@@ -25,6 +25,9 @@ namespace Naru.Session;
 /// </remarks>
 internal sealed partial class SessionWindow : Window
 {
+    /// <summary>Height of the bar above the Mac's screen, in device-independent pixels</summary>
+    public const double BarHeight = 48;
+
     // The Mac's default shortcuts for the toolbar: Control-Up Arrow, Control-Down Arrow, F11
     private const uint ControlKey = 0xffe3;
     private const uint UpKey = 0xff52;
@@ -57,6 +60,7 @@ internal sealed partial class SessionWindow : Window
         this.sessions = sessions;
         this.session = session;
         InitializeComponent();
+        Bar.Height = BarHeight;
 
         chrome = new Chrome(this, Bar, [Toolbar, Actions], CaptionInset);
         AppIcon.Apply(Icon);
@@ -237,7 +241,7 @@ internal sealed partial class SessionWindow : Window
         var scale = Displays.Scale(AppWindow);
         var (width, height) = display is { } mode ? ((int)mode.Width, (int)mode.Height) : Displays.Default(area, scale);
         opening = (width, height);
-        AppWindow.ResizeClient(new SizeInt32((int)(width * scale), (int)((height + Bar.Height) * scale)));
+        AppWindow.ResizeClient(new SizeInt32((int)(width * scale), (int)((height + BarHeight) * scale)));
         Center();
     }
 

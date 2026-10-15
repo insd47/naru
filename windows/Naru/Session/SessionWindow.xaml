@@ -29,7 +29,7 @@
             The two star columns are always equal, so the toolbar sits at the window's center. The right column ends
             with room for the caption buttons, which is zero in full screen.
         -->
-        <Grid x:Name="Bar" Height="48">
+        <Grid x:Name="Bar">
             <Grid.Resources>
                 <Style x:Key="BarButton" TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}">
                     <Setter Property="Width" Value="40" />

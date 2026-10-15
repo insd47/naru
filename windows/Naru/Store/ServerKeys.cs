@@ -12,7 +12,7 @@ namespace Naru.Store;
 /// </remarks>
 internal static partial class ServerKeys
 {
-    private static readonly string Directory = Path.Combine(ApplicationData.Current.LocalFolder.Path, "server-keys");
+    private static readonly string Folder = Path.Combine(ApplicationData.Current.LocalFolder.Path, "server-keys");
 
     public static byte[]? Find(Host host)
     {
@@ -27,7 +27,7 @@ internal static partial class ServerKeys
 
         if (!File.Exists(file))
         {
-            System.IO.Directory.CreateDirectory(Directory);
+            Directory.CreateDirectory(Folder);
             File.WriteAllBytes(file, der);
         }
     }
@@ -37,7 +37,7 @@ internal static partial class ServerKeys
         File.Delete(FileOf(host));
     }
 
-    private static string FileOf(Host host) => Path.Combine(Directory, Unsafe().Replace(host.Address, "_") + ".der");
+    private static string FileOf(Host host) => Path.Combine(Folder, Unsafe().Replace(host.Address, "_") + ".der");
 
     // Addresses can hold IPv6 colons, which file names cannot.
     [GeneratedRegex("[^A-Za-z0-9.-]")]

@@ -1,5 +1,6 @@
 using Naru.Store;
 using Windows.ApplicationModel.DataTransfer;
+using SystemClipboard = Windows.ApplicationModel.DataTransfer.Clipboard;
 
 namespace Naru.Session;
 
@@ -26,14 +27,14 @@ internal sealed class Clipboard : IDisposable
     {
         this.connection = connection;
         this.preferences = preferences;
-        Windows.ApplicationModel.DataTransfer.Clipboard.ContentChanged += OnChanged;
+        SystemClipboard.ContentChanged += OnChanged;
         // Text already on the clipboard at connect is not sent; only text copied after connecting is.
         _ = Remember();
     }
 
     public void Dispose()
     {
-        Windows.ApplicationModel.DataTransfer.Clipboard.ContentChanged -= OnChanged;
+        SystemClipboard.ContentChanged -= OnChanged;
     }
 
     /// <summary>The Mac's clipboard changed. If it is our own text echoed back, the Windows clipboard is left alone.</summary>
@@ -47,7 +48,7 @@ internal sealed class Clipboard : IDisposable
         last = text;
         var package = new DataPackage();
         package.SetText(text.ReplaceLineEndings("\r\n"));
-        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+        SystemClipboard.SetContent(package);
     }
 
     public void Activated()
@@ -91,7 +92,7 @@ internal sealed class Clipboard : IDisposable
     {
         try
         {
-            var content = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+            var content = SystemClipboard.GetContent();
             return content.Contains(StandardDataFormats.Text) ? (await content.GetTextAsync()).ReplaceLineEndings("\n") : null;
         }
         catch (Exception error) when (error is System.Runtime.InteropServices.COMException or UnauthorizedAccessException)

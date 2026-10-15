@@ -1,6 +1,7 @@
 using Microsoft.UI.Input;
 using Naru.Core;
 using Windows.Foundation;
+using FingerTouchpad = Naru.Core.Touchpad;
 
 namespace Naru.Session;
 
@@ -21,7 +22,7 @@ internal sealed class TouchScreen
     private readonly Connection connection;
     private readonly Momentum momentum;
     private readonly TouchCursor cursor;
-    private readonly Core.Touchpad fingers = new();
+    private readonly FingerTouchpad fingers = new();
     private readonly GestureRecognizer recognizer = new()
     {
         GestureSettings = GestureSettings.ManipulationTranslateX | GestureSettings.ManipulationTranslateY | GestureSettings.ManipulationTranslateInertia,

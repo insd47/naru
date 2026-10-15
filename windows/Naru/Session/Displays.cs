@@ -22,9 +22,9 @@ internal static partial class Displays
     public static DisplayMode Mode(double width, double height, double scale) =>
         new((uint)Math.Max(1, Math.Round(width)), (uint)Math.Max(1, Math.Round(height)), scale > 1 ? 2.0 : 1.0);
 
-    /// <summary>Size in device-independent pixels for a new session window: most of the work area.</summary>
+    /// <summary>Size in device-independent pixels of the screen area of a new session window: most of the work area, below the bar.</summary>
     public static (int Width, int Height) Default(RectInt32 workArea, double scale) =>
-        ((int)(workArea.Width * 0.8 / scale), (int)(workArea.Height * 0.8 / scale) - 48);
+        ((int)(workArea.Width * 0.8 / scale), (int)(workArea.Height * 0.8 / scale - SessionWindow.BarHeight));
 
     /// <summary>The virtual display for a new session window on the monitor showing this window.</summary>
     public static DisplayMode Initial(AppWindow window)

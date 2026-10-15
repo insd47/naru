@@ -22,7 +22,7 @@ internal sealed class Keyboard : IDisposable
 {
     private const int KoreanLanguage = 0x0412;
 
-    private static readonly Dictionary<nint, Keyboard> Windows = [];
+    private static readonly Dictionary<nint, Keyboard> Attached = [];
     private static nint hook;
 
     private readonly nint window;
@@ -50,7 +50,7 @@ internal sealed class Keyboard : IDisposable
         keys = new Keys(preferences.SwapCommandOption);
         korean = ImeNative(window);
 
-        Windows[window] = this;
+        Attached[window] = this;
         Install();
     }
 
@@ -72,9 +72,9 @@ internal sealed class Keyboard : IDisposable
 
     public void Dispose()
     {
-        Windows.Remove(window);
+        Attached.Remove(window);
 
-        if (Windows.Count == 0 && hook != 0)
+        if (Attached.Count == 0 && hook != 0)
         {
             Native.UnhookWindowsHookEx(hook);
             hook = 0;
@@ -97,7 +97,7 @@ internal sealed class Keyboard : IDisposable
     [UnmanagedCallersOnly]
     private static unsafe nint Hook(int code, nint message, nint data)
     {
-        if (code >= 0 && Windows.TryGetValue(Native.GetForegroundWindow(), out var target))
+        if (code >= 0 && Attached.TryGetValue(Native.GetForegroundWindow(), out var target))
         {
             var key = (Native.KbdLlHookStruct*)data;
             var down = message is Native.WmKeyDown or Native.WmSysKeyDown;
