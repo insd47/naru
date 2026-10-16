@@ -35,14 +35,18 @@ An app opens a session with `Session::connect(config, listener)` and gets events
   or the Mac went away.
 - Events arrive in order on a thread dedicated to that session. A slow listener slows the session down instead of
   letting frames pile up in memory, so listeners hand heavy work to another thread.
-- Video arrives as a `Decoder` config followed by `Frame` access units. The config holds the parameter sets and the
-  picture size, and the units never repeat the parameter sets. The app recreates its decoder on every new config, and
+- Video arrives as a `Decoder` config followed by `Frame` access units. The config holds the parameter sets, the
+  picture size, and whether the colors are Display P3, and the units never repeat the parameter sets. A Mac sends
+  Display P3; an app whose decoder does not tag its pictures with the stream's colors converts them, or they look
+  washed out. The app recreates its decoder on every new config, and
   calls `request_keyframe` once whenever it drops frames or rebuilds the decoder on its own. The session repeats the
   request until a keyframe arrives.
 - HEVC comes in four horizontal bands, as it does to Apple's client. Each frame is a picture of one band, numbered from
   the top; the app stacks them, keeps a band's last picture until a new one replaces it, and shows the screen at each
   `Present`, which follows the last band of an instant. While any band's latest picture is lost or broken, no
   `Present` comes, so the screen never pairs bands from different moments. H.264 is a single band and has no `Present`.
+- `Cursor` is the Mac's cursor shape. `CursorHidden` hides it, as the Mac does while typing or over playing video,
+  until the next `Cursor`, which the session sends again once the pointer moves even when the shape did not change.
 - Pointer coordinates are in the pixels of the latest `Layout`. Keys are X11 keysyms of what the Mac should type, and
   a release repeats the keysym of its press. The Mac does not repeat held keys, so key repeat is the app's to send.
 - Scrolls follow a Mac trackpad's phases: `MayBegin` when fingers rest, `Began` with the first movement, `Changed`,
