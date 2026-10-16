@@ -143,6 +143,12 @@ final class Video: @unchecked Sendable {
     private func setUp(_ config: DecoderConfig) {
         format = Self.format(config)
 
+        if let format {
+            let primaries = CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_ColorPrimaries)
+            let transfer = CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_TransferFunction)
+            log.log("video colors: primaries \(String(describing: primaries), privacy: .public), transfer \(String(describing: transfer), privacy: .public)")
+        }
+
         let count = Int(config.bands)
         output.withLockUnchecked { output in
             if output.held.count != count {
@@ -365,6 +371,19 @@ final class Video: @unchecked Sendable {
             from: canvas, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(), sourceSize: MTLSize(width: width, height: height, depth: 1),
             to: texture, destinationSlice: 0, destinationLevel: 0, destinationOrigin: MTLOrigin()
         )
+
+        // The picture keeps the stream's colors. A Mac sends Display P3, which looks washed out when shown as sRGB.
+        if let format {
+            for (stream, picture) in [
+                (kCMFormatDescriptionExtension_ColorPrimaries, kCVImageBufferColorPrimariesKey),
+                (kCMFormatDescriptionExtension_TransferFunction, kCVImageBufferTransferFunctionKey),
+            ] {
+                if let value = CMFormatDescriptionGetExtension(format, extensionKey: stream) {
+                    CVBufferSetAttachment(image, picture, value, .shouldPropagate)
+                }
+            }
+        }
+
         return (image, wrapped)
     }
 
