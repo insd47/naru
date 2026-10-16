@@ -21,15 +21,24 @@ internal sealed unsafe partial class MacCursor(ScreenGrid screen) : IDisposable
     private static readonly Guid StaticsInterop = new("ac6f5065-90c4-46ce-beb7-05e138e54117");
 
     private Event.Cursor? image;
+    private bool hidden;
     private double scale;
 
     // The Win32 cursor behind the screen's current InputCursor. WinUI keeps using its handle, so it lives until replaced.
     private nint handle;
 
-    /// <summary>A new shape from the Mac.</summary>
+    /// <summary>A new shape from the Mac, which also shows a hidden cursor.</summary>
     public void Show(Event.Cursor next)
     {
         image = next;
+        hidden = false;
+        Rebuild();
+    }
+
+    /// <summary>The Mac hid its cursor until the next shape.</summary>
+    public void Hide()
+    {
+        hidden = true;
         Rebuild();
     }
 
@@ -58,7 +67,7 @@ internal sealed unsafe partial class MacCursor(ScreenGrid screen) : IDisposable
         }
 
         // A hidden cursor is a fully transparent one, since the screen's cursor cannot be "none".
-        var next = shape.Width == 0 || shape.Height == 0 ? Create(new byte[4], 1, 1, 0, 0) : Create(shape, scale);
+        var next = hidden ? Create(new byte[4], 1, 1, 0, 0) : Create(shape, scale);
 
         if (next == 0 || Wrap(next) is not { } cursor)
         {

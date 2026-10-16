@@ -27,12 +27,6 @@ internal sealed class TouchCursor(Image image)
     {
         shape = next;
 
-        if (next.Width == 0 || next.Height == 0)
-        {
-            image.Source = null;
-            return;
-        }
-
         // WriteableBitmap takes premultiplied BGRA, and the Mac sends straight RGBA.
         var bitmap = new WriteableBitmap(next.Width, next.Height);
         var pixels = new byte[next.Rgba.Length];
@@ -58,7 +52,7 @@ internal sealed class TouchCursor(Image image)
     /// <summary>Places the hotspot at a point of the screen area, sized by the DIPs one of the Mac's points covers.</summary>
     public void Place(Point at, double dipsPerPoint)
     {
-        if (shape is not { Width: > 0, Height: > 0 } current)
+        if (shape is not { } current)
         {
             return;
         }
@@ -71,4 +65,11 @@ internal sealed class TouchCursor(Image image)
     }
 
     public void Hide() => image.Visibility = Visibility.Collapsed;
+
+    /// <summary>The Mac hid its cursor until the next shape.</summary>
+    public void Clear()
+    {
+        shape = null;
+        Hide();
+    }
 }

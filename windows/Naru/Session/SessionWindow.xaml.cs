@@ -152,6 +152,10 @@ internal sealed partial class SessionWindow : Window
                 touchCursor.Show(shape);
                 PlaceCursors();
                 break;
+            case Event.CursorHidden:
+                cursor.Hide();
+                touchCursor.Clear();
+                break;
             case Event.Layout:
                 PlaceCursors();
                 break;
