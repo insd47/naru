@@ -400,7 +400,7 @@ final class Video: @unchecked Sendable {
     ///
     /// - `VTIsHardwareDecodeSupported` ignores the chroma format, so this tries to create a hardware-only session from 4:4:4 parameter sets the server sent.
     static let decodesHevc444: Bool = {
-        guard let format = format(DecoderConfig(codec: .hevc, bands: 1, width: 2420, height: 1668, vps: [hevcVps], sps: [hevcSps], pps: [hevcPps])) else {
+        guard let format = format(DecoderConfig(codec: .hevc, bands: 1, width: 2420, height: 1668, displayP3: true, vps: [hevcVps], sps: [hevcSps], pps: [hevcPps])) else {
             return false
         }
 

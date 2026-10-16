@@ -20,3 +20,4 @@ mod sequence;
 mod srtp;
 mod streams;
 mod unit;
+mod vui;

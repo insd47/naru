@@ -38,6 +38,9 @@ pub struct DecoderConfig {
     /// Picture size the SPS describes, after its cropping: the whole screen for H.264 and one band for HEVC
     pub width: u32,
     pub height: u32,
+    /// Whether the colors use Display P3 primaries, as a Mac's screen does; otherwise BT.709, the primaries of sRGB.
+    /// A decoder that ignores the colour description shows Display P3 washed out unless they are converted.
+    pub display_p3: bool,
     /// VPS NAL units without start codes; empty for H.264
     pub vps: Vec<Vec<u8>>,
     /// SPS NAL units without start codes

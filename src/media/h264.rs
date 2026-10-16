@@ -6,6 +6,7 @@
 //! - A keyframe can arrive as an I slice inside a type 1 NAL unit instead of an IDR (type 5).
 use super::bits::Bits;
 use super::unit::{DecoderConfig, VideoCodec};
+use super::vui;
 use crate::error::Result;
 use crate::reader::Reader;
 
@@ -42,14 +43,15 @@ impl DecoderConfig {
         let pps_count = reader.u8().ok()?;
         let pps = units(&mut reader, pps_count).ok()?;
 
-        let (width, height) = picture_size(sps.first()?)?;
+        let parsed = Sps::parse(sps.first()?)?;
         (!pps.is_empty()).then_some(())?;
 
         Some(Self {
             codec: VideoCodec::H264,
             bands: VideoCodec::H264.bands(),
-            width,
-            height,
+            width: parsed.width,
+            height: parsed.height,
+            display_p3: parsed.display_p3,
             vps: Vec::new(),
             sps,
             pps,
@@ -125,93 +127,107 @@ pub fn is_keyframe(nals: &[Vec<u8>]) -> bool {
         .is_some_and(|slice_type| slice_type % 5 == 2)
 }
 
-/// The picture size an SPS describes, after its frame cropping.
-pub fn picture_size(sps: &[u8]) -> Option<(u32, u32)> {
-    let mut bits = Bits::new(sps.get(1..)?);
-    let profile = bits.read(8)?;
+/// The parts of an SPS the decoder config takes
+pub struct Sps {
+    /// Picture size after the frame cropping
+    pub width: u32,
+    pub height: u32,
+    /// Whether the colors use Display P3 primaries (SMPTE EG 432-1), as a Mac's screen does
+    pub display_p3: bool,
+}
 
-    // constraint flags and level_idc, then seq_parameter_set_id
-    bits.skip(16)?;
-    bits.ue()?;
+impl Sps {
+    pub fn parse(sps: &[u8]) -> Option<Self> {
+        let mut bits = Bits::new(sps.get(1..)?);
+        let profile = bits.read(8)?;
 
-    // High profiles carry the chroma format, bit depths, and optional scaling lists.
-    let mut chroma_format = 1;
+        // constraint flags and level_idc, then seq_parameter_set_id
+        bits.skip(16)?;
+        bits.ue()?;
 
-    if matches!(
-        profile,
-        44 | 83 | 86 | 100 | 110 | 118 | 122 | 128 | 134 | 135 | 138 | 139 | 144 | 244
-    ) {
-        chroma_format = bits.ue()?;
+        // High profiles carry the chroma format, bit depths, and optional scaling lists.
+        let mut chroma_format = 1;
 
-        if chroma_format == 3 {
+        if matches!(
+            profile,
+            44 | 83 | 86 | 100 | 110 | 118 | 122 | 128 | 134 | 135 | 138 | 139 | 144 | 244
+        ) {
+            chroma_format = bits.ue()?;
+
+            if chroma_format == 3 {
+                bits.skip(1)?;
+            }
+
+            bits.ue()?;
+            bits.ue()?;
             bits.skip(1)?;
-        }
 
-        bits.ue()?;
-        bits.ue()?;
-        bits.skip(1)?;
+            if bits.read(1)? == 1 {
+                let lists = if chroma_format == 3 { 12 } else { 8 };
 
-        if bits.read(1)? == 1 {
-            let lists = if chroma_format == 3 { 12 } else { 8 };
-
-            for list in 0..lists {
-                if bits.read(1)? == 1 {
-                    skip_scaling_list(&mut bits, if list < 6 { 16 } else { 64 })?;
+                for list in 0..lists {
+                    if bits.read(1)? == 1 {
+                        skip_scaling_list(&mut bits, if list < 6 { 16 } else { 64 })?;
+                    }
                 }
             }
         }
-    }
 
-    bits.ue()?;
+        bits.ue()?;
 
-    match bits.ue()? {
-        0 => {
-            bits.ue()?;
-        }
-        1 => {
-            bits.skip(1)?;
-            bits.se()?;
-            bits.se()?;
-
-            for _ in 0..bits.ue()? {
-                bits.se()?;
+        match bits.ue()? {
+            0 => {
+                bits.ue()?;
             }
+            1 => {
+                bits.skip(1)?;
+                bits.se()?;
+                bits.se()?;
+
+                for _ in 0..bits.ue()? {
+                    bits.se()?;
+                }
+            }
+            _ => {}
         }
-        _ => {}
-    }
 
-    // max_num_ref_frames and gaps_in_frame_num_value_allowed_flag
-    bits.ue()?;
-    bits.skip(1)?;
-
-    let width = (bits.ue()? + 1) * 16;
-    let map_units = bits.ue()? + 1;
-    let frames_only = bits.read(1)?;
-    let height = (2 - frames_only) * map_units * 16;
-
-    if frames_only == 0 {
+        // max_num_ref_frames and gaps_in_frame_num_value_allowed_flag
+        bits.ue()?;
         bits.skip(1)?;
+
+        let mut width = (bits.ue()? + 1) * 16;
+        let map_units = bits.ue()? + 1;
+        let frames_only = bits.read(1)?;
+        let mut height = (2 - frames_only) * map_units * 16;
+
+        if frames_only == 0 {
+            bits.skip(1)?;
+        }
+
+        bits.skip(1)?;
+
+        // Cropping counts in chroma samples, and in field pairs when the picture can be interlaced.
+        if bits.read(1)? == 1 {
+            let (across, down) = match chroma_format {
+                0 | 3 => (1, 1),
+                2 => (2, 1),
+                _ => (2, 2),
+            };
+            let down = down * (2 - frames_only);
+            let (left, right, top, bottom) = (bits.ue()?, bits.ue()?, bits.ue()?, bits.ue()?);
+            width = width.checked_sub(across * (left + right))?;
+            height = height.checked_sub(down * (top + bottom))?;
+        }
+
+        // Colors are a hint for showing the picture, so an SPS whose VUI cannot be read counts as sRGB.
+        let display_p3 = (|| Some(bits.read(1)? == 1 && vui::display_p3(&mut bits)?))().unwrap_or(false);
+
+        Some(Self {
+            width,
+            height,
+            display_p3,
+        })
     }
-
-    bits.skip(1)?;
-
-    if bits.read(1)? == 0 {
-        return Some((width, height));
-    }
-
-    // Cropping counts in chroma samples, and in field pairs when the picture can be interlaced.
-    let (across, down) = match chroma_format {
-        0 | 3 => (1, 1),
-        2 => (2, 1),
-        _ => (2, 2),
-    };
-    let down = down * (2 - frames_only);
-    let (left, right, top, bottom) = (bits.ue()?, bits.ue()?, bits.ue()?, bits.ue()?);
-
-    Some((
-        width.checked_sub(across * (left + right))?,
-        height.checked_sub(down * (top + bottom))?,
-    ))
 }
 
 // Skips one scaling list, whose entries are deltas until one makes the next value 0.
@@ -247,7 +263,7 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{depacketize, is_keyframe, picture_size};
+    use super::{Sps, depacketize, is_keyframe};
     use crate::media::unit::{AccessUnit, DecoderConfig, VideoCodec};
 
     // x264's Baseline profile SPS for 1920×1080
@@ -341,12 +357,13 @@ mod tests {
 
     // The SPS a Mac sent for a 1280×800 display at 2x
     #[test]
-    fn picture_size_reads_a_macs_sps() {
+    fn a_macs_sps_has_its_size_and_display_p3_colors() {
         let sps = [
             0x27, 0x64, 0x00, 0x33, 0xac, 0x13, 0x14, 0x30, 0x02, 0x80, 0x0c, 0x9a, 0x6e, 0x18, 0x1a, 0x02, 0x04,
         ];
 
-        assert_eq!(picture_size(&sps), Some((2560, 1600)));
+        let parsed = Sps::parse(&sps).unwrap();
+        assert_eq!((parsed.width, parsed.height, parsed.display_p3), (2560, 1600, true));
     }
 
     #[test]
@@ -357,8 +374,9 @@ mod tests {
             0x00, 0x00, 0x03, 0x00, 0x32, 0x0f, 0x18, 0x31, 0x96,
         ];
 
-        assert_eq!(picture_size(&high), Some((2800, 1752)));
-        assert_eq!(picture_size(SPS), Some((1920, 1080)));
-        assert_eq!(picture_size(&high[..6]), None);
+        let size = |sps: &[u8]| Sps::parse(sps).map(|parsed| (parsed.width, parsed.height));
+        assert_eq!(size(&high), Some((2800, 1752)));
+        assert_eq!(size(SPS), Some((1920, 1080)));
+        assert_eq!(size(&high[..6]), None);
     }
 }
