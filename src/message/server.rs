@@ -10,6 +10,7 @@ const MAX_CUT_TEXT_BYTES: usize = 1 << 20;
 const MAX_PENDING_BYTES: usize = MAX_CLIPBOARD_BYTES + (1 << 20);
 
 const STATUS_CLIPBOARD_CHANGED: u16 = 2;
+const STATUS_CURSOR_HIDDEN: u16 = 11;
 
 /// A message the server sends on the control channel.
 #[derive(Debug, PartialEq)]
@@ -19,6 +20,9 @@ pub enum ServerMessage {
     FramebufferUpdate(Vec<Rect>),
     /// Notice that the Mac's clipboard changed (status code 2). Request the content with `client::clipboard_request`.
     ClipboardChanged,
+    /// The Mac hid its cursor, as it does while typing or over playing video (status code 11). The next cursor shape
+    /// shows it again.
+    CursorHidden,
     /// Any other status notice, such as the periodic heartbeat (12)
     Status(u16),
     /// A whole clipboard transfer message. Extract the text with `clipboard::text`.
@@ -99,6 +103,7 @@ impl ServerMessage {
 
                 match u16::from_be_bytes([high, low]) {
                     STATUS_CLIPBOARD_CHANGED => Self::ClipboardChanged,
+                    STATUS_CURSOR_HIDDEN => Self::CursorHidden,
                     code => Self::Status(code),
                 }
             }
@@ -262,6 +267,16 @@ mod tests {
         assert_eq!(rects[0], Rect::MediaStream(b"stream".to_vec()));
         assert_eq!(rects[1], Rect::KeyExchange([0x5a; 36]));
         assert_eq!(messages.take(), records);
+    }
+
+    // Status notices measured on a Mac playing video full screen: 11 when the cursor hid, 12 as the heartbeat.
+    #[test]
+    fn status_notices_tell_a_hidden_cursor_from_the_rest() {
+        let mut messages = Messages::default();
+        messages.push(&[0x14, 0, 0, 4, 0, 1, 0, 11, 0x14, 0, 0, 4, 0, 1, 0, 4]);
+
+        assert_eq!(messages.pop().unwrap(), Some(ServerMessage::CursorHidden));
+        assert_eq!(messages.pop().unwrap(), Some(ServerMessage::Status(4)));
     }
 
     #[test]

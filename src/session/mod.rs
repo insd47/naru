@@ -129,8 +129,11 @@ pub enum Event {
     /// bands, and not while any band's latest picture is lost or broken, so the screen never pairs bands from different
     /// moments.
     Present,
-    /// Cursor shape, used as the pointer icon
+    /// Cursor shape, used as the pointer icon. It also shows a hidden cursor again.
     Cursor(Arc<CursorImage>),
+    /// The Mac hid its cursor, as it does while typing or over playing video. Hide the pointer until the next
+    /// `Cursor`, which also comes once the pointer moves.
+    CursorHidden,
     /// The Mac's computer name. Arrives once after authentication.
     ServerName(String),
     /// The Mac's current input source, which decides what keys type there

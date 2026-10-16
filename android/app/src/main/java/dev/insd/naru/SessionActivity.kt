@@ -242,6 +242,7 @@ class SessionActivity : ComponentActivity() {
         when (event) {
             is Event.Layout -> layout = event
             is Event.Cursor -> cursor = event
+            is Event.CursorHidden -> cursor = null
             is Event.Closed -> closed()
             else -> Unit
         }

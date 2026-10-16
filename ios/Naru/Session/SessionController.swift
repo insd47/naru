@@ -59,6 +59,7 @@ final class SessionController {
     private(set) var state: State?
     private(set) var connection: Connection?
     private(set) var layout: Layout?
+    /// The Mac's cursor, or `nil` while the Mac hides it
     private(set) var cursor: Cursor?
     /// Whether the first frame has been drawn
     private(set) var shown = false
@@ -243,6 +244,8 @@ final class SessionController {
         case let .cursor(width, height, hotspotX, hotspotY, rgba):
             cursor = Self.cursor(width: Int(width), height: Int(height), rgba: rgba)
                 .map { Cursor(image: $0, hotspot: CGPoint(x: Int(hotspotX), y: Int(hotspotY))) }
+        case .cursorHidden:
+            cursor = nil
         case let .closed(failure, _):
             end(running, failure: failure)
         default:

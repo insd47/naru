@@ -114,7 +114,7 @@ pub enum Event {
     /// bands, and not while any band's latest picture is lost or broken, so the screen never pairs bands from different
     /// moments.
     Present,
-    /// Cursor shape as row-major RGBA with non-premultiplied alpha
+    /// Cursor shape as row-major RGBA with non-premultiplied alpha. It also shows a hidden cursor again.
     Cursor {
         width: u16,
         height: u16,
@@ -122,6 +122,9 @@ pub enum Event {
         hotspot_y: u16,
         rgba: Vec<u8>,
     },
+    /// The Mac hid its cursor, as it does while typing or over playing video. Hide the pointer until the next
+    /// `Cursor`, which also comes once the pointer moves.
+    CursorHidden,
     /// The Mac's current input source. Pass the latest one to [`character`].
     Source { source: InputSource },
     /// The Mac's clipboard text
@@ -164,6 +167,7 @@ impl From<crate::Event> for Event {
             },
             crate::Event::InputSource(source) => Self::Source { source },
             crate::Event::Clipboard(text) => Self::Clipboard { text },
+            crate::Event::CursorHidden => Self::CursorHidden,
             crate::Event::ResetDecoder => Self::ResetDecoder,
             crate::Event::Present => Self::Present,
             crate::Event::Stats(stats) => Self::Stats { stats },

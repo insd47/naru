@@ -1,14 +1,15 @@
 use super::control::Control;
-use super::input::Input;
+use super::input::{self, Input};
 use super::media::{Media, Sockets};
 use super::negotiation::Negotiation;
 use super::switching::Switching;
 use super::{Command, Config, Event, Events, Stage};
 use crate::error::{Error, Result};
 use crate::media::VideoCodec;
-use crate::message::{Cursors, InputSource, Layout, Messages, Rect, ServerMessage, client, clipboard};
+use crate::message::{CursorImage, Cursors, InputSource, Layout, Messages, Rect, ServerMessage, client, clipboard};
 use crate::offer::Offer;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
@@ -32,6 +33,9 @@ pub struct Engine {
     negotiation: Negotiation,
     messages: Messages,
     cursors: Cursors,
+    // The latest cursor shape, and whether the Mac hid it until the pointer moves
+    cursor: Option<Arc<CursorImage>>,
+    cursor_hidden: bool,
     // Pixel size of the last layout. A change resends the offer.
     pixels: Option<(u16, u16)>,
     // The latest resize asked before the first frame, sent once it arrives, since its framebuffer request derails the
@@ -67,6 +71,8 @@ impl Engine {
             negotiation: Negotiation::new(offer),
             messages: Messages::default(),
             cursors: Cursors::default(),
+            cursor: None,
+            cursor_hidden: false,
             pixels: None,
             held_resize: None,
             switching: None,
@@ -125,7 +131,7 @@ impl Engine {
                 Wake::Deadline => self.media.drain(now, &mut outgoing).await,
                 Wake::Switched => self.switched().await?,
                 Wake::Command(None) => return Ok(()),
-                Wake::Command(Some(command)) => self.command(command, now).await?,
+                Wake::Command(Some(command)) => self.command(command, now, &mut outgoing).await?,
             }
 
             events.publish(&mut outgoing).await?;
@@ -163,6 +169,10 @@ impl Engine {
             match message {
                 ServerMessage::FramebufferUpdate(rects) => self.rects(rects, now, outgoing).await?,
                 ServerMessage::ClipboardChanged => self.control.send(&client::clipboard_request()).await?,
+                ServerMessage::CursorHidden => {
+                    self.cursor_hidden = true;
+                    outgoing.push(Event::CursorHidden);
+                }
                 // A malformed clipboard body does not misalign message boundaries, so only that content is dropped and
                 // the session stays up.
                 ServerMessage::Clipboard(message) => {
@@ -190,6 +200,8 @@ impl Engine {
                     data,
                 } => {
                     if let Ok(Some(image)) = self.cursors.apply(hotspot, size, cache_id, &data) {
+                        self.cursor = Some(image.clone());
+                        self.cursor_hidden = false;
                         outgoing.push(Event::Cursor(image));
                     }
 
@@ -275,7 +287,7 @@ impl Engine {
         Ok(())
     }
 
-    async fn command(&mut self, command: Command, now: Instant) -> Result<()> {
+    async fn command(&mut self, command: Command, now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
         match command {
             Command::Key { keysym, down } => match &mut self.switching {
                 Some(switching) => {
@@ -294,10 +306,20 @@ impl Engine {
 
                 Ok(())
             }
-            Command::Input(event, at) => match self.input.handle(event, at) {
-                Some(message) => self.control.send(&message).await,
-                None => Ok(()),
-            },
+            Command::Input(event, at) => {
+                let pointer = matches!(event, input::Event::Pointer { .. });
+                let Some(message) = self.input.handle(event, at) else {
+                    return Ok(());
+                };
+
+                // The Mac shows a hidden cursor once the pointer moves, but sends no shape when it has not changed.
+                if pointer && self.cursor_hidden {
+                    self.cursor_hidden = false;
+                    outgoing.extend(self.cursor.clone().map(Event::Cursor));
+                }
+
+                self.control.send(&message).await
+            }
             Command::Clipboard(message) => self.control.send(&message).await,
             // A server gone quiet on a still screen ignores keyframe requests. Resend the offer instead; the server
             // opens a new stream and sends a config and keyframe even for a still screen.

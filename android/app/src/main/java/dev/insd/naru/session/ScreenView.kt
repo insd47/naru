@@ -45,7 +45,7 @@ class ScreenView(context: Context) : SurfaceView(context) {
             drawCursor()
         }
 
-    /** The Mac's cursor shape, used as the system pointer icon and scaled to the screen */
+    /** The Mac's cursor shape, used as the system pointer icon and scaled to the screen, or `null` while the Mac hides it */
     var cursor: Event.Cursor? = null
         set(value) {
             if (value === field) return
@@ -109,7 +109,15 @@ class ScreenView(context: Context) : SurfaceView(context) {
 
     // The image and hotspot are in the Mac's logical size, so they scale by the view's pixels per logical point.
     private fun drawCursor() {
-        val cursor = cursor ?: return
+        val cursor = cursor
+
+        if (cursor == null) {
+            pointerIcon = PointerIcon.getSystemIcon(context, PointerIcon.TYPE_NULL)
+            cursorBitmap = null
+            invalidate()
+            return
+        }
+
         val scale = layout?.takeIf { width > 0 }?.let { width.toFloat() / it.logicalWidth.toInt() } ?: return
         val width = cursor.width.toInt()
         val height = cursor.height.toInt()
