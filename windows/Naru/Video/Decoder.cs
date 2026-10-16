@@ -34,6 +34,7 @@ internal sealed class Decoder : IDisposable
     private readonly byte[] parameters;
     private readonly Guid output;
     private readonly byte bands;
+    private readonly bool displayP3;
     private Colors colors;
     private long decoded;
 
@@ -46,7 +47,7 @@ internal sealed class Decoder : IDisposable
     {
         var hevc = config.Codec == VideoCodec.Hevc;
         bands = Math.Max(config.Bands, (byte)1);
-        colors = new Colors(StudioRange: true, config.DisplayP3);
+        displayP3 = config.DisplayP3;
         var sps = config.Sps.FirstOrDefault() ?? throw new InvalidOperationException("no SPS");
         var sets = hevc ? config.Vps.Concat(config.Sps).Concat(config.Pps) : config.Pps.Prepend(Sps.WithoutReordering(sps));
         parameters = [.. sets.SelectMany(nal => StartCode.Concat(nal))];
@@ -177,7 +178,7 @@ internal sealed class Decoder : IDisposable
         }
     }
 
-    // Picks the codec's output format. The type also says whether the stream uses studio range.
+    // Picks the codec's output format. The type also says whether the stream uses studio range; the config says the primaries.
     private void ChooseOutput()
     {
         for (var index = 0; ; index++)
@@ -186,7 +187,8 @@ internal sealed class Decoder : IDisposable
 
             if (type.GetGUID(Mf.Subtype) == output)
             {
-                colors = colors with { StudioRange = MediaFactory.MFGetAttributeUInt32(type, Mf.NominalRange, Mf.NominalRange16To235) == Mf.NominalRange16To235 };
+                var studioRange = MediaFactory.MFGetAttributeUInt32(type, Mf.NominalRange, Mf.NominalRange16To235) == Mf.NominalRange16To235;
+                colors = new Colors(studioRange, displayP3);
                 transform.SetOutputType(0, type, 0);
                 return;
             }
