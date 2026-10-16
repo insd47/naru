@@ -109,7 +109,7 @@ internal sealed class Player : IDisposable
     {
         if (canvas is { } stacked && renderer is { } target && decoder != null && !awaitingKeyframe)
         {
-            Show(() => target.Render(stacked.Texture, 0, stacked.StudioRange, visibleWidth, visibleHeight));
+            Show(() => target.Render(stacked.Texture, 0, stacked.Colors, visibleWidth, visibleHeight));
         }
     });
 
@@ -238,7 +238,7 @@ internal sealed class Player : IDisposable
             }
             else if (index == pictures.Count - 1 && renderer is { } target)
             {
-                Show(() => target.Render(picture.Texture, picture.Slice, picture.StudioRange, visibleWidth, visibleHeight));
+                Show(() => target.Render(picture.Texture, picture.Slice, picture.Colors, visibleWidth, visibleHeight));
             }
 
             picture.Texture.Dispose();
@@ -255,7 +255,7 @@ internal sealed class Player : IDisposable
             renderer?.Forget();
             canvas?.Dispose();
             canvas = null;
-            canvas = new Canvas(graphics!, band, rows, picture.StudioRange);
+            canvas = new Canvas(graphics!, band, rows, picture.Colors);
         }
 
         canvas.Place(picture);

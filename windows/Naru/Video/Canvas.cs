@@ -21,18 +21,18 @@ internal sealed class Canvas : IDisposable
     public ID3D11Texture2D Texture { get; }
     public (uint Width, uint Height) Band { get; }
     public uint Rows { get; }
-    public bool StudioRange { get; }
+    public Colors Colors { get; }
 
-    public Canvas(Graphics graphics, (uint Width, uint Height) band, uint rows, bool studioRange)
+    public Canvas(Graphics graphics, (uint Width, uint Height) band, uint rows, Colors colors)
     {
         context = graphics.Context;
         Band = band;
         Rows = rows;
-        StudioRange = studioRange;
+        Colors = colors;
 
         // AYUV keeps V, U, Y, and alpha in that byte order.
         var black = new byte[band.Width * band.Height * rows * 4];
-        var y = studioRange ? (byte)16 : (byte)0;
+        var y = colors.StudioRange ? (byte)16 : (byte)0;
 
         for (var offset = 0; offset < black.Length; offset += 4)
         {

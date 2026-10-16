@@ -14,6 +14,7 @@ namespace Naru.Video;
 /// <list type="bullet">
 /// <item>The swap chain matches the panel's physical pixels, and its transform undoes the panel's scale, so nothing is resampled twice.</item>
 /// <item>The video processor converts NV12 (H.264) or AYUV (HEVC 4:4:4) to BGRA and scales in one pass on the GPU.</item>
+/// <item>Display P3 is drawn into a texture the size of the screen first, and <see cref="Gamut"/> converts it to sRGB on the way to the swap chain.</item>
 /// <item>Call only on the video thread, except <see cref="Attach"/>, which runs on the UI thread.</item>
 /// </list>
 /// </remarks>
@@ -25,6 +26,7 @@ internal sealed class Renderer : IDisposable
     private readonly ID3D11VideoDevice videoDevice;
     private readonly ID3D11VideoContext1 videoContext;
     private readonly IDXGISwapChain2 swapChain;
+    private readonly Gamut gamut;
 
     private ID3D11VideoProcessorEnumerator? enumerator;
     private ID3D11VideoProcessor? processor;
@@ -33,6 +35,10 @@ internal sealed class Renderer : IDisposable
     private uint width;
     private uint height;
 
+    // The scaled picture before its colors are converted, the size of the swap chain
+    private ID3D11Texture2D? scaled;
+    private ID3D11ShaderResourceView? scaledView;
+
     public Renderer(Graphics graphics, uint width, uint height, float scale)
     {
         this.graphics = graphics;
@@ -40,6 +46,7 @@ internal sealed class Renderer : IDisposable
         this.height = Math.Max(1, height);
         videoDevice = graphics.Device.QueryInterface<ID3D11VideoDevice>();
         videoContext = graphics.Context.QueryInterface<ID3D11VideoContext1>();
+        gamut = new Gamut(graphics);
 
         using var device = graphics.Device.QueryInterface<IDXGIDevice>();
         using var adapter = device.GetAdapter();
@@ -91,6 +98,7 @@ internal sealed class Renderer : IDisposable
         {
             width = nextWidth;
             height = nextHeight;
+            ReleaseScaled();
             swapChain.ResizeBuffers(0, width, height, Format.Unknown, SwapChainFlags.None).CheckError();
         }
 
@@ -98,7 +106,7 @@ internal sealed class Renderer : IDisposable
     }
 
     /// <summary>Draws a slice of a texture, cropped to the visible size the Mac reports, placed by <see cref="Fit"/> with black around it.</summary>
-    public void Render(ID3D11Texture2D source, uint slice, bool studioRange, uint visibleWidth, uint visibleHeight)
+    public void Render(ID3D11Texture2D source, uint slice, Colors colors, uint visibleWidth, uint visibleHeight)
     {
         var texture = source.Description;
         var sourceWidth = Math.Min(visibleWidth == 0 ? texture.Width : visibleWidth, texture.Width);
@@ -119,7 +127,8 @@ internal sealed class Renderer : IDisposable
         }
 
         using var backBuffer = swapChain.GetBuffer<ID3D11Texture2D>(0);
-        using var output = videoDevice.CreateVideoProcessorOutputView(backBuffer, enumerator!, new VideoProcessorOutputViewDescription
+        var drawn = colors.DisplayP3 ? Scaled() : backBuffer;
+        using var output = videoDevice.CreateVideoProcessorOutputView(drawn, enumerator!, new VideoProcessorOutputViewDescription
         {
             ViewDimension = VideoProcessorOutputViewDimension.Texture2D,
         });
@@ -130,7 +139,7 @@ internal sealed class Renderer : IDisposable
         var left = (int)fit.Left;
         var top = (int)fit.Top;
 
-        videoContext.VideoProcessorSetStreamColorSpace1(processor!, 0, studioRange ? ColorSpaceType.YcbcrStudioG22LeftP709 : ColorSpaceType.YcbcrFullG22LeftP709);
+        videoContext.VideoProcessorSetStreamColorSpace1(processor!, 0, colors.StudioRange ? ColorSpaceType.YcbcrStudioG22LeftP709 : ColorSpaceType.YcbcrFullG22LeftP709);
         videoContext.VideoProcessorSetOutputColorSpace1(processor!, ColorSpaceType.RgbFullG22NoneP709);
         videoContext.VideoProcessorSetStreamFrameFormat(processor!, 0, VideoFrameFormat.Progressive);
         videoContext.VideoProcessorSetStreamAutoProcessingMode(processor!, 0, false);
@@ -140,6 +149,13 @@ internal sealed class Renderer : IDisposable
 
         var stream = new VideoProcessorStream { Enable = true, InputSurface = input };
         videoContext.VideoProcessorBlt(processor!, output, 0, 1, [stream]).CheckError();
+
+        if (colors.DisplayP3)
+        {
+            using var target = graphics.Device.CreateRenderTargetView(backBuffer);
+            gamut.Convert(scaledView!, target, width, height);
+        }
+
         swapChain.Present(0, PresentFlags.None);
     }
 
@@ -155,6 +171,8 @@ internal sealed class Renderer : IDisposable
     public void Dispose()
     {
         Release();
+        ReleaseScaled();
+        gamut.Dispose();
         swapChain.Dispose();
         videoContext.Dispose();
         videoDevice.Dispose();
@@ -199,6 +217,34 @@ internal sealed class Renderer : IDisposable
         }
 
         inputs.Clear();
+    }
+
+    private ID3D11Texture2D Scaled()
+    {
+        if (scaled == null)
+        {
+            scaled = graphics.Device.CreateTexture2D(new Texture2DDescription
+            {
+                Width = width,
+                Height = height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = BackBufferFormat,
+                SampleDescription = new SampleDescription(1, 0),
+                BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
+            });
+            scaledView = graphics.Device.CreateShaderResourceView(scaled);
+        }
+
+        return scaled;
+    }
+
+    private void ReleaseScaled()
+    {
+        scaledView?.Dispose();
+        scaledView = null;
+        scaled?.Dispose();
+        scaled = null;
     }
 
     private void Release()

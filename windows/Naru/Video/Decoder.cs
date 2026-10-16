@@ -8,7 +8,10 @@ using Vortice.MediaFoundation;
 namespace Naru.Video;
 
 /// <summary>A decoded picture: a slice of a texture the decoder owns until the sample is released, and the band it covers.</summary>
-internal readonly record struct Picture(IMFSample Sample, ID3D11Texture2D Texture, uint Slice, bool StudioRange, byte Band);
+internal readonly record struct Picture(IMFSample Sample, ID3D11Texture2D Texture, uint Slice, Colors Colors, byte Band);
+
+/// <summary>How a stream encodes color: studio (16–235) or full range, and Display P3 or sRGB primaries.</summary>
+internal readonly record struct Colors(bool StudioRange, bool DisplayP3);
 
 /// <summary>
 /// One Media Foundation decoder for H.264 or HEVC 4:4:4, accelerated through the session's Direct3D device.
@@ -31,7 +34,7 @@ internal sealed class Decoder : IDisposable
     private readonly byte[] parameters;
     private readonly Guid output;
     private readonly byte bands;
-    private bool studioRange = true;
+    private Colors colors;
     private long decoded;
 
     public string Name { get; }
@@ -43,6 +46,7 @@ internal sealed class Decoder : IDisposable
     {
         var hevc = config.Codec == VideoCodec.Hevc;
         bands = Math.Max(config.Bands, (byte)1);
+        colors = new Colors(StudioRange: true, config.DisplayP3);
         var sps = config.Sps.FirstOrDefault() ?? throw new InvalidOperationException("no SPS");
         var sets = hevc ? config.Vps.Concat(config.Sps).Concat(config.Pps) : config.Pps.Prepend(Sps.WithoutReordering(sps));
         parameters = [.. sets.SelectMany(nal => StartCode.Concat(nal))];
@@ -169,7 +173,7 @@ internal sealed class Decoder : IDisposable
             using var media = sample.GetBufferByIndex(0);
             using var surface = media.QueryInterface<IMFDXGIBuffer>();
             var texture = new ID3D11Texture2D(surface.GetResource(typeof(ID3D11Texture2D).GUID));
-            pictures.Add(new Picture(sample, texture, surface.SubresourceIndex, studioRange, (byte)(sample.SampleTime % bands)));
+            pictures.Add(new Picture(sample, texture, surface.SubresourceIndex, colors, (byte)(sample.SampleTime % bands)));
         }
     }
 
@@ -182,7 +186,7 @@ internal sealed class Decoder : IDisposable
 
             if (type.GetGUID(Mf.Subtype) == output)
             {
-                studioRange = MediaFactory.MFGetAttributeUInt32(type, Mf.NominalRange, Mf.NominalRange16To235) == Mf.NominalRange16To235;
+                colors = colors with { StudioRange = MediaFactory.MFGetAttributeUInt32(type, Mf.NominalRange, Mf.NominalRange16To235) == Mf.NominalRange16To235 };
                 transform.SetOutputType(0, type, 0);
                 return;
             }
@@ -286,7 +290,7 @@ internal sealed class Decoder : IDisposable
                 }
             }
 
-            var config = new DecoderConfig(VideoCodec.Hevc, 1, 2420, 1668, [MacVps], [MacSps], [MacPps]);
+            var config = new DecoderConfig(VideoCodec.Hevc, 1, 2420, 1668, true, [MacVps], [MacSps], [MacPps]);
             using var decoder = new Decoder(graphics, config);
             Log.Info($"HEVC 4:4:4: supported by {decoder.Name}");
             return true;
