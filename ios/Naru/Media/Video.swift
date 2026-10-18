@@ -157,6 +157,11 @@ final class Video: @unchecked Sendable {
     private func setUp(_ config: DecoderConfig) {
         format = Self.format(config)
 
+        // A new stream starts its RTP clock anew.
+        counts.clock = nil
+        counts.earliest = .zero
+        counts.latest = .zero
+
         // The pictures keep the stream's colors. A Mac sends Display P3, which looks washed out when shown as sRGB.
         colors = format.map { format in
             [
