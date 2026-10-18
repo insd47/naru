@@ -20,6 +20,7 @@ final class Audio {
     private var output: Output
     // Diagnostics: when a frame last came, and how many in a row were dropped for a full queue
     private var lastFrame: ContinuousClock.Instant?
+    private var lastTimestamp: UInt32?
     private var dropped = 0
 
     // A queue and how many of its frames wait to play, with when it last finished one
@@ -85,6 +86,12 @@ final class Audio {
             log.log("audio frame came \((now - lastFrame).formatted(.units(allowed: [.milliseconds])), privacy: .public) after the last")
         }
         lastFrame = now
+
+        // Each frame is 480 samples at 48 kHz, so any other step means frames the network lost.
+        if let lastTimestamp, frame.timestamp &- lastTimestamp != 480 {
+            log.log("audio stream skipped from \(lastTimestamp) to \(frame.timestamp)")
+        }
+        lastTimestamp = frame.timestamp
 
         let state = output.state.withLock { $0 }
 
