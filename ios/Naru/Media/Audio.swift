@@ -18,6 +18,9 @@ final class Audio {
     private var format: AudioStreamBasicDescription
     private let cookie: Data
     private var output: Output
+    // Diagnostics: when a frame last came, and how many in a row were dropped for a full queue
+    private var lastFrame: ContinuousClock.Instant?
+    private var dropped = 0
 
     // A queue and how many of its frames wait to play, with when it last finished one
     private struct Output {
@@ -77,10 +80,17 @@ final class Audio {
     }
 
     func play(_ frame: AudioFrame) {
+        let now = ContinuousClock.now
+        if let lastFrame, now - lastFrame >= .milliseconds(40) {
+            log.log("audio frame came \((now - lastFrame).formatted(.units(allowed: [.milliseconds])), privacy: .public) after the last")
+        }
+        lastFrame = now
+
         let state = output.state.withLock { $0 }
 
         if state.queued >= Self.maxQueued {
-            guard ContinuousClock.now - state.played >= Self.stalled, let fresh = Self.start(&format, cookie: cookie) else {
+            guard now - state.played >= Self.stalled, let fresh = Self.start(&format, cookie: cookie) else {
+                dropped += 1
                 return
             }
 
@@ -91,6 +101,11 @@ final class Audio {
 
             AudioQueueDispose(output.queue, true)
             output = fresh
+        }
+
+        if dropped > 0 {
+            log.log("audio dropped \(self.dropped) frames for a full queue")
+            dropped = 0
         }
 
         let queue = output.queue
