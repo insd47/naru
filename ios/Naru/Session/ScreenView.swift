@@ -335,6 +335,11 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        // A sheet such as the diagnostics export takes the keyboard and does not give it back, so a click takes it again.
+        if !isFirstResponder {
+            becomeFirstResponder()
+        }
+
         momentum.stop()
         point(touches, event: event)
         finger(touches, .began)
