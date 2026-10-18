@@ -35,8 +35,8 @@ impl Lane {
 /// - Has no I/O or clock, like the group. The caller pushes items with the current time and takes them out with
 ///   `next()`, calling it again at `deadline()`.
 /// - A picture arriving later than the earliest one did, by more than ordinary jitter, raises a delay shared by both
-///   lanes, so what follows waits that long and sound stays with the picture. Apple's client does the same when Wi-Fi pauses:
-///   late frames show in order, a beat behind, instead of skipping.
+///   lanes, so what follows waits that long and sound stays with the picture. Apple's client does the same when Wi-Fi
+///   pauses: late frames show in order, a beat behind, instead of skipping.
 /// - Once arrivals have been on time for a while, the delay drops at once and whatever waits goes out, so the screen
 ///   skips ahead and sound cuts once instead of drifting back.
 /// - Items without a timestamp, such as a decoder config, go out with the item before them. Nothing is reordered.
