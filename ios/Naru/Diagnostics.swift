@@ -11,7 +11,8 @@ enum Diagnostics {
     static let subsystem = "dev.insd.naru"
     static let input = Logger(subsystem: subsystem, category: "Input")
 
-    /// Records key window changes, since keys reach only the key window, and hardware keyboards coming and going.
+    /// Records key window changes and the scene's activation, since keys reach only the key window of an active scene, and
+    /// hardware keyboards coming and going.
     @MainActor
     static func start() {
         for (name, label) in [(Notification.Name.GCKeyboardDidConnect, "connected"), (.GCKeyboardDidDisconnect, "disconnected")] {
@@ -25,6 +26,12 @@ enum Diagnostics {
                 // Delivered on the main queue, where the window belongs.
                 nonisolated(unsafe) let window = note.object as? UIWindow
                 MainActor.assumeIsolated { input.log("\(describe(window), privacy: .public) \(label, privacy: .public) the key window") }
+            }
+        }
+
+        for (name, label) in [(UIScene.didActivateNotification, "became"), (UIScene.willDeactivateNotification, "is no longer")] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                input.log("Scene \(label, privacy: .public) active")
             }
         }
     }
