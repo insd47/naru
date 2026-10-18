@@ -350,7 +350,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        // A sheet such as the diagnostics export takes the keyboard and does not give it back, so a click takes it again.
+        // Sheets and the menu bar take the keyboard without giving it back, so a click takes it again.
         if !isFirstResponder {
             becomeFirstResponder()
         }

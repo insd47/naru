@@ -3,10 +3,10 @@ import SwiftUI
 /// The session screen. Shows the Mac's screen under a title bar, with a loading state until the first frame arrives.
 ///
 /// - The title bar follows Screen Sharing's toolbar: the way back to the connections, the Mac's name, and the Mac's
-///   window shortcuts. It shows while the app is in a window and hides with the status bar when the app fills the
-///   screen, where the menu bar still opens from the top edge.
-/// - Filling the screen, the title bar is removed rather than hidden. A hidden one moved and zoomed the window only within
-///   the full screen's top strip after going back to a window.
+///   window shortcuts. It shows while the app is in a window. Filling the screen, it goes with the status bar, and the
+///   menu bar still opens from the top edge.
+/// - The title bar is removed rather than hidden. A hidden one moved and zoomed the window only within the full screen's
+///   top strip after going back to a window.
 struct SessionView: View {
     @Environment(SessionController.self) private var session
     @State private var fillsScreen = false
