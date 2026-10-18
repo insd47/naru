@@ -9,7 +9,7 @@ import UIKit
 /// - Scrolls continue with [Momentum] after the fingers lift, since iPadOS reports none.
 /// - The view accepts text input so iPadOS input language switching (Caps Lock, Globe key) works, but character keys are sent directly instead of through the input method.
 /// - After a size change it waits briefly, then reports the virtual display size through [onResize].
-final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
+final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGestureRecognizerDelegate {
     var onResize: (DisplayMode) -> Void = { _ in }
 
     var connection: Connection? {
@@ -55,6 +55,8 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
     private var touchButtons: UInt8 = 0
     // Watches two-finger touches only for their velocity when a touch scroll ends.
     private let fingers = UIPanGestureRecognizer()
+    // Takes a double click in full screen before iPadOS, which would put the app in a window with it.
+    private let doubleClick = UITapGestureRecognizer()
     private lazy var momentum = Momentum { [weak self] phase, delta in
         self?.connection?.momentum(phase, dx: Float(delta.x), dy: Float(delta.y))
     }
@@ -86,6 +88,13 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         pinch.allowedTouchTypes = [UITouch.TouchType.indirectPointer.rawValue as NSNumber]
         addGestureRecognizer(pinch)
 
+        doubleClick.numberOfTapsRequired = 2
+        doubleClick.allowedTouchTypes = [UITouch.TouchType.indirectPointer.rawValue as NSNumber]
+        doubleClick.cancelsTouchesInView = false
+        doubleClick.delaysTouchesEnded = false
+        doubleClick.delegate = self
+        addGestureRecognizer(doubleClick)
+
         fingers.minimumNumberOfTouches = 2
         fingers.allowedTouchTypes = [UITouch.TouchType.direct.rawValue as NSNumber]
         fingers.cancelsTouchesInView = false
@@ -101,6 +110,8 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
         super.layoutSubviews()
         connection?.video.place(in: bounds, screen: layout?.pixels)
         placeCursor()
+
+        doubleClick.isEnabled = window?.fillsScreen == true
 
         if bounds.size != measured, bounds.width > 0, bounds.height > 0 {
             measured = bounds.size
@@ -171,6 +182,10 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate {
             _ = self.resignFirstResponder()
             _ = self.becomeFirstResponder()
         }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === doubleClick && other.view !== self
     }
 
     // The Mac does not repeat held keys. iPadOS reports a held key's repeats only as text input, at the user's repeat
