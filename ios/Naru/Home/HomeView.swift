@@ -23,20 +23,13 @@ struct HomeView: View {
     }
 
     var body: some View {
-        @Bindable var session = session
-
-        NavigationSplitView {
-            List(selection: $section) {
-                Label("All Connections", systemImage: "rectangle.on.rectangle").tag(Section.saved)
-                Label("Network", systemImage: "network").tag(Section.network)
-            }
-            .navigationTitle("Naru")
-        } detail: {
-            NavigationStack {
-                switch section {
-                case .network: network
-                default: saved
-                }
+        // The session replaces the list rather than covering it, so its navigation bar is the window's title bar, which
+        // iPadOS lets the window be dragged and zoomed by.
+        Group {
+            if session.presented {
+                SessionView()
+            } else {
+                connections
             }
         }
         .sheet(item: $editing) { host in
@@ -73,13 +66,25 @@ struct HomeView: View {
         } message: { failed in
             Text(message(failed.failure, host: failed.host))
         }
-        // A Mac running the iPad app does not pass the environment into the cover, so it is passed explicitly.
-        .fullScreenCover(isPresented: $session.presented) {
-            SessionView()
-                .environment(session)
-        }
         .onChange(of: session.state) { _, state in react(state) }
         .focusedSceneValue(\.home, HomeActions(add: add, connect: connect))
+    }
+
+    private var connections: some View {
+        NavigationSplitView {
+            List(selection: $section) {
+                Label("All Connections", systemImage: "rectangle.on.rectangle").tag(Section.saved)
+                Label("Network", systemImage: "network").tag(Section.network)
+            }
+            .navigationTitle("Naru")
+        } detail: {
+            NavigationStack {
+                switch section {
+                case .network: network
+                default: saved
+                }
+            }
+        }
     }
 
     private var saved: some View {

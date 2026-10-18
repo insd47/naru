@@ -3,8 +3,10 @@ import SwiftUI
 /// The session screen. Shows the Mac's screen under a title bar, with a loading state until the first frame arrives.
 ///
 /// - The title bar follows Screen Sharing's toolbar: the way back to the connections, the Mac's name, and the Mac's
-///   window shortcuts. It shows while the app is in a window and hides with the status bar when the app fills the
-///   screen, where the menu bar still opens from the top edge.
+///   window shortcuts. It shows while the app is in a window and hides when the app fills the screen, where the menu
+///   bar still opens from the top edge.
+/// - The status bar stays. Hiding it in full screen left the title bar dragging and zooming the window only within the
+///   full screen's top strip after going back to a window.
 struct SessionView: View {
     @Environment(SessionController.self) private var session
     @State private var fillsScreen = false
@@ -31,7 +33,6 @@ struct SessionView: View {
             .toolbar { toolbar }
             .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)
         }
-        .statusBarHidden(fillsScreen)
         // Hidden only when filling the screen, since in a window it also hides the window's controls.
         .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
         .background {
@@ -58,15 +59,12 @@ struct SessionView: View {
     }
 }
 
-// The window behind the session: reports whether it fills its screen, and drags the window where nothing in front
-// takes the touch. The title bar drags the window only in its upper half, and touches through its lower half land here.
+// The window behind the session, which reports whether it fills its screen
 private struct Backdrop: UIViewRepresentable {
     let onChange: (Bool) -> Void
 
     func makeUIView(context: Context) -> BackdropView {
-        let view = BackdropView()
-        view.addInteraction(UIWindowSceneDragInteraction())
-        return view
+        BackdropView()
     }
 
     func updateUIView(_ view: BackdropView, context: Context) {
