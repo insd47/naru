@@ -1,12 +1,19 @@
 import AudioToolbox
 import AVFoundation
+import os
 
 /// Plays the Mac's audio by feeding AAC-ELD to an AudioQueue, which decodes it with the system decoder.
 ///
 /// - Call only from the session's event thread. Audio plays as it arrives, without syncing to video.
+/// - At most `maxQueued` frames wait to play. Frames beyond that are dropped so latency cannot build up, as when the
+///   queue stalls in the background and resumes with everything sent meanwhile.
 /// - The AudioSpecificConfig is wrapped in an MPEG-4 ES descriptor, the magic cookie format AudioToolbox reads, so the system determines the sample rate and channels.
 final class Audio {
+    // Frames waiting to play, 10 ms each
+    private static let maxQueued = 6
+
     private let queue: AudioQueueRef
+    private let queued: OSAllocatedUnfairLock<Int>
 
     init?(config: Data) {
         let cookie = Self.cookie(config)
@@ -18,12 +25,23 @@ final class Audio {
             AudioFormatGetProperty(kAudioFormatProperty_FormatInfo, UInt32(cookie.count), $0.baseAddress, &size, &format)
         }
 
+        guard described == noErr else {
+            return nil
+        }
+
+        let queued = OSAllocatedUnfairLock(initialState: 0)
         var queue: AudioQueueRef?
-        guard described == noErr, AudioQueueNewOutput(&format, { _, queue, buffer in AudioQueueFreeBuffer(queue, buffer) }, nil, nil, nil, 0, &queue) == noErr, let queue else {
+        let created = AudioQueueNewOutputWithDispatchQueue(&queue, &format, 0, DispatchQueue(label: "audio")) { queue, buffer in
+            AudioQueueFreeBuffer(queue, buffer)
+            queued.withLock { $0 -= 1 }
+        }
+
+        guard created == noErr, let queue else {
             return nil
         }
 
         self.queue = queue
+        self.queued = queued
         _ = cookie.withUnsafeBytes { AudioQueueSetProperty(queue, kAudioQueueProperty_MagicCookie, $0.baseAddress!, UInt32(cookie.count)) }
 
         try? AVAudioSession.sharedInstance().setCategory(.playback, options: .mixWithOthers)
@@ -45,6 +63,10 @@ final class Audio {
     }
 
     func play(_ frame: AudioFrame) {
+        guard queued.withLock({ $0 < Self.maxQueued }) else {
+            return
+        }
+
         let data = frame.data
         var buffer: AudioQueueBufferRef?
 
@@ -56,6 +78,10 @@ final class Audio {
         buffer.pointee.mAudioDataByteSize = UInt32(data.count)
 
         var packet = AudioStreamPacketDescription(mStartOffset: 0, mVariableFramesInPacket: 0, mDataByteSize: UInt32(data.count))
-        AudioQueueEnqueueBuffer(queue, buffer, 1, &packet)
+        if AudioQueueEnqueueBuffer(queue, buffer, 1, &packet) == noErr {
+            queued.withLock { $0 += 1 }
+        } else {
+            AudioQueueFreeBuffer(queue, buffer)
+        }
     }
 }
