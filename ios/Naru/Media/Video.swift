@@ -164,7 +164,7 @@ final class Video: @unchecked Sendable {
                 (longest gap \(Self.milliseconds(c.longestPresentGap), privacy: .public)), arrival spread \
                 \(Self.milliseconds(c.arrivals.spread), privacy: .public), decode \
                 \(Self.milliseconds(c.decoding / max(c.frames, 1)), privacy: .public) avg \
-                \(Self.milliseconds(c.slowestDecode), privacy: .public) max | missing \(stats.missing), lost \(stats.losses)
+                \(Self.milliseconds(c.slowestDecode), privacy: .public) max | missing \(stats.missing), lost \(stats.losses), held \(stats.delayMs) ms
                 """)
             counts = Counts(lastPresented: c.lastPresented)
         }
