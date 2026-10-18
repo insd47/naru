@@ -173,6 +173,8 @@ pub struct MediaStats {
     pub filled: u64,
     /// Number of access units that could not be recovered and were dropped
     pub losses: u64,
+    /// How long media is currently held back so that a network that pauses doesn't make it skip
+    pub delay_ms: u32,
 }
 
 /// The channel the session sends events through. It remembers the last announced stage and reports failures as failures

@@ -123,7 +123,7 @@ impl Engine {
                 }
                 Wake::Audio(received) => {
                     let (len, from) = received?;
-                    self.media.receive_audio(&audio_buffer[..len], from, &mut outgoing);
+                    self.media.receive_audio(&audio_buffer[..len], from, now, &mut outgoing);
                 }
                 Wake::Tick => self.tick(now, &mut outgoing).await?,
                 Wake::Feedback => self.media.feedback(now).await,

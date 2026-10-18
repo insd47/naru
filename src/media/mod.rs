@@ -1,6 +1,7 @@
 pub use audio::AudioFrame;
 pub use bandwidth::Bandwidth;
 pub use group::{Assembled, Group};
+pub use playout::{Lane, Playout};
 pub use rtp::RtpPacket;
 pub use srtp::SrtpContext;
 pub use streams::{Routed, Streams};
@@ -13,6 +14,7 @@ mod bits;
 mod group;
 mod h264;
 mod hevc;
+mod playout;
 mod references;
 pub mod rtcp;
 mod rtp;

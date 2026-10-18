@@ -447,6 +447,7 @@ mod tests {
             missing,
             filled: 0,
             losses: 0,
+            delay_ms: 0,
         };
 
         Failure::from(&Error::NoMedia(stats))

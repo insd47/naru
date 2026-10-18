@@ -45,6 +45,10 @@ An app opens a session with `Session::connect(config, listener)` and gets events
   the top; the app stacks them, keeps a band's last picture until a new one replaces it, and shows the screen at each
   `Present`, which follows the last band of an instant. While any band's latest picture is lost or broken, no
   `Present` comes, so the screen never pairs bands from different moments. H.264 is a single band and has no `Present`.
+- Frames, `Present`, and audio come at the Mac's own pace. When the network holds packets back and lets them through
+  together, as Wi-Fi does every half second while AWDL is busy, the session delays everything by the same amount and
+  sends them a frame apart, as Apple's client shows them a beat late instead of skipping. The delay drops once arrivals
+  are on time again. The app shows and plays what it gets as it gets it.
 - `Cursor` is the Mac's cursor shape. `CursorHidden` hides it, as the Mac does while typing or over playing video,
   until the next `Cursor`, which the session sends again once the pointer moves even when the shape did not change.
 - Pointer coordinates are in the pixels of the latest `Layout`. Keys are X11 keysyms of what the Mac should type, and

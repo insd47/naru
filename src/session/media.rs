@@ -1,7 +1,7 @@
 use super::{Event, MediaStats};
 use crate::error::Result;
 use crate::media::{
-    Assembled, AudioFrame, Bandwidth, Group, Routed, RtpPacket, SrtpContext, Streams, VideoCodec, rtcp,
+    Assembled, AudioFrame, Bandwidth, Group, Lane, Playout, Routed, RtpPacket, SrtpContext, Streams, VideoCodec, rtcp,
 };
 use crate::offer::Offer;
 use socket2::{Domain, Socket, Type};
@@ -88,6 +88,8 @@ pub struct Media {
     audio_stream: Option<u32>,
     streams: Streams,
     group: Option<Group>,
+    // What goes to the app, paced to the Mac's clock
+    playout: Playout<Event>,
     // Whether a decoder config has ever arrived, and when a frame and a packet last did
     started: bool,
     last_frame: Option<Instant>,
@@ -136,6 +138,7 @@ impl Media {
             audio_stream: None,
             streams: Streams::new(codec.bands()),
             group: None,
+            playout: Playout::new(),
             started: false,
             last_frame: None,
             last_packet: None,
@@ -195,6 +198,7 @@ impl Media {
                 // the previous generation's references.
                 self.filled += self.group.as_ref().map_or(0, Group::filled);
                 self.group = Some(Group::new(self.codec, base));
+                self.playout.restart(Lane::Video);
                 packets
             }
             Routed::Held => return,
@@ -214,7 +218,7 @@ impl Media {
     }
 
     /// Handles a datagram received on the audio port, skipping server RTCP that arrives on the same port.
-    pub fn receive_audio(&mut self, datagram: &[u8], from: SocketAddr, events: &mut Vec<Event>) {
+    pub fn receive_audio(&mut self, datagram: &[u8], from: SocketAddr, now: Instant, events: &mut Vec<Event>) {
         if from.ip() != self.sockets.server || RtpPacket::is_rtcp(datagram) {
             return;
         }
@@ -235,13 +239,21 @@ impl Media {
 
         // A decoder kept across streams stops playing on some platforms, so each new stream gets a fresh decoder.
         if self.audio_stream.replace(ssrc) != Some(ssrc) {
-            events.push(Event::AudioConfig(AudioFrame::CONFIG.to_vec()));
+            self.playout.restart(Lane::Audio);
+            self.playout
+                .push(Lane::Audio, Event::AudioConfig(AudioFrame::CONFIG.to_vec()), None, now);
         }
 
-        events.push(Event::Audio(frame));
+        let timestamp = frame.timestamp;
+        self.playout
+            .push(Lane::Audio, Event::Audio(frame), Some(timestamp), now);
+        self.release(now, events);
     }
 
-    /// Takes every available output from the group. Also called when the deadline for late packets passes.
+    /// Takes every available output from the group, and sends out what is due. Also called at `deadline()`.
+    ///
+    /// - Everything the Mac sees, such as acknowledgments and requests, follows arrival. Only what goes to the app is
+    ///   paced, by the playout.
     pub async fn drain(&mut self, now: Instant, events: &mut Vec<Event>) {
         while let Some(output) = self.group.as_mut().and_then(|group| group.next(now)) {
             match output {
@@ -251,7 +263,7 @@ impl Media {
                         u16::try_from(config.width).unwrap_or(u16::MAX),
                         u16::try_from(config.height).unwrap_or(u16::MAX),
                     );
-                    events.push(Event::DecoderConfig(config));
+                    self.playout.push(Lane::Video, Event::DecoderConfig(config), None, now);
                 }
                 Assembled::Frame { unit, donl } => {
                     self.last_frame = Some(now);
@@ -268,9 +280,10 @@ impl Media {
                         self.acknowledge(donl).await;
                     }
 
-                    events.push(Event::Frame(unit));
+                    let timestamp = unit.timestamp;
+                    self.playout.push(Lane::Video, Event::Frame(unit), Some(timestamp), now);
                 }
-                Assembled::Present => events.push(Event::Present),
+                Assembled::Present => self.playout.push(Lane::Video, Event::Present, None, now),
                 Assembled::Lost => {
                     self.losses += 1;
                     self.awaiting_keyframe |= self.codec == VideoCodec::H264;
@@ -287,6 +300,12 @@ impl Media {
         if self.codec == VideoCodec::Hevc && self.missing > self.refreshed_missing {
             self.request_refresh(now).await;
         }
+
+        self.release(now, events);
+    }
+
+    fn release(&mut self, now: Instant, events: &mut Vec<Event>) {
+        events.extend(std::iter::from_fn(|| self.playout.next(now)));
     }
 
     /// Whether a decoder config has ever arrived
@@ -343,11 +362,13 @@ impl Media {
             missing: self.missing,
             filled: self.filled + self.group.as_ref().map_or(0, Group::filled),
             losses: self.losses,
+            delay_ms: u32::try_from(self.playout.delay().as_millis()).unwrap_or(u32::MAX),
         }
     }
 
     pub fn deadline(&self) -> Option<Instant> {
-        self.group.as_ref()?.deadline()
+        let group = self.group.as_ref().and_then(Group::deadline);
+        [group, self.playout.deadline()].into_iter().flatten().min()
     }
 
     /// The receiver reports, sent every 0.5 seconds.
