@@ -4,9 +4,9 @@ import os
 
 /// Plays the Mac's audio by feeding AAC-ELD to an AudioQueue, which decodes it with the system decoder.
 ///
-/// - Call only from the session's event thread. Audio plays as it arrives, without syncing to video.
-/// - At most `maxQueued` frames wait to play. Frames beyond that are dropped so latency cannot build up, as when the
-///   queue stalls in the background and resumes with everything sent meanwhile.
+/// - Call only from the session's event thread. Frames come paced by the session, which keeps them with the picture.
+/// - At most `maxQueued` frames wait in the queue, and frames beyond that are dropped, as when the queue stalls in the
+///   background. The queue takes frames before it plays them, so this bounds a backlog rather than latency.
 /// - A queue that stops taking frames is replaced, as one did for good after the network stalled.
 /// - The AudioSpecificConfig is wrapped in an MPEG-4 ES descriptor, the magic cookie format AudioToolbox reads, so the system determines the sample rate and channels.
 final class Audio {
@@ -18,8 +18,7 @@ final class Audio {
     private var format: AudioStreamBasicDescription
     private let cookie: Data
     private var output: Output
-    // Diagnostics: when a frame last came, and how many in a row were dropped for a full queue
-    private var lastFrame: ContinuousClock.Instant?
+    // Diagnostics: the last frame's timestamp, and how many frames in a row were dropped for a full queue
     private var lastTimestamp: UInt32?
     private var dropped = 0
 
@@ -82,10 +81,6 @@ final class Audio {
 
     func play(_ frame: AudioFrame) {
         let now = ContinuousClock.now
-        if let lastFrame, now - lastFrame >= .milliseconds(40) {
-            log.log("audio frame came \((now - lastFrame).formatted(.units(allowed: [.milliseconds])), privacy: .public) after the last")
-        }
-        lastFrame = now
 
         // Each frame is 480 samples at 48 kHz, so any other step means frames the network lost.
         if let lastTimestamp, frame.timestamp &- lastTimestamp != 480 {

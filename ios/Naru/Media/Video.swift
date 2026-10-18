@@ -72,25 +72,6 @@ final class Video: @unchecked Sendable {
         var slowestDecode = Duration.zero
         var lastPresented: ContinuousClock.Instant?
         var longestPresentGap = Duration.zero
-        var arrivals = Arrivals()
-    }
-
-    // How far arrivals strayed from the Mac's clock: each frame's arrival less its RTP time, relative to the first frame.
-    // A network that holds packets back widens the spread; a Mac that captures slowly delays both alike.
-    private struct Arrivals {
-        private var first: (arrived: ContinuousClock.Instant, timestamp: UInt32)?
-        private var earliest = Duration.zero
-        private var latest = Duration.zero
-
-        var spread: Duration { latest - earliest }
-
-        mutating func add(_ arrived: ContinuousClock.Instant, timestamp: UInt32) {
-            let first = first ?? (arrived, timestamp)
-            let offset = arrived - first.arrived - .seconds(Double(Int32(bitPattern: timestamp &- first.timestamp)) / 24000)
-            self.first = first
-            earliest = min(earliest, offset)
-            latest = max(latest, offset)
-        }
     }
 
     @MainActor
@@ -161,8 +142,7 @@ final class Video: @unchecked Sendable {
             let c = counts
             log.log("""
                 received (10 s): frames \(c.frames) (dropped \(c.dropped)), presented \(c.presented) \
-                (longest gap \(Self.milliseconds(c.longestPresentGap), privacy: .public)), arrival spread \
-                \(Self.milliseconds(c.arrivals.spread), privacy: .public), decode \
+                (longest gap \(Self.milliseconds(c.longestPresentGap), privacy: .public)), decode \
                 \(Self.milliseconds(c.decoding / max(c.frames, 1)), privacy: .public) avg \
                 \(Self.milliseconds(c.slowestDecode), privacy: .public) max | missing \(stats.missing), lost \(stats.losses), held \(stats.delayMs) ms
                 """)
@@ -173,8 +153,6 @@ final class Video: @unchecked Sendable {
     private func setUp(_ config: DecoderConfig) {
         format = Self.format(config)
 
-        // A new stream starts its RTP clock anew.
-        counts.arrivals = Arrivals()
         decodedSinceConfig = 0
 
         // The pictures keep the stream's colors. A Mac sends Display P3, which looks washed out when shown as sRGB.
@@ -213,7 +191,6 @@ final class Video: @unchecked Sendable {
     private func decode(_ unit: AccessUnit, queued: ContinuousClock.Instant) {
         counts.frames += 1
 
-        counts.arrivals.add(queued, timestamp: unit.timestamp)
 
         guard let format else {
             return
