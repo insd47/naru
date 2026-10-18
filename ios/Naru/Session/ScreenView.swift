@@ -171,8 +171,9 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     }
 
     // Text with no key down means the key presses go to another responder while the text system still writes here, as
-    // an iPad's diagnostics showed right after the session screen opened. Becoming first responder again, as reopening the
-    // screen did there, brings the presses back. It waits for the text system to return first.
+    // an iPad on iPadOS 26 showed right after the session screen opened; the same iPad no longer did on iPadOS 27.
+    // Becoming first responder again, as reopening the screen did there, brings the presses back. It waits for the text
+    // system to return first.
     private func reclaimPresses() {
         guard typing.isEmpty else { return }
 
