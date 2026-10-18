@@ -3,43 +3,52 @@ import SwiftUI
 /// The session screen. Shows the Mac's screen under a title bar, with a loading state until the first frame arrives.
 ///
 /// - The title bar follows Screen Sharing's toolbar: the way back to the connections, the Mac's name, and the Mac's
-///   window shortcuts. It shows while the app is in a window and hides when the app fills the screen, where the menu
-///   bar still opens from the top edge.
-/// - The status bar stays. Hiding it in full screen left the title bar dragging and zooming the window only within the
-///   full screen's top strip after going back to a window.
+///   window shortcuts. It shows while the app is in a window and hides with the status bar when the app fills the
+///   screen, where the menu bar still opens from the top edge.
+/// - Filling the screen, the title bar is removed rather than hidden. A hidden one moved and zoomed the window only within
+///   the full screen's top strip after going back to a window.
 struct SessionView: View {
     @Environment(SessionController.self) private var session
     @State private var fillsScreen = false
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Screen(connection: session.connection, layout: session.layout, cursor: session.cursor, syncsLanguage: session.syncsKeyboardLanguage) { mode in
-                    session.resize(mode)
-                }
-                .ignoresSafeArea(edges: fillsScreen ? .all : [.horizontal, .bottom])
-
-                if !session.shown {
-                    ProgressView()
-                        .controlSize(.large)
-                        .accessibilityLabel("Preparing Screen")
-                        .foregroundStyle(.white)
-                        .tint(.white)
+        Group {
+            if fillsScreen {
+                screen
+                    .ignoresSafeArea()
+            } else {
+                NavigationStack {
+                    screen
+                        .ignoresSafeArea(edges: [.horizontal, .bottom])
+                        .navigationTitle(session.state?.host.title ?? "")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar { toolbar }
                 }
             }
-            .background(.black)
-            .navigationTitle(session.state?.host.title ?? "")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbar }
-            .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)
         }
+        .statusBarHidden(fillsScreen)
         // Hidden only when filling the screen, since in a window it also hides the window's controls.
         .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
         .background {
-            Backdrop { fills in
-                withAnimation(.snappy) { fillsScreen = fills }
+            Backdrop { fills in fillsScreen = fills }
+        }
+    }
+
+    private var screen: some View {
+        ZStack {
+            Screen(connection: session.connection, layout: session.layout, cursor: session.cursor, syncsLanguage: session.syncsKeyboardLanguage) { mode in
+                session.resize(mode)
+            }
+
+            if !session.shown {
+                ProgressView()
+                    .controlSize(.large)
+                    .accessibilityLabel("Preparing Screen")
+                    .foregroundStyle(.white)
+                    .tint(.white)
             }
         }
+        .background(.black)
     }
 
     @ToolbarContentBuilder
