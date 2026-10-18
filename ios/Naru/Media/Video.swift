@@ -70,25 +70,26 @@ final class Video: @unchecked Sendable {
         var slowestDecode = Duration.zero
         var lastPresented: ContinuousClock.Instant?
         var longestPresentGap = Duration.zero
-        // How far arrivals strayed from the Mac's clock: each frame's arrival less its RTP time, relative to the first
-        // frame. A network that holds packets back widens the spread; a Mac that captures slowly delays both alike.
-        var clock: (arrived: ContinuousClock.Instant, timestamp: UInt32)?
-        var earliest = Duration.zero
-        var latest = Duration.zero
+        var arrivals = Arrivals()
     }
 
-    // What happened around each long wait between presents, logged as it ends
-    private var stall = Stall()
+    // How far arrivals strayed from the Mac's clock: each frame's arrival less its RTP time, relative to the first frame.
+    // A network that holds packets back widens the spread; a Mac that captures slowly delays both alike.
+    private struct Arrivals {
+        private var first: (arrived: ContinuousClock.Instant, timestamp: UInt32)?
+        private var earliest = Duration.zero
+        private var latest = Duration.zero
 
-    private struct Stall {
-        var called: ContinuousClock.Instant?
-        var arrived: ContinuousClock.Instant?
-        var longestArrivalGap = Duration.zero
-        var latest: UInt32?
-        var presented: UInt32?
+        var spread: Duration { latest - earliest }
+
+        mutating func add(_ arrived: ContinuousClock.Instant, timestamp: UInt32) {
+            let first = first ?? (arrived, timestamp)
+            let offset = arrived - first.arrived - .seconds(Double(Int32(bitPattern: timestamp &- first.timestamp)) / 24000)
+            self.first = first
+            earliest = min(earliest, offset)
+            latest = max(latest, offset)
+        }
     }
-
-    private static let stallLogged = Duration.milliseconds(100)
 
     @MainActor
     init(firstFrame: @escaping @Sendable () -> Void) {
@@ -128,7 +129,6 @@ final class Video: @unchecked Sendable {
 
     /// Every band of one instant has been queued, so the bands decoded since the last call show together.
     func present() {
-        let called = ContinuousClock.now
         work.async { [self] in
             // The decoder may hand pictures over later on a thread of its own, so the instant's last bands are waited for.
             if let session {
@@ -136,7 +136,6 @@ final class Video: @unchecked Sendable {
             }
 
             let now = ContinuousClock.now
-            logStall(called: called, now: now)
             counts.longestPresentGap = max(counts.longestPresentGap, counts.lastPresented.map { now - $0 } ?? .zero)
             counts.lastPresented = now
             counts.presented += 1
@@ -161,7 +160,7 @@ final class Video: @unchecked Sendable {
             log.log("""
                 received (10 s): frames \(c.frames) (dropped \(c.dropped)), presented \(c.presented) \
                 (longest gap \(Self.milliseconds(c.longestPresentGap), privacy: .public)), arrival spread \
-                \(Self.milliseconds(c.latest - c.earliest), privacy: .public), decode \
+                \(Self.milliseconds(c.arrivals.spread), privacy: .public), decode \
                 \(Self.milliseconds(c.decoding / max(c.frames, 1)), privacy: .public) avg \
                 \(Self.milliseconds(c.slowestDecode), privacy: .public) max | missing \(stats.missing), lost \(stats.losses)
                 """)
@@ -169,32 +168,11 @@ final class Video: @unchecked Sendable {
         }
     }
 
-    private func logStall(called: ContinuousClock.Instant, now: ContinuousClock.Instant) {
-        let gap = stall.called.map { called - $0 } ?? .zero
-
-        if gap >= Self.stallLogged, let latest = stall.latest, let presented = stall.presented {
-            let advanced = Duration.seconds(Double(Int32(bitPattern: latest &- presented)) / 24000)
-            log.log("""
-                stall: presented \(Self.milliseconds(gap), privacy: .public) after the last, Mac clock advanced \
-                \(Self.milliseconds(advanced), privacy: .public), longest arrival gap \
-                \(Self.milliseconds(self.stall.longestArrivalGap), privacy: .public), shown \
-                \(Self.milliseconds(now - called), privacy: .public) after the core asked
-                """)
-        }
-
-        stall.called = called
-        stall.presented = stall.latest
-        stall.longestArrivalGap = .zero
-    }
-
     private func setUp(_ config: DecoderConfig) {
         format = Self.format(config)
 
         // A new stream starts its RTP clock anew.
-        stall = Stall()
-        counts.clock = nil
-        counts.earliest = .zero
-        counts.latest = .zero
+        counts.arrivals = Arrivals()
 
         // The pictures keep the stream's colors. A Mac sends Display P3, which looks washed out when shown as sRGB.
         colors = format.map { format in
@@ -232,15 +210,7 @@ final class Video: @unchecked Sendable {
     private func decode(_ unit: AccessUnit, queued: ContinuousClock.Instant) {
         counts.frames += 1
 
-        stall.longestArrivalGap = max(stall.longestArrivalGap, stall.arrived.map { queued - $0 } ?? .zero)
-        stall.arrived = queued
-        stall.latest = unit.timestamp
-
-        let clock = counts.clock ?? (queued, unit.timestamp)
-        let offset = queued - clock.arrived - .seconds(Double(Int32(bitPattern: unit.timestamp &- clock.timestamp)) / 24000)
-        counts.clock = clock
-        counts.earliest = min(counts.earliest, offset)
-        counts.latest = max(counts.latest, offset)
+        counts.arrivals.add(queued, timestamp: unit.timestamp)
 
         guard let format else {
             return
