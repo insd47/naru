@@ -1,8 +1,9 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-// Lateness up to this is ordinary jitter, which the apps absorb; only more raises the delay.
-const JITTER: Duration = Duration::from_millis(20);
+// Lateness up to this is ordinary jitter, which the apps absorb; only more raises the delay. A steady stream over Wi-Fi
+// strays up to about 40 ms, and a pause for AWDL holds packets about 100 ms.
+const JITTER: Duration = Duration::from_millis(50);
 // Arrivals later than this go out at once. A screen this far behind is worse than one that skips.
 const MAX_DELAY: Duration = Duration::from_millis(500);
 // The delay is dropped this long after the last late arrival. Wi-Fi that pauses for AWDL does so about every 0.52 s.
@@ -33,8 +34,8 @@ impl Lane {
 ///
 /// - Has no I/O or clock, like the group. The caller pushes items with the current time and takes them out with
 ///   `next()`, calling it again at `deadline()`.
-/// - An item arriving later than the earliest one did, by more than ordinary jitter, raises a delay shared by both lanes,
-///   so what follows waits that long and sound stays with the picture. Apple's client does the same when Wi-Fi pauses:
+/// - A picture arriving later than the earliest one did, by more than ordinary jitter, raises a delay shared by both
+///   lanes, so what follows waits that long and sound stays with the picture. Apple's client does the same when Wi-Fi pauses:
 ///   late frames show in order, a beat behind, instead of skipping.
 /// - Once arrivals have been on time for a while, the delay drops at once and whatever waits goes out, so the screen
 ///   skips ahead and sound cuts once instead of drifting back.
@@ -78,12 +79,11 @@ impl<T> Playout<T> {
             Some(timestamp) => {
                 let (lateness, on_time) = pace.observe(timestamp, now);
 
-                if lateness > JITTER {
+                // Only the picture sets the delay. Sound comes in small packets with jitter of its own, which would keep
+                // the delay from ever dropping.
+                if lane == Lane::Video && lateness > JITTER {
                     self.late = Some(now);
-                }
-
-                if lateness > self.delay + JITTER {
-                    self.delay = lateness.min(MAX_DELAY);
+                    self.delay = self.delay.max(lateness.min(MAX_DELAY));
                 }
 
                 on_time + self.delay
@@ -355,6 +355,17 @@ mod tests {
         assert_eq!(second, burst + FRAME_TIME);
         assert_eq!(playout.next(second), Some(2));
         assert_eq!(playout.next(second), Some(3));
+    }
+
+    // Sound arriving unevenly leaves the delay alone.
+    #[test]
+    fn late_sound_sets_no_delay() {
+        let start = Instant::now();
+        let mut playout = Playout::new();
+        playout.push(Lane::Audio, 0, Some(0), start);
+        playout.push(Lane::Audio, 1, Some(480), start + Duration::from_millis(80));
+
+        assert_eq!(playout.delay(), Duration::ZERO);
     }
 
     // Sound waits as long as the picture, so the two stay together.
