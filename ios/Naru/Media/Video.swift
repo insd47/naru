@@ -68,6 +68,13 @@ final class Video: @unchecked Sendable {
         var presented = 0
         var decoding = Duration.zero
         var slowestDecode = Duration.zero
+        var lastPresented: ContinuousClock.Instant?
+        var longestPresentGap = Duration.zero
+        // How far arrivals strayed from the Mac's clock: each frame's arrival less its RTP time, relative to the first
+        // frame. A network that holds packets back widens the spread; a Mac that captures slowly delays both alike.
+        var clock: (arrived: ContinuousClock.Instant, timestamp: UInt32)?
+        var earliest = Duration.zero
+        var latest = Duration.zero
     }
 
     @MainActor
@@ -114,6 +121,9 @@ final class Video: @unchecked Sendable {
                 VTDecompressionSessionWaitForAsynchronousFrames(session)
             }
 
+            let now = ContinuousClock.now
+            counts.longestPresentGap = max(counts.longestPresentGap, counts.lastPresented.map { now - $0 } ?? .zero)
+            counts.lastPresented = now
             counts.presented += 1
             show()
         }
@@ -134,11 +144,13 @@ final class Video: @unchecked Sendable {
 
             let c = counts
             log.log("""
-                received (10 s): frames \(c.frames) (dropped \(c.dropped)), presented \(c.presented), decode \
+                received (10 s): frames \(c.frames) (dropped \(c.dropped)), presented \(c.presented) \
+                (longest gap \(Self.milliseconds(c.longestPresentGap), privacy: .public)), arrival spread \
+                \(Self.milliseconds(c.latest - c.earliest), privacy: .public), decode \
                 \(Self.milliseconds(c.decoding / max(c.frames, 1)), privacy: .public) avg \
                 \(Self.milliseconds(c.slowestDecode), privacy: .public) max | missing \(stats.missing), lost \(stats.losses)
                 """)
-            counts = Counts()
+            counts = Counts(lastPresented: c.lastPresented)
         }
     }
 
@@ -180,6 +192,12 @@ final class Video: @unchecked Sendable {
 
     private func decode(_ unit: AccessUnit, queued: ContinuousClock.Instant) {
         counts.frames += 1
+
+        let clock = counts.clock ?? (queued, unit.timestamp)
+        let offset = queued - clock.arrived - .seconds(Double(Int32(bitPattern: unit.timestamp &- clock.timestamp)) / 24000)
+        counts.clock = clock
+        counts.earliest = min(counts.earliest, offset)
+        counts.latest = max(counts.latest, offset)
 
         guard let format else {
             return
