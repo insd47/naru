@@ -279,7 +279,7 @@ final class Video: @unchecked Sendable {
 
         let started = ContinuousClock.now
         let intact = unit.intact
-        VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [], infoFlagsOut: nil) { [weak self] status, _, image, _, _ in
+        let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [], infoFlagsOut: nil) { [weak self] status, _, image, _, _ in
             // A picture predicted from a lost one may fail to decode. Its band is not shown until it is intact again, so
             // the failure does not rebuild the decoder.
             guard intact else { return }
@@ -290,6 +290,14 @@ final class Video: @unchecked Sendable {
 
             self?.hold(status == noErr ? image : nil, band: band)
         }
+
+        // A decode that fails at once never reaches the handler, as when iPadOS has taken the decoder back while the app
+        // was in the background. The next frame starts a new session.
+        if status != noErr {
+            log.error("decoder refused a frame: \(status)")
+            output.withLockUnchecked { $0.failed = true }
+        }
+
         let decoding = ContinuousClock.now - started
         counts.decoding += decoding
         counts.slowestDecode = max(counts.slowestDecode, decoding)
@@ -402,8 +410,11 @@ final class Video: @unchecked Sendable {
         session = format.flatMap(Self.session)
         awaitingKeyframe = true
         shown = false
+
+        // A session that could not be made, as in the background, is tried again with the next frame.
+        let failed = format != nil && session == nil
         output.withLockUnchecked { output in
-            output = Output(held: Array(repeating: nil, count: output.held.count))
+            output = Output(failed: failed, held: Array(repeating: nil, count: output.held.count))
         }
     }
 
