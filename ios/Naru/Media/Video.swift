@@ -47,6 +47,8 @@ final class Video: @unchecked Sendable {
     private var shown = false
     // Counts logged with every twentieth stats event, about every 10 seconds
     private var counts = Counts()
+    // Frames given to the decoder since the latest config, which a decode error names
+    private var decodedSinceConfig = 0
 
     // Shared with the decoder's output handler, which may run on a thread of its own. Decoded pictures are not changed
     // once out, so the lock hands them between threads unchecked.
@@ -173,6 +175,7 @@ final class Video: @unchecked Sendable {
 
         // A new stream starts its RTP clock anew.
         counts.arrivals = Arrivals()
+        decodedSinceConfig = 0
 
         // The pictures keep the stream's colors. A Mac sends Display P3, which looks washed out when shown as sRGB.
         colors = format.map { format in
@@ -249,13 +252,16 @@ final class Video: @unchecked Sendable {
 
         let started = ContinuousClock.now
         let intact = unit.intact
+        let keyframe = unit.keyframe
+        decodedSinceConfig += 1
+        let sinceConfig = decodedSinceConfig
         let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [], infoFlagsOut: nil) { [weak self] status, _, image, _, _ in
             // A picture predicted from a lost one may fail to decode. Its band is not shown until it is intact again, so
             // the failure does not rebuild the decoder.
             guard intact else { return }
 
             if status != noErr {
-                log.error("cannot decode a frame: \(status)")
+                log.error("cannot decode a frame: \(status), band \(band), keyframe \(keyframe), frame \(sinceConfig) since the config")
             }
 
             self?.hold(status == noErr ? image : nil, band: band)
