@@ -41,7 +41,7 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel>
                             <TextBlock Text="Sync keyboard language" />
-                            <TextBlock Text="The Mac switches its input source with this computer's language. Works best with one language besides English on the Mac." Style="{StaticResource Detail}" />
+                            <TextBlock Text="The Mac switches its input source with this computer's language. As in Screen Sharing, the first key after a switch may type in the old language. Works best with one language besides English on the Mac." Style="{StaticResource Detail}" />
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1" OnContent="" OffContent="" MinWidth="0" IsOn="{x:Bind preferences.SyncKeyboardLanguage, Mode=TwoWay}" />
                     </Grid>

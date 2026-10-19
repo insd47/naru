@@ -44,7 +44,7 @@ fun Settings(preferences: Preferences) {
         item {
             SwitchItem(
                 "Sync Keyboard Language",
-                "The Mac switches its input source with the tablet's language. Works best with one language besides English on the Mac.",
+                "The Mac switches its input source with the tablet's language. As in Screen Sharing, the first key after a switch may type in the old language. Works best with one language besides English on the Mac.",
                 preferences.syncKeyboardLanguage,
                 index = 1,
                 count = 2,
