@@ -26,7 +26,6 @@ mod engine;
 mod input;
 mod media;
 mod negotiation;
-mod switching;
 
 const RETRY_DELAY: Duration = Duration::from_millis(800);
 
@@ -303,8 +302,8 @@ impl Session {
 
     /// Selects the Mac's input source by its ID, as Apple's "Sync Keyboard Language" does.
     ///
-    /// - Keys sent after this wait until the Mac reports the new source, usually a few milliseconds, so they reach the
-    ///   new input method.
+    /// - The agent applies it at the next key and reports the new source a few milliseconds later. Like Apple's client,
+    ///   keys are not held for that report, which would only come after them.
     pub fn select_input_source(&self, id: &str) -> Result<()> {
         self.send(Command::InputSource(id.to_owned()))
     }

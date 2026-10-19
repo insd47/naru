@@ -215,7 +215,7 @@ internal sealed class Keyboard : IDisposable
     }
 
     // The source goes out as soon as the language changes, so the Mac has switched before the user types. Selecting
-    // again before each key covers a source the Mac changed meanwhile; the core holds that key until the Mac switches.
+    // again before each key covers a source the Mac changed meanwhile; the Mac switches at that key.
     private void Sync()
     {
         if (!preferences.SyncKeyboardLanguage || language.Length == 0)

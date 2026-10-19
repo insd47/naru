@@ -183,7 +183,7 @@ class SessionActivity : ComponentActivity() {
     }
 
     // The source goes out as soon as the tablet's language changes, so the Mac has switched before the user types.
-    // Selecting before a key covers a change that was missed; the core holds that key until the Mac has switched.
+    // Selecting before a key covers a change that was missed; the Mac switches at that key.
     private fun syncSource(current: Connection, tabletLanguage: String) {
         if (!naru.preferences.syncKeyboardLanguage || tabletLanguage.isEmpty()) {
             selectedSource = null

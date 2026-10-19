@@ -277,7 +277,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     }
 
     // iPadOS reveals a language switch only with the first key in the new language, so the source goes out right before
-    // it. The core holds that key until the Mac has switched, which also commits a composition the Mac still holds.
+    // it. The Mac switches at that key, which also commits a composition the Mac still holds.
     private func selectSource(for language: String) {
         guard let connection, let source = inputSource(language: language, current: connection.source), source != selectedSource else {
             return
