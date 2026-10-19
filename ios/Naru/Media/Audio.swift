@@ -5,28 +5,28 @@ import os
 /// Plays the Mac's audio by feeding AAC-ELD to an AudioQueue, which decodes it with the system decoder.
 ///
 /// - Call only from the session's event thread. Frames come paced by the session, which keeps them with the picture.
-/// - At most `maxQueued` frames wait in the queue, and frames beyond that are dropped, as when the queue stalls in the
-///   background. The queue takes frames before it plays them, so this bounds a backlog rather than latency.
-/// - A queue that stops taking frames is replaced, as one did for good after the network stalled.
+/// - At most `maxBacklog` of sound waits to be heard, by the queue's own clock, and frames beyond it are dropped. The
+///   queue takes frames before it plays them, so counting frames in it would let a burst of sound pile up for good, as
+///   when the session catches up after the network paused; the picture skips ahead then, and so does the sound.
+/// - A queue whose clock stops while frames keep coming is replaced, as one did for good after the network stalled.
 /// - The AudioSpecificConfig is wrapped in an MPEG-4 ES descriptor, the magic cookie format AudioToolbox reads, so the system determines the sample rate and channels.
 final class Audio {
-    // Frames waiting to play, 10 ms each
-    private static let maxQueued = 6
-    // A full queue that has played nothing for this long has stopped.
+    // Each AAC-ELD frame carries 480 samples at 48 kHz, 10 ms.
+    private static let frameSamples = 480.0
+    private static let maxBacklog = frameSamples * 6
+    // A queue whose clock has not moved for this long has stopped. Replacing one is tried no more often than this.
     private static let stalled = Duration.milliseconds(500)
 
     private var format: AudioStreamBasicDescription
     private let cookie: Data
-    private var output: Output
-    // Diagnostics: the last frame's timestamp, and how many frames in a row were dropped for a full queue
+    private var queue: AudioQueueRef
+    // Samples handed to the queue, on the queue's clock, and when that clock last moved
+    private var enqueued = 0.0
+    private var played = 0.0
+    private var moved = ContinuousClock.now
+    // Diagnostics: the last frame's timestamp, and how many frames in a row were dropped for a backlog
     private var lastTimestamp: UInt32?
     private var dropped = 0
-
-    // A queue and how many of its frames wait to play, with when it last finished one
-    private struct Output {
-        let queue: AudioQueueRef
-        let state: OSAllocatedUnfairLock<(queued: Int, played: ContinuousClock.Instant)>
-    }
 
     init?(config: Data) {
         let cookie = Self.cookie(config)
@@ -38,23 +38,21 @@ final class Audio {
             AudioFormatGetProperty(kAudioFormatProperty_FormatInfo, UInt32(cookie.count), $0.baseAddress, &size, &format)
         }
 
-        guard described == noErr, let output = Self.start(&format, cookie: cookie) else {
+        guard described == noErr, let queue = Self.start(&format, cookie: cookie) else {
             return nil
         }
 
         self.format = format
         self.cookie = cookie
-        self.output = output
+        self.queue = queue
         try? AVAudioSession.sharedInstance().setCategory(.playback, options: .mixWithOthers)
         try? AVAudioSession.sharedInstance().setActive(true)
     }
 
-    private static func start(_ format: inout AudioStreamBasicDescription, cookie: Data) -> Output? {
-        let state = OSAllocatedUnfairLock(initialState: (queued: 0, played: ContinuousClock.now))
+    private static func start(_ format: inout AudioStreamBasicDescription, cookie: Data) -> AudioQueueRef? {
         var queue: AudioQueueRef?
         let created = AudioQueueNewOutputWithDispatchQueue(&queue, &format, 0, DispatchQueue(label: "audio")) { queue, buffer in
             AudioQueueFreeBuffer(queue, buffer)
-            state.withLock { $0 = ($0.queued - 1, .now) }
         }
 
         guard created == noErr, let queue else {
@@ -63,7 +61,7 @@ final class Audio {
 
         _ = cookie.withUnsafeBytes { AudioQueueSetProperty(queue, kAudioQueueProperty_MagicCookie, $0.baseAddress!, UInt32(cookie.count)) }
         AudioQueueStart(queue, nil)
-        return Output(queue: queue, state: state)
+        return queue
     }
 
     // ES descriptor > decoder config descriptor (MPEG-4 audio, audio stream) > decoder specific info, then the SL config descriptor.
@@ -76,7 +74,7 @@ final class Audio {
     }
 
     deinit {
-        AudioQueueDispose(output.queue, true)
+        AudioQueueDispose(queue, true)
     }
 
     func play(_ frame: AudioFrame) {
@@ -88,29 +86,40 @@ final class Audio {
         }
         lastTimestamp = frame.timestamp
 
-        let state = output.state.withLock { $0 }
+        var time = AudioTimeStamp()
+        if AudioQueueGetCurrentTime(queue, nil, &time, nil) == noErr, time.mSampleTime > played {
+            played = time.mSampleTime
+            moved = now
+        }
 
-        if state.queued >= Self.maxQueued {
-            guard now - state.played >= Self.stalled, let fresh = Self.start(&format, cookie: cookie) else {
+        // A queue that ran dry plays the next frame at once, so what it had is no longer waiting.
+        enqueued = max(enqueued, played)
+
+        if enqueued - played >= Self.maxBacklog {
+            guard now - moved >= Self.stalled else {
                 dropped += 1
                 return
             }
 
-            var running: UInt32 = 0
-            var size = UInt32(MemoryLayout<UInt32>.size)
-            AudioQueueGetProperty(output.queue, kAudioQueueProperty_IsRunning, &running, &size)
-            log.error("audio queue stopped playing with \(state.queued) frames waiting, running \(running); starting a new one")
+            moved = now
 
-            AudioQueueDispose(output.queue, true)
-            output = fresh
+            guard let fresh = Self.start(&format, cookie: cookie) else {
+                dropped += 1
+                return
+            }
+
+            log.error("audio queue stopped playing with \(Int(self.enqueued - self.played)) samples waiting; starting a new one")
+            AudioQueueDispose(queue, true)
+            queue = fresh
+            enqueued = 0
+            played = 0
         }
 
         if dropped > 0 {
-            log.log("audio dropped \(self.dropped) frames for a full queue")
+            log.log("audio dropped \(self.dropped) frames to keep up")
             dropped = 0
         }
 
-        let queue = output.queue
         let data = frame.data
         var buffer: AudioQueueBufferRef?
 
@@ -123,7 +132,7 @@ final class Audio {
 
         var packet = AudioStreamPacketDescription(mStartOffset: 0, mVariableFramesInPacket: 0, mDataByteSize: UInt32(data.count))
         if AudioQueueEnqueueBuffer(queue, buffer, 1, &packet) == noErr {
-            output.state.withLock { $0.queued += 1 }
+            enqueued += Self.frameSamples
         } else {
             AudioQueueFreeBuffer(queue, buffer)
         }
