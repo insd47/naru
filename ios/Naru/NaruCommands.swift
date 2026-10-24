@@ -7,7 +7,6 @@ struct NaruCommands: Commands {
     static let connection = "Connection"
 
     let hosts: Hosts
-    let preferences: Preferences
     let session: SessionController
     @FocusedValue(\.home) private var home
 
@@ -25,17 +24,15 @@ struct NaruCommands: Commands {
 
             Divider()
 
-            Button("Close") { session.close() }
-                .disabled(session.connection == nil)
+            SessionCommandItem(.disconnect, session: session)
         }
 
         CommandGroup(after: .pasteboard) {
             Divider()
-            Toggle("Use Shared Clipboard", isOn: Bindable(preferences).sharedClipboard)
-            Button("Send Clipboard") { session.sendClipboard() }
-                .disabled(session.connection == nil)
+            SessionCommandItem(.sharedClipboard, session: session)
+            SessionCommandItem(.sendClipboard, session: session)
             Divider()
-            Toggle("Sync Keyboard Language", isOn: Bindable(preferences).syncKeyboardLanguage)
+            SessionCommandItem(.syncKeyboardLanguage, session: session)
         }
 
         CommandGroup(replacing: .toolbar) {

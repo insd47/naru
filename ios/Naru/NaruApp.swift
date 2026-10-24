@@ -4,17 +4,14 @@ import SwiftUI
 struct NaruApp: App {
     @UIApplicationDelegateAdaptor private var delegate: AppDelegate
     @State private var hosts: Hosts
-    @State private var preferences: Preferences
     @State private var discovery = Discovery()
     @State private var session: SessionController
     @Environment(\.scenePhase) private var phase
 
     init() {
         let hosts = Hosts()
-        let preferences = Preferences()
         _hosts = State(initialValue: hosts)
-        _preferences = State(initialValue: preferences)
-        _session = State(initialValue: SessionController(hosts: hosts, preferences: preferences))
+        _session = State(initialValue: SessionController(hosts: hosts, preferences: Preferences()))
         Diagnostics.start()
     }
 
@@ -33,7 +30,7 @@ struct NaruApp: App {
             }
         }
         .commands {
-            NaruCommands(hosts: hosts, preferences: preferences, session: session)
+            NaruCommands(hosts: hosts, session: session)
         }
     }
 }

@@ -71,7 +71,7 @@ final class SessionController {
     var presented = false
 
     private let hosts: Hosts
-    private let preferences: Preferences
+    let preferences: Preferences
     private var running: Running?
     private var background = UIBackgroundTaskIdentifier.invalid
     private var clipboard: Clipboard?

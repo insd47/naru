@@ -2,7 +2,8 @@ import Foundation
 
 /// Settings shared by all Macs.
 ///
-/// - Clipboard sharing and keyboard language sync are toggled from the Edit menu, as in Screen Sharing on the Mac.
+/// - Clipboard sharing and keyboard language sync are toggled from the Edit menu, as in Screen Sharing on the Mac, and
+///   from the session's title bar.
 /// - There is no key mapping setting (Alt and Command) because iPadOS's modifier key settings handle it.
 @MainActor @Observable
 final class Preferences {

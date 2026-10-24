@@ -99,8 +99,12 @@ final class StageController: UIViewController, UINavigationBarDelegate, UIGestur
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Connections", image: UIImage(systemName: "chevron.backward"), primaryAction: UIAction { _ in session.presented = false })
         navigationItem.rightBarButtonItems = [
+            // Built at each opening, so toggles show their current values
             UIBarButtonItem(title: "More", image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: [
-                UIAction(title: "Disconnect", image: UIImage(systemName: "xmark"), attributes: .destructive) { _ in session.close() },
+                UIDeferredMenuElement.uncached { completion in
+                    let groups: [[SessionCommand]] = [[.sharedClipboard, .sendClipboard], [.syncKeyboardLanguage], [.disconnect]]
+                    completion(groups.map { group in UIMenu(options: .displayInline, children: group.map { $0.action(session) }) })
+                },
             ])),
             UIBarButtonItem(title: "Desktop", image: UIImage(systemName: "menubar.dock.rectangle"), primaryAction: UIAction { _ in session.press(.desktop) }),
             UIBarButtonItem(title: "App Windows", image: UIImage(systemName: "macwindow.on.rectangle"), primaryAction: UIAction { _ in session.press(.appWindows) }),
