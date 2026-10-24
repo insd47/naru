@@ -3,7 +3,9 @@ using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Windows.Foundation;
 using Windows.Graphics;
 
@@ -16,6 +18,7 @@ namespace Naru.Session;
 /// <list type="bullet">
 /// <item>The whole bar drags the window, except the buttons, whose rectangles pass clicks through. The right edge keeps room for the caption buttons.</item>
 /// <item>In full screen it is a bar of buttons that drags nothing. As in Screen Sharing on the Mac, it slides down when the pointer rests at the top edge for half a second, moving the screen down by its height rather than covering it, and hides when the pointer leaves. The screen moves rather than shrinks, since a new size would resize the Mac's display.</item>
+/// <item>Both slide with the motion WinUI's own controls use. They move by render transforms, which input follows, since the screen's composition visual already belongs to the touchpad.</item>
 /// <item>Call only on the UI thread.</item>
 /// </list>
 /// </remarks>
@@ -28,11 +31,13 @@ internal sealed class Chrome
     private readonly Grid bar;
     private readonly FrameworkElement[] buttons;
     private readonly FrameworkElement inset;
-    private readonly TranslateTransform shift = new();
+    private readonly Slide barSlide = new();
+    private readonly Slide screenSlide = new();
     private readonly DispatcherQueueTimer revealing;
     private RectInt32[] passthrough = [];
     private bool applying;
     private bool closed;
+    private bool revealed = true;
 
     public Chrome(Window window, Grid bar, FrameworkElement[] buttons, FrameworkElement inset, UIElement screen)
     {
@@ -40,7 +45,8 @@ internal sealed class Chrome
         this.bar = bar;
         this.buttons = buttons;
         this.inset = inset;
-        screen.RenderTransform = shift;
+        bar.RenderTransform = barSlide.Transform;
+        screen.RenderTransform = screenSlide.Transform;
 
         window.ExtendsContentIntoTitleBar = true;
         window.SetTitleBar(bar);
@@ -56,7 +62,7 @@ internal sealed class Chrome
         bar.SizeChanged += (_, _) =>
         {
             Inset();
-            Shift();
+            Place();
         };
         bar.LayoutUpdated += (_, _) => Passthrough();
         bar.Loaded += (_, _) => window.Content.XamlRoot.Changed += (_, _) => Inset();
@@ -93,7 +99,7 @@ internal sealed class Chrome
     /// <summary>The pointer moved over the screen. In full screen, resting at the top edge slides the bar down, except mid-drag.</summary>
     public void Hover(Point position, bool pressed)
     {
-        if (!FullScreen || bar.Visibility == Visibility.Visible)
+        if (!FullScreen || revealed)
         {
             return;
         }
@@ -128,14 +134,57 @@ internal sealed class Chrome
             return;
         }
 
-        bar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        Shift();
+        revealed = visible;
+        Place();
     }
 
-    // In full screen the screen sits under the bar, so it moves down by the bar's height while the bar shows.
-    private void Shift()
+    // In full screen the screen sits under the bar, so it moves down by the bar's height while the bar shows, and the
+    // bar hides above the window, where it takes no clicks.
+    private void Place()
     {
-        shift.Y = FullScreen && bar.Visibility == Visibility.Visible ? bar.ActualHeight : 0;
+        var hidden = FullScreen && !revealed;
+
+        bar.IsHitTestVisible = !hidden;
+        barSlide.To(hidden ? -bar.ActualHeight : 0);
+        screenSlide.To(FullScreen && revealed ? bar.ActualHeight : 0);
+    }
+
+    // A vertical offset that moves with WinUI's normal control animation, starting from wherever it is.
+    private sealed class Slide
+    {
+        public TranslateTransform Transform { get; } = new();
+
+        private Storyboard? running;
+        private double target;
+
+        public void To(double y)
+        {
+            if (y == target)
+            {
+                return;
+            }
+
+            target = y;
+
+            var resources = Application.Current.Resources;
+            var frame = new SplineDoubleKeyFrame
+            {
+                Value = y,
+                KeyTime = (KeyTime)XamlBindingHelper.ConvertValue(typeof(KeyTime), resources["ControlNormalAnimationDuration"]),
+                KeySpline = (KeySpline)XamlBindingHelper.ConvertValue(typeof(KeySpline), resources["ControlFastOutSlowInKeySpline"]),
+            };
+            var animation = new DoubleAnimationUsingKeyFrames();
+            animation.KeyFrames.Add(frame);
+            Storyboard.SetTarget(animation, Transform);
+            Storyboard.SetTargetProperty(animation, nameof(TranslateTransform.Y));
+
+            // The new animation takes over from the old one's current value before the old one lets go.
+            var next = new Storyboard();
+            next.Children.Add(animation);
+            next.Begin();
+            running?.Stop();
+            running = next;
+        }
     }
 
     // A minimized window reports a scale of 0, and an infinite width throws, so the inset waits for a real scale.
