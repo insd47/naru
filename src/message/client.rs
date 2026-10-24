@@ -136,13 +136,20 @@ pub fn key_event(keys: &RecordKeys, keysym: u32, down: bool, keycode: u16, elaps
 // Keyboard type 40, which the agent also logs as the viewer's
 const ANSI_KEYBOARD: u32 = 40;
 
-// An input event: its 16 bytes encrypted with the content key as one AES block, after the type and a padding byte
+const INPUT_FLAGS: u8 = 0x03;
+
+// An input event: its 16 bytes encrypted with the content key as one AES block, after the type and a flags byte.
+//
+// - Apple's client sends the flags as 0x03 nearly always, at times 0x01 or 0x05. Without 0x02 the agent ignores a key
+//   event's key code and types the keysym looked up in its layout, which comes out as separate jamo when it holds
+//   another source's layout after a switch.
 fn encrypted(keys: &RecordKeys, plain: [u8; 16]) -> [u8; 18] {
     let mut block = GenericArray::from(plain);
     Aes128::new(&keys.content_key.into()).encrypt_block(&mut block);
 
     let mut message = [0; 18];
     message[0] = 0x10;
+    message[1] = INPUT_FLAGS;
     message[2..].copy_from_slice(&block);
     message
 }
@@ -214,7 +221,7 @@ mod tests {
         };
 
         let message = key_event(&keys, 0xffe1, true, 0x38, 0x0007_5e8d);
-        assert_eq!(&message[..2], [0x10, 0]);
+        assert_eq!(&message[..2], [0x10, 3]);
 
         let mut block = GenericArray::clone_from_slice(&message[2..]);
         Aes128::new(&keys.content_key.into()).decrypt_block(&mut block);
@@ -232,7 +239,7 @@ mod tests {
         };
 
         let message = pointer(&keys, 0b10, 1919, 1079, 0x0102_0304);
-        assert_eq!(&message[..2], [0x10, 0]);
+        assert_eq!(&message[..2], [0x10, 3]);
 
         let mut block = GenericArray::clone_from_slice(&message[2..]);
         Aes128::new(&keys.content_key.into()).decrypt_block(&mut block);

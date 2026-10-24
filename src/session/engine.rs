@@ -43,8 +43,6 @@ pub struct Engine {
     held_resize: Option<Vec<u8>>,
     // The token of the latest request for the Mac's clipboard kinds. An offer with another token is stale.
     clipboard_token: u32,
-    // The input source last asked for
-    input_source: Option<String>,
 }
 
 // Whichever awaited source finished first
@@ -77,7 +75,6 @@ impl Engine {
             pixels: None,
             held_resize: None,
             clipboard_token: 0,
-            input_source: None,
         }
     }
 
@@ -289,16 +286,7 @@ impl Engine {
     async fn command(&mut self, command: Command, now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
         match command {
             Command::Key { keysym, down } => self.control.send(&client::key(keysym, down)).await,
-            // Clients ask before every key, so only a source other than the last one asked for goes out. A source the Mac
-            // changes to by itself, as when another window takes focus, is left alone as Apple's client leaves it: asking
-            // right after such a change can leave the agent typing with the other source's layout until a field takes
-            // focus again.
-            Command::InputSource(id) if self.input_source.as_ref() == Some(&id) => Ok(()),
-            Command::InputSource(id) => {
-                self.control.send(&client::input_source(&id)).await?;
-                self.input_source = Some(id);
-                Ok(())
-            }
+            Command::InputSource(id) => self.control.send(&client::input_source(&id)).await,
             Command::Input(event, at) => {
                 let pointer = matches!(event, input::Event::Pointer { .. });
                 let Some(message) = self.input.handle(event, at) else {
