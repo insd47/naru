@@ -12,6 +12,13 @@ publish = false
 git_tag_name = "v{{ version }}"
 git_release_name = "v{{ version }}"
 changelog_path = "CHANGELOG.md"
+# The APK is for devices without Google Play. Google Play re-signs its copies with the app signing key.
+git_release_body = """
+{{ changelog }}
+
+The APK installs on devices without Google Play. It is signed with a different key from the app on Google Play, so one
+does not update the other.
+"""
 
 [changelog]
 protect_breaking_commits = true

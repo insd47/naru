@@ -102,8 +102,9 @@ builds. The build number is the commit count, `git rev-list --count HEAD`.
 [release-plz](https://release-plz.dev) keeps a release PR open with the next version and its changelog, from the
 `feat`, `fix`, `perf`, and `revert` commits and breaking changes since the last tag. Merging it tags `v{version}`, and
 the `Release` workflow builds each app from that tag and uploads it to the store's test channel: TestFlight, a draft on
-Google Play's closed testing track, and the Partner Center submission draft. Submitting for review and releasing are
-done by hand in each store. A single app can be built again from a tag with its workflow's Run workflow button.
+Google Play's closed testing track, and the Partner Center submission draft. The same builds are attached to the
+GitHub release, with an APK for devices without Google Play. Submitting for review and releasing are done by hand in
+each store. An app that failed is built again with the run's Re-run failed jobs.
 
 ## Style
 
