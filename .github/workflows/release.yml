@@ -2,14 +2,25 @@ name: Release
 
 # release-plz keeps a release PR open with the next version and its changelog. Merging it tags the version, and the
 # apps built from that tag go to each store's test channel and to the GitHub release. Review and release stay with the
-# owner in each store. A failed app is built again with "Re-run failed jobs".
+# owner in each store. Run workflow builds the apps of an existing tag again, all or one.
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build, such as v0.1.0
+        required: true
+      app:
+        description: App to build
+        type: choice
+        options: [ All, iPad, Android, Windows ]
+        default: All
 
 jobs:
   release:
     name: Release
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     permissions:
@@ -41,6 +52,7 @@ jobs:
 
   release-pr:
     name: Release PR
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     permissions:
@@ -71,7 +83,8 @@ jobs:
   ipad:
     name: iPad
     needs: release
-    if: needs.release.outputs.released == 'true'
+    # Skipped as a need when run by hand
+    if: always() && (needs.release.outputs.released == 'true' || inputs.app == 'All' || inputs.app == 'iPad')
     runs-on: xcode-27
 
     permissions:
@@ -81,7 +94,7 @@ jobs:
       # The build number is the commit count.
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release.outputs.tag }}
+          ref: ${{ needs.release.outputs.tag || inputs.tag }}
           fetch-depth: 0
 
       # rustup installs the toolchain rust-toolchain.toml pins.
@@ -111,6 +124,12 @@ jobs:
           -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
 
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release.outputs.tag || inputs.tag }}
+          files: ${{ runner.temp }}/export/Naru.ipa
+
       # The same archive goes up with the export options' destination switched to upload.
       - name: Upload to TestFlight
         run: |
@@ -122,18 +141,13 @@ jobs:
             -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_KEY_ID }} \
             -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
 
-      - name: Attach to the release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.release.outputs.tag }}
-          files: ${{ runner.temp }}/export/Naru.ipa
-
   # The bundle goes to Google Play, and an APK signed with the same upload key goes to the release for devices
   # without Google Play.
   android:
     name: Android
     needs: release
-    if: needs.release.outputs.released == 'true'
+    # Skipped as a need when run by hand
+    if: always() && (needs.release.outputs.released == 'true' || inputs.app == 'All' || inputs.app == 'Android')
     runs-on: ubuntu-latest
 
     permissions:
@@ -143,7 +157,7 @@ jobs:
       # The version code is the commit count.
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release.outputs.tag }}
+          ref: ${{ needs.release.outputs.tag || inputs.tag }}
           fetch-depth: 0
 
       - name: Install Java
@@ -178,6 +192,14 @@ jobs:
           ORG_GRADLE_PROJECT_naruUploadKeyAlias: upload
         run: ./gradlew :app:bundleRelease :app:assembleRelease
 
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release.outputs.tag || inputs.tag }}
+          files: |
+            android/app/build/outputs/bundle/release/Naru-release.aab
+            android/app/build/outputs/apk/release/Naru-release.apk
+
       - name: Upload to Google Play
         uses: r0adkll/upload-google-play@v1
         with:
@@ -187,20 +209,13 @@ jobs:
           track: alpha
           status: draft
 
-      - name: Attach to the release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.release.outputs.tag }}
-          files: |
-            android/app/build/outputs/bundle/release/Naru-release.aab
-            android/app/build/outputs/apk/release/Naru-release.apk
-
   # Packaged for x64 and ARM64 and added to the Partner Center submission draft without committing it. The Store signs
   # the package.
   windows:
     name: Windows
     needs: release
-    if: needs.release.outputs.released == 'true'
+    # Skipped as a need when run by hand
+    if: always() && (needs.release.outputs.released == 'true' || inputs.app == 'All' || inputs.app == 'Windows')
     runs-on: windows-2025-vs2026
 
     permissions:
@@ -209,7 +224,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release.outputs.tag }}
+          ref: ${{ needs.release.outputs.tag || inputs.tag }}
 
       # rustup installs the toolchain rust-toolchain.toml pins.
       - name: Install Rust
@@ -233,6 +248,12 @@ jobs:
           dotnet build -c Release -p:Platform=x64 -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=StoreUpload
           -p:AppxBundle=Always "-p:AppxBundlePlatforms=x64|ARM64" -p:AppxSymbolPackageEnabled=false -nologo
 
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release.outputs.tag || inputs.tag }}
+          files: windows/Naru/AppPackages/*.msixupload
+
       - name: Install msstore
         uses: microsoft/microsoft-store-apppublisher@v1.4
 
@@ -243,9 +264,3 @@ jobs:
 
       - name: Upload to the submission draft
         run: msstore publish windows/Naru --inputDirectory windows/Naru/AppPackages --appId 9NB04VKG0DBL --noCommit
-
-      - name: Attach to the release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.release.outputs.tag }}
-          files: windows/Naru/AppPackages/*.msixupload

@@ -16,8 +16,7 @@ changelog_path = "CHANGELOG.md"
 git_release_body = """
 {{ changelog }}
 
-The APK installs on devices without Google Play. It is signed with a different key from the app on Google Play, so one
-does not update the other.
+The APK installs on devices without Google Play. It is signed with a different key from the app on Google Play, so one does not update the other.
 """
 
 [changelog]
