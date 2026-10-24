@@ -331,11 +331,11 @@ impl Session {
     /// Selects the Mac's input source by its ID, as Apple's "Sync Keyboard Language" does. [`input_source`] gives the
     /// ID for a language.
     ///
-    /// - The Mac applies it at the next key, as with Apple's client. Like it, ask for the current source while the
-    ///   switch key, sent to the Mac as Caps Lock, is held, so its release changes nothing, and for the new source
-    ///   after the release, so the first typed key switches.
-    /// - Every call is sent, so call it only when the language changes. A source the Mac changes to by itself, as when
-    ///   another window takes focus, is left alone until the client's language changes, as with Apple's client.
+    /// - Call it as soon as the client's language changes, from the system's notice when there is one, and before the
+    ///   first key typed in it. Every call is sent, so call it only when the language changes. A source the Mac changes
+    ///   to by itself, as when another window takes focus, is left alone until the client's language changes, as with
+    ///   Apple's client.
+    /// - The Mac switches at once, and keys sent meanwhile wait until it reports the new source, a few milliseconds.
     pub fn select_input_source(&self, id: String) {
         let _ = self.session.select_input_source(&id);
     }

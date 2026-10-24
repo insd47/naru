@@ -27,6 +27,7 @@ mod engine;
 mod input;
 mod media;
 mod negotiation;
+mod switching;
 
 const RETRY_DELAY: Duration = Duration::from_millis(800);
 
@@ -316,10 +317,9 @@ impl Session {
 
     /// Selects the Mac's input source by its ID, as Apple's "Sync Keyboard Language" does.
     ///
-    /// - The agent applies it at the next key and reports the new source a few milliseconds later. Like Apple's client,
-    ///   keys are not held for that report, which would only come after them.
-    /// - Every call is sent. Apple's client asks for its current source while its switch key, Caps Lock, is held, so the
-    ///   key's release changes nothing, and for the new source after the release, so the first typed key switches.
+    /// - Call it as soon as the client's language changes, from the system's notice when there is one, and before the
+    ///   first key typed in it. Every call is sent, so call it only when the language changes.
+    /// - The Mac switches at once, and keys sent meanwhile wait until it reports the new source, a few milliseconds.
     pub fn select_input_source(&self, id: &str) -> Result<()> {
         self.send(Command::InputSource(id.to_owned()))
     }

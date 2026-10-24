@@ -109,27 +109,24 @@ itself. What differs is what each system hands the app:
 | iPad | the character iPadOS typed in its input language | `character(physical Latin, language)` for languages with a Mac layout, otherwise iPadOS's character |
 
 With "Sync Keyboard Language" on, as in Apple's client, each app also selects the Mac's input source for its input
-language: `input_source(language, source)` gives the ID and `select_input_source` sends it. The Mac's agent applies a
-requested source only at the next key and reports it a few milliseconds later; keys are never held for that, as with
-Apple's client. An app asks only when its language changes, so a source the Mac changes to by itself, as when another
-window takes focus, is left alone, as Apple's client leaves it: asking right after such a change can leave the agent
-typing with the other source's layout.
+language: `input_source(language, source)` gives the ID and `select_input_source` sends it. An app asks only when its
+language changes: from the system's notice where there is one, as on the iPad, where it comes a moment after the switch
+key, and before the first key typed in a new language, which catches a late notice. A source the Mac changes to by
+itself, as when another window takes focus, is left alone, as Apple's client leaves it.
 
-The switch key differs per app. Apple's client sends Caps Lock to the Mac, which toggles its own source with it, so
-once the two sides disagree every press keeps them apart. The iPad app sends Caps Lock as a keysym alone, which the
-Mac does not switch on, and asks for the language Caps Lock switches to while it is held, so its release applies it
-before the user types; iPadOS reveals the new language only with the first typed key, which corrects a wrong guess. The Windows app sends
-its Hangul key as the key it is, mostly the right Alt, which does not switch the Mac, asking for the current source
-while it is held and for the new one after its release, as Apple's client does with Caps Lock.
+The agent applies a requested source only at the next key event, and when that event is a typed key it often reads the
+old source's layout and keeps it. Apple's client applies the source at the release of its switch key instead. The core
+does not depend on any switch key: it releases the agent's source, as Apple's client does when the option turns off,
+asks for the new one, and applies it at once with a key that types nothing, released after the switch, while keys typed
+meanwhile wait for the Mac to report the new source, a few milliseconds.
 
 Switching also commits a composition the Mac's input method still holds; without the option, Korean typed before
 switching to English stays composing until Space. Like Apple's client, keys go with their macOS key code while the
 Mac is on the source of the client's language, so the agent presses the physical key when a character is missing from
 the layout it holds. With the option on, the source last asked for counts as the Mac's, since the Mac switches at the
 next key; with it off, the source the Mac reported does. On another source keys go without one, and the Mac types the
-character the client chose. Before each switch on the switch key the apps release the
-agent's source, as when the option turns off, which makes the next state far rarer. After a switch the agent
-sometimes keeps the old source's layout, mostly after another window took focus, and the Mac then types the key's Latin
+character the client chose. After a switch the agent sometimes still keeps the old source's
+layout, mostly after another window took focus, and the Mac then types the key's Latin
 letter until a text field takes focus again, the same as with Apple's client; without the key code it typed separate
 jamo.
 
