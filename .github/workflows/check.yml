@@ -15,12 +15,13 @@ concurrency:
 
 jobs:
   core:
-    name: core
+    name: Core
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v6
 
+      # rustup installs the toolchain rust-toolchain.toml pins.
       - name: Install Rust
         run: rustup toolchain install
 
@@ -34,7 +35,7 @@ jobs:
           cargo test
 
   android:
-    name: android
+    name: Android
     runs-on: ubuntu-latest
 
     steps:
@@ -49,28 +50,29 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # rustup installs the toolchain rust-toolchain.toml pins.
       - name: Install Rust
         run: rustup target add aarch64-linux-android
-
-      - name: Install cargo-ndk
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-ndk
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
           key: android
 
-      # cargo-ndk takes the newest NDK on the image.
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
       - name: Build
         working-directory: android
-        run: |
-          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
-          ./gradlew --no-daemon :app:assembleDebug
+        run: ./gradlew :app:assembleDebug
 
   ipad:
-    name: ipad
+    name: iPad
     runs-on: xcode-27
 
     steps:
@@ -78,6 +80,7 @@ jobs:
         with:
           fetch-depth: 0
 
+      # rustup installs the toolchain rust-toolchain.toml pins.
       - name: Install Rust
         run: rustup target add aarch64-apple-ios
 
@@ -92,12 +95,13 @@ jobs:
           -destination generic/platform=iOS -derivedDataPath ios/build/dd CODE_SIGNING_ALLOWED=NO build
 
   windows:
-    name: windows
+    name: Windows
     runs-on: windows-2025-vs2026
 
     steps:
       - uses: actions/checkout@v6
 
+      # rustup installs the toolchain rust-toolchain.toml pins.
       - name: Install Rust
         run: rustup toolchain install
 

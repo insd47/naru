@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   notices:
-    name: notices
+    name: Notices
     runs-on: ubuntu-latest
 
     steps:

@@ -1,0 +1,31 @@
+[workspace]
+# Naru is not on crates.io, so the current version comes from the git tags.
+git_only = true
+release_always = false
+release_commits = "^(feat|fix|perf|revert)|^[a-z]+(\\(.+\\))?!:"
+pr_labels = ["release"]
+
+# The apps share the core's version, so every commit counts, ios/, android/, and windows/ included.
+[[package]]
+name = "naru"
+publish = false
+git_tag_name = "v{{ version }}"
+git_release_name = "v{{ version }}"
+changelog_path = "CHANGELOG.md"
+# The APK is for devices without Google Play. Google Play re-signs its copies with the app signing key.
+git_release_body = """
+{{ changelog }}
+
+The APK installs on devices without Google Play. It is signed with a different key from the app on Google Play, so one
+does not update the other.
+"""
+
+[changelog]
+protect_breaking_commits = true
+commit_parsers = [
+    { message = "^[a-z]+(\\(.+\\))?!:", group = "changed" },
+    { message = "^feat", group = "added" },
+    { message = "^fix", group = "fixed" },
+    { message = "^(perf|revert)", group = "changed" },
+    { message = ".*", skip = true },
+]

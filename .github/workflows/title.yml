@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   title:
-    name: title
+    name: Title
     runs-on: ubuntu-latest
 
     steps:
