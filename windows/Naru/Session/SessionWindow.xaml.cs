@@ -62,7 +62,7 @@ internal sealed partial class SessionWindow : Window
         InitializeComponent();
         Bar.Height = BarHeight;
 
-        chrome = new Chrome(this, Bar, [Toolbar, Actions], CaptionInset);
+        chrome = new Chrome(this, Bar, [Toolbar, Actions], CaptionInset, Screen);
         AppIcon.Apply(Icon);
         AppWindow.SetIcon("Assets/Naru.ico");
         Rename(session.Host.Title);

@@ -15,30 +15,32 @@ namespace Naru.Session;
 /// <remarks>
 /// <list type="bullet">
 /// <item>The whole bar drags the window, except the buttons, whose rectangles pass clicks through. The right edge keeps room for the caption buttons.</item>
-/// <item>In full screen it is an overlay of buttons that drags nothing. It slides down when the pointer rests at the top edge and hides when the pointer leaves.</item>
+/// <item>In full screen it is a bar of buttons that drags nothing. As in Screen Sharing on the Mac, it slides down when the pointer rests at the top edge for half a second, moving the screen down by its height rather than covering it, and hides when the pointer leaves. The screen moves rather than shrinks, since a new size would resize the Mac's display.</item>
 /// <item>Call only on the UI thread.</item>
 /// </list>
 /// </remarks>
 internal sealed class Chrome
 {
-    // How long the pointer rests at the top edge in full screen before the bar slides down
-    private static readonly TimeSpan RevealDelay = TimeSpan.FromMilliseconds(300);
+    // How long the pointer rests at the top edge in full screen before the bar slides down, as in Screen Sharing on the Mac
+    private static readonly TimeSpan RevealDelay = TimeSpan.FromMilliseconds(500);
 
     private readonly Window window;
     private readonly Grid bar;
     private readonly FrameworkElement[] buttons;
     private readonly FrameworkElement inset;
+    private readonly TranslateTransform shift = new();
     private readonly DispatcherQueueTimer revealing;
     private RectInt32[] passthrough = [];
     private bool applying;
     private bool closed;
 
-    public Chrome(Window window, Grid bar, FrameworkElement[] buttons, FrameworkElement inset)
+    public Chrome(Window window, Grid bar, FrameworkElement[] buttons, FrameworkElement inset, UIElement screen)
     {
         this.window = window;
         this.bar = bar;
         this.buttons = buttons;
         this.inset = inset;
+        screen.RenderTransform = shift;
 
         window.ExtendsContentIntoTitleBar = true;
         window.SetTitleBar(bar);
@@ -51,7 +53,11 @@ internal sealed class Chrome
         revealing.Tick += (_, _) => Reveal(true);
 
         bar.PointerExited += (_, _) => Reveal(false);
-        bar.SizeChanged += (_, _) => Inset();
+        bar.SizeChanged += (_, _) =>
+        {
+            Inset();
+            Shift();
+        };
         bar.LayoutUpdated += (_, _) => Passthrough();
         bar.Loaded += (_, _) => window.Content.XamlRoot.Changed += (_, _) => Inset();
     }
@@ -123,6 +129,13 @@ internal sealed class Chrome
         }
 
         bar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        Shift();
+    }
+
+    // In full screen the screen sits under the bar, so it moves down by the bar's height while the bar shows.
+    private void Shift()
+    {
+        shift.Y = FullScreen && bar.Visibility == Visibility.Visible ? bar.ActualHeight : 0;
     }
 
     // A minimized window reports a scale of 0, and an infinite width throws, so the inset waits for a real scale.
