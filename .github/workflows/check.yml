@@ -52,9 +52,9 @@ jobs:
 
       - name: Build
         working-directory: android
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        # cargo-ndk takes the newest NDK on the image.
         run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           rustup target add aarch64-linux-android
           ./gradlew --no-daemon :app:assembleDebug
 
