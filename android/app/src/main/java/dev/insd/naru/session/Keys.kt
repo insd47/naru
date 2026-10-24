@@ -116,8 +116,9 @@ class Keys(swapCommandOption: Boolean) {
         private const val SHORTCUT = KeyEvent.META_CTRL_ON or KeyEvent.META_ALT_ON or KeyEvent.META_META_ON
 
         // Super_L/R are confirmed as Command and Meta_L as Option. Meta_R mirrors Meta_L and is unverified.
-        private const val COMMAND_LEFT = 0xffeb
-        private const val COMMAND_RIGHT = 0xffec
+        // Command goes as Alt and Option as Meta, as Apple's client sends them.
+        private const val COMMAND_LEFT = 0xffe9
+        private const val COMMAND_RIGHT = 0xffea
         private const val OPTION_LEFT = 0xffe7
         private const val OPTION_RIGHT = 0xffe8
 

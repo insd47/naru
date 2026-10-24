@@ -185,7 +185,15 @@ class SessionActivity : ComponentActivity() {
     // Selecting before a key covers a change that was missed. A source the Mac changed to by itself is left alone, as
     // Apple's client leaves it.
     private fun syncSource(current: Connection, tabletLanguage: String) {
-        if (!naru.preferences.syncKeyboardLanguage || tabletLanguage.isEmpty()) {
+        // Turned off, the Mac keeps its own source again, as with Apple's client; the agent would otherwise undo a switch
+        // made on the Mac at every key.
+        if (!naru.preferences.syncKeyboardLanguage) {
+            if (asked != null) current.releaseInputSource()
+            asked = null
+            return
+        }
+
+        if (tabletLanguage.isEmpty()) {
             return
         }
 

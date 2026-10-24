@@ -125,11 +125,11 @@ struct Keys {
     // The Globe key arrives as this modifier bit with no HID code (the same bit as Fn on macOS).
     private static let globe = 1 << 23
 
-    // The Mac maps Super to Command and Meta to Option.
+    // Command goes as Alt and Option as Meta, as Apple's client sends them.
     private static let special: [Int: UInt32] = {
         var keys: [Int: UInt32] = [
-            224: 0xffe3, 225: 0xffe1, 226: 0xffe7, 227: 0xffeb,
-            228: 0xffe4, 229: 0xffe2, 230: 0xffe8, 231: 0xffec,
+            224: 0xffe3, 225: 0xffe1, 226: 0xffe7, 227: 0xffe9,
+            228: 0xffe4, 229: 0xffe2, 230: 0xffe8, 231: 0xffea,
             40: 0xff0d, 88: 0xff0d, 41: 0xff1b, 42: 0xff08, 43: 0xff09, 44: 0x20,
             73: 0xff63, 74: 0xff50, 75: 0xff55, 76: 0xffff, 77: 0xff57, 78: 0xff56,
             79: 0xff53, 80: 0xff51, 81: 0xff54, 82: 0xff52,

@@ -39,6 +39,8 @@ internal sealed class Connection : SessionListener
 
     public void SelectInputSource(string id) => session.SelectInputSource(id);
 
+    public void ReleaseInputSource() => session.ReleaseInputSource();
+
     public void Pointer(byte buttons, ushort x, ushort y) => session.Pointer(buttons, x, y);
 
     public void Scroll(Phase phase, float dx, float dy) => session.Scroll(phase, dx, dy);

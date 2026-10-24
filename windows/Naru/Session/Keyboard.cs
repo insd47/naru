@@ -230,6 +230,14 @@ internal sealed class Keyboard : IDisposable
     // is left alone until the language changes, as Apple's client leaves it.
     private void Sync(bool again = false)
     {
+        // Turned off, the Mac keeps its own source again, as with Apple's client; the agent would otherwise undo a switch
+        // made on the Mac at every key.
+        if (!preferences.SyncKeyboardLanguage && asked is not null)
+        {
+            connection.ReleaseInputSource();
+            asked = null;
+        }
+
         if (preferences.SyncKeyboardLanguage && language.Length > 0 && Core.NaruMethods.InputSource(language, connection.Source) is { } source && (again || source != asked))
         {
             connection.SelectInputSource(source);

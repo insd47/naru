@@ -44,6 +44,8 @@ final class Connection: SessionListener, @unchecked Sendable {
 
     func selectInputSource(_ id: String) { session.selectInputSource(id: id) }
 
+    func releaseInputSource() { session.releaseInputSource() }
+
     func offerClipboard(_ kinds: [String]) { session.offerClipboard(kinds: kinds) }
 
     /// `true` if sent, or `false` without sending when it exceeds the size limit.

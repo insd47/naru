@@ -31,7 +31,12 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     }
 
     /// Whether the Mac's input source follows the iPad's input language ("Sync Keyboard Language")
-    var syncsLanguage = false
+    var syncsLanguage = false {
+        didSet {
+            guard syncsLanguage != oldValue else { return }
+            syncChanged()
+        }
+    }
 
     private let cursorLayer = CALayer()
     private var keys = Keys()
@@ -306,6 +311,18 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
         languages = (previous, languages.current)
         selectSource(for: previous)
+    }
+
+    // Like Apple's client, turning Sync Keyboard Language on asks for the current language's source at once, and turning
+    // it off lets the Mac keep its own source, which the agent would otherwise undo at every key.
+    private func syncChanged() {
+        asked = nil
+
+        if !syncsLanguage {
+            connection?.releaseInputSource()
+        } else if let language = languages.current ?? textInputMode?.primaryLanguage {
+            selectSource(for: language)
+        }
     }
 
     // A source already asked for is not asked again, so a source the Mac changed to by itself, as when another window

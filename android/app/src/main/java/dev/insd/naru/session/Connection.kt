@@ -58,6 +58,8 @@ class Connection(config: Config, private val listener: Listener) {
 
     fun selectInputSource(id: String) = session.selectInputSource(id)
 
+    fun releaseInputSource() = session.releaseInputSource()
+
     /** `true` if sent; `false` without sending if it exceeds the size limit */
     fun sendClipboard(items: List<ClipboardItem>): Boolean = session.sendClipboard(items)
 

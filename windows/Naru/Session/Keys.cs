@@ -23,8 +23,9 @@ namespace Naru.Session;
 /// </remarks>
 internal sealed unsafe class Keys(bool swapCommandOption)
 {
-    private const uint CommandLeft = 0xffeb;
-    private const uint CommandRight = 0xffec;
+    // Command goes as Alt and Option as Meta, as Apple's client sends them.
+    private const uint CommandLeft = 0xffe9;
+    private const uint CommandRight = 0xffea;
     private const uint OptionLeft = 0xffe7;
     private const uint OptionRight = 0xffe8;
 
