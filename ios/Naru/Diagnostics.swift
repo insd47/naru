@@ -12,12 +12,20 @@ enum Diagnostics {
     static let input = Logger(subsystem: subsystem, category: "Input")
 
     /// Records key window changes and the scene's activation, since keys reach only the key window of an active scene, and
-    /// hardware keyboards coming and going.
+    /// hardware keyboards and pointers coming and going.
     @MainActor
     static func start() {
         for (name, label) in [(Notification.Name.GCKeyboardDidConnect, "connected"), (.GCKeyboardDidDisconnect, "disconnected")] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
                 input.log("Hardware keyboard \(label, privacy: .public)")
+            }
+        }
+
+        for (name, label) in [(Notification.Name.GCMouseDidConnect, "connected"), (.GCMouseDidDisconnect, "disconnected")] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
+                let mouse = note.object as? GCMouse
+                let mice = GCMouse.mice().map { "\($0.vendorName ?? "?") (\($0.productCategory))" }
+                input.log("Mouse or trackpad \(label, privacy: .public): \(mouse?.vendorName ?? "?", privacy: .public); now \(mice.joined(separator: ", "), privacy: .public)")
             }
         }
 

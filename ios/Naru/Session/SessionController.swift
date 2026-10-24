@@ -1,3 +1,4 @@
+import GameController
 import UIKit
 
 /// Holds the session with one Mac, observed by both the list screen and the session screen.
@@ -156,6 +157,7 @@ final class SessionController {
             "Naru \(info?["CFBundleShortVersionString"] ?? "?") (\(info?["CFBundleVersion"] ?? "?")), iPadOS \(UIDevice.current.systemVersion), \(model)",
             "HEVC 4:4:4 hardware decoding: \(Video.decodesHevc444 ? "supported" : "unsupported")",
             "Input modes: \(UITextInputMode.activeInputModes.compactMap(\.primaryLanguage).joined(separator: ", ")), system language \(Locale.preferredLanguages.first ?? "none")",
+            "Pointers: \(GCMouse.mice().map { "\($0.vendorName ?? "?") (\($0.productCategory))" }.joined(separator: ", "))",
         ]
 
         guard let file = try? Diagnostics.export(header: header), var top = UIWindow.key?.rootViewController else {

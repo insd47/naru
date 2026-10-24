@@ -1,21 +1,27 @@
+import GameController
 import SwiftUI
 
 /// The session screen. Shows the Mac's screen under a title bar, with a loading state until the first frame arrives.
 ///
 /// - The title bar follows Screen Sharing's toolbar: the way back to the connections, the Mac's name, and the Mac's
 ///   window shortcuts.
-/// - The stage is built again when the window starts or stops filling its screen, since a navigation bar hidden in full
-///   screen kept the window draggable only within the full screen's top strip after going back to a window.
+/// - Filling the screen, the title bar hides until the pointer rests at the top edge. Without a mouse or trackpad nothing
+///   could bring it down, so it stays as in a window.
+/// - The stage is built again when the bar starts or stops hiding, since a navigation bar hidden in full screen kept the
+///   window draggable only within the full screen's top strip after going back to a window.
 struct SessionView: View {
     @Environment(SessionController.self) private var session
     @State private var fillsScreen = false
+    @State private var pointing = GCMouse.pointing
 
     var body: some View {
+        let hidesBar = fillsScreen && pointing
+
         ScreenStage(
             session: session, connection: session.connection, layout: session.layout, cursor: session.cursor,
-            syncsLanguage: session.syncsKeyboardLanguage, fillsScreen: fillsScreen
+            syncsLanguage: session.syncsKeyboardLanguage, hidesBar: hidesBar
         )
-        .id(fillsScreen)
+        .id(hidesBar)
         .ignoresSafeArea()
         .overlay {
             if !session.shown {
@@ -31,26 +37,30 @@ struct SessionView: View {
         .background {
             Backdrop { fillsScreen = $0 }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .GCMouseDidConnect)) { _ in pointing = GCMouse.pointing }
+        .onReceive(NotificationCenter.default.publisher(for: .GCMouseDidDisconnect)) { note in
+            pointing = GCMouse.pointing(without: note.object as? GCMouse)
+        }
     }
 }
 
-// The stage, in a window inside a navigation controller whose bar shows its title, and filling the screen on its own
-// with a bar it brings down. The coordinator is the stage, so updates reach it either way.
+// The stage, inside a navigation controller whose bar shows its title, or on its own with a bar it brings down. The
+// coordinator is the stage, so updates reach it either way.
 private struct ScreenStage: UIViewControllerRepresentable {
     let session: SessionController
     let connection: Connection?
     let layout: SessionController.Layout?
     let cursor: SessionController.Cursor?
     let syncsLanguage: Bool
-    let fillsScreen: Bool
+    let hidesBar: Bool
 
     func makeCoordinator() -> StageController {
-        StageController(session: session, fillsScreen: fillsScreen)
+        StageController(session: session, hidesBar: hidesBar)
     }
 
     func makeUIViewController(context: Context) -> UIViewController {
         let stage = context.coordinator
-        return fillsScreen ? stage : UINavigationController(rootViewController: stage)
+        return hidesBar ? stage : UINavigationController(rootViewController: stage)
     }
 
     func updateUIViewController(_ controller: UIViewController, context: Context) {
@@ -68,8 +78,8 @@ private struct ScreenStage: UIViewControllerRepresentable {
 
 /// Shows the Mac's screen at its own full size under the title bar.
 ///
-/// - In a window the bar is its navigation controller's. Filling the screen, the stage lays out a navigation bar of its
-///   own at the top of the safe area, attached to the top so its background goes under the status bar. As in Screen
+/// - A bar that stays is its navigation controller's. A bar that hides, filling the screen, is one the stage lays out on
+///   its own at the top of the safe area, attached to the top so its background goes under the status bar. As in Screen
 ///   Sharing on the Mac, it comes down with the status bar when the pointer rests at the top edge, and goes once the
 ///   pointer leaves it downward. iPadOS has no toolbar that does this; macOS's
 ///   `windowToolbarFullScreenVisibility(.onHover)` is not available.
@@ -77,13 +87,13 @@ private struct ScreenStage: UIViewControllerRepresentable {
 ///   new size would resize the Mac's display.
 final class StageController: UIViewController, UINavigationBarDelegate, UIGestureRecognizerDelegate {
     let screen = ScreenView()
-    private let fillsScreen: Bool
+    private let hidesBar: Bool
     private var bar: UINavigationBar?
     private var revealed = false
     private var reveal: Task<Void, Never>?
 
-    init(session: SessionController, fillsScreen: Bool) {
-        self.fillsScreen = fillsScreen
+    init(session: SessionController, hidesBar: Bool) {
+        self.hidesBar = hidesBar
         super.init(nibName: nil, bundle: nil)
 
         navigationItem.largeTitleDisplayMode = .never
@@ -101,7 +111,7 @@ final class StageController: UIViewController, UINavigationBarDelegate, UIGestur
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var prefersStatusBarHidden: Bool { fillsScreen && !revealed }
+    override var prefersStatusBarHidden: Bool { hidesBar && !revealed }
     override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .slide }
 
     override func viewDidLoad() {
@@ -114,7 +124,7 @@ final class StageController: UIViewController, UINavigationBarDelegate, UIGestur
         view.clipsToBounds = true
         view.addSubview(screen)
 
-        guard fillsScreen else { return }
+        guard hidesBar else { return }
 
         let bar = UINavigationBar()
         bar.delegate = self
@@ -130,8 +140,8 @@ final class StageController: UIViewController, UINavigationBarDelegate, UIGestur
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
-        // Bounds and centers rather than frames, which a transform would distort. In a window the screen starts below
-        // the navigation bar.
+        // Bounds and centers rather than frames, which a transform would distort. Under a bar that stays the screen starts
+        // below it.
         let bounds = view.bounds
         let top = bar == nil ? view.safeAreaInsets.top : 0
         screen.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height - top)
@@ -149,8 +159,9 @@ final class StageController: UIViewController, UINavigationBarDelegate, UIGestur
         .topAttached
     }
 
+    // Alongside the screen's own hover, which moves the Mac's cursor
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        true
+        other is UIHoverGestureRecognizer
     }
 
     // As in Screen Sharing on the Mac, the bar comes down after the pointer rests at the top edge for half a second,
@@ -225,6 +236,16 @@ private struct Backdrop: UIViewRepresentable {
             }
         }
     }
+}
+
+extension GCMouse {
+    /// Whether a mouse or trackpad is connected, leaving out one going, which may still be listed, and the pointer a Mac
+    /// connected for development adds ("CoreDevice touchscreenGesture"), which no user has.
+    static func pointing(without going: GCMouse? = nil) -> Bool {
+        mice().contains { $0 !== going && $0.vendorName != "CoreDevice touchscreenGesture" }
+    }
+
+    static var pointing: Bool { pointing() }
 }
 
 extension UIWindow {
