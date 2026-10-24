@@ -4,6 +4,9 @@ plugins {
     alias(libs.plugins.aboutlibraries)
 }
 
+// Builds are named after the app, as the GitHub release carries them.
+base { archivesName = "Naru" }
+
 android {
     namespace = "dev.insd.naru"
     // Material 3 Expressive (material3 1.5) requires compiling against API 37 or later.

@@ -77,9 +77,6 @@ jobs:
     permissions:
       contents: write
 
-    env:
-      TAG: ${{ needs.release.outputs.tag }}
-
     steps:
       # The build number is the commit count.
       - uses: actions/checkout@v6
@@ -87,9 +84,11 @@ jobs:
           ref: ${{ needs.release.outputs.tag }}
           fetch-depth: 0
 
+      # rustup installs the toolchain rust-toolchain.toml pins.
       - name: Install Rust
         run: rustup target add aarch64-apple-ios
 
+      # xcodebuild takes the key only as a file.
       - name: Write the API key
         env:
           KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
@@ -104,45 +103,30 @@ jobs:
           -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           archive
 
-      # The same options export the IPA kept on the release, and with the destination switched, upload it.
-      - name: Write the export options
-        run: |
-          for destination in export upload; do
-            cat > "$RUNNER_TEMP/$destination.plist" <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key><string>app-store-connect</string>
-            <key>destination</key><string>$destination</string>
-            <key>teamID</key><string>9C733G7JPX</string>
-          </dict>
-          </plist>
-          PLIST
-          done
-
-      - name: Export the IPA
+      - name: Export
         run: >
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Naru.xcarchive"
-          -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/export" -allowProvisioningUpdates
+          -exportOptionsPlist ios/ExportOptions.plist -exportPath "$RUNNER_TEMP/export" -allowProvisioningUpdates
           -authenticationKeyPath "$RUNNER_TEMP/key.p8"
           -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
 
+      # The same archive goes up with the export options' destination switched to upload.
       - name: Upload to TestFlight
-        run: >
-          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Naru.xcarchive"
-          -exportOptionsPlist "$RUNNER_TEMP/upload.plist" -exportPath "$RUNNER_TEMP/upload" -allowProvisioningUpdates
-          -authenticationKeyPath "$RUNNER_TEMP/key.p8"
-          -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          cp ios/ExportOptions.plist "$RUNNER_TEMP/upload.plist"
+          plutil -replace destination -string upload "$RUNNER_TEMP/upload.plist"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Naru.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/upload.plist" -exportPath "$RUNNER_TEMP/upload" -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/key.p8" \
+            -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
 
       - name: Attach to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mv "$RUNNER_TEMP/export/Naru.ipa" "$RUNNER_TEMP/naru-$TAG.ipa"
-          gh release upload "$TAG" "$RUNNER_TEMP/naru-$TAG.ipa"
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          files: ${{ runner.temp }}/export/Naru.ipa
 
   # The bundle goes to Google Play, and an APK signed with the same upload key goes to the release for devices
   # without Google Play.
@@ -154,9 +138,6 @@ jobs:
 
     permissions:
       contents: write
-
-    env:
-      TAG: ${{ needs.release.outputs.tag }}
 
     steps:
       # The version code is the commit count.
@@ -171,6 +152,10 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # rustup installs the toolchain rust-toolchain.toml pins.
       - name: Install Rust
         run: rustup target add aarch64-linux-android
 
@@ -184,7 +169,6 @@ jobs:
           KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
         run: printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/upload.jks"
 
-      # cargo-ndk takes the newest NDK on the image.
       - name: Build
         working-directory: android
         env:
@@ -192,26 +176,24 @@ jobs:
           ORG_GRADLE_PROJECT_naruUploadStorePassword: ${{ secrets.ANDROID_UPLOAD_PASSWORD }}
           ORG_GRADLE_PROJECT_naruUploadKeyPassword: ${{ secrets.ANDROID_UPLOAD_PASSWORD }}
           ORG_GRADLE_PROJECT_naruUploadKeyAlias: upload
-        run: |
-          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
-          ./gradlew --no-daemon :app:bundleRelease :app:assembleRelease
+        run: ./gradlew :app:bundleRelease :app:assembleRelease
 
       - name: Upload to Google Play
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT }}
           packageName: dev.insd.naru
-          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          releaseFiles: android/app/build/outputs/bundle/release/Naru-release.aab
           track: alpha
           status: draft
 
       - name: Attach to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cp android/app/build/outputs/bundle/release/app-release.aab "$RUNNER_TEMP/naru-$TAG.aab"
-          cp android/app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/naru-$TAG.apk"
-          gh release upload "$TAG" "$RUNNER_TEMP/naru-$TAG.aab" "$RUNNER_TEMP/naru-$TAG.apk"
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          files: |
+            android/app/build/outputs/bundle/release/Naru-release.aab
+            android/app/build/outputs/apk/release/Naru-release.apk
 
   # Packaged for x64 and ARM64 and added to the Partner Center submission draft without committing it. The Store signs
   # the package.
@@ -224,14 +206,12 @@ jobs:
     permissions:
       contents: write
 
-    env:
-      TAG: ${{ needs.release.outputs.tag }}
-
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.release.outputs.tag }}
 
+      # rustup installs the toolchain rust-toolchain.toml pins.
       - name: Install Rust
         run: rustup target add aarch64-pc-windows-msvc
 
@@ -251,8 +231,7 @@ jobs:
         working-directory: windows/Naru
         run: >
           dotnet build -c Release -p:Platform=x64 -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=StoreUpload
-          -p:AppxBundle=Always "-p:AppxBundlePlatforms=x64|ARM64" -p:AppxSymbolPackageEnabled=false
-          "-p:AppxPackageDir=${{ runner.temp }}\packages\" -nologo
+          -p:AppxBundle=Always "-p:AppxBundlePlatforms=x64|ARM64" -p:AppxSymbolPackageEnabled=false -nologo
 
       - name: Install msstore
         uses: microsoft/microsoft-store-apppublisher@v1.4
@@ -263,12 +242,10 @@ jobs:
           --clientId ${{ secrets.PARTNER_CENTER_CLIENT_ID }} --clientSecret ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
 
       - name: Upload to the submission draft
-        run: msstore publish windows/Naru --inputDirectory "${{ runner.temp }}\packages" --appId 9NB04VKG0DBL --noCommit
+        run: msstore publish windows/Naru --inputDirectory windows/Naru/AppPackages --appId 9NB04VKG0DBL --noCommit
 
       - name: Attach to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $package = Get-ChildItem "${{ runner.temp }}\packages\*.msixupload" | Select-Object -First 1
-          Copy-Item $package.FullName "${{ runner.temp }}\naru-$env:TAG.msixupload"
-          gh release upload $env:TAG "${{ runner.temp }}\naru-$env:TAG.msixupload"
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          files: windows/Naru/AppPackages/*.msixupload
