@@ -1,6 +1,7 @@
 name: Bug report
 description: Something in Naru does not work as it should.
 labels: [bug]
+
 body:
   - type: dropdown
     id: platform
@@ -9,6 +10,7 @@ body:
       options: [iPad, Android, Windows]
     validations:
       required: true
+
   - type: input
     id: versions
     attributes:
@@ -17,6 +19,7 @@ body:
       placeholder: Naru 0.1 (12), iPadOS 26.7, macOS 27.0
     validations:
       required: true
+
   - type: textarea
     id: what
     attributes:
@@ -24,6 +27,7 @@ body:
       description: What you did, what you expected, and what happened instead.
     validations:
       required: true
+
   - type: textarea
     id: diagnostics
     attributes:
