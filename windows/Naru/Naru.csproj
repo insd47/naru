@@ -8,6 +8,8 @@
     <ApplicationIcon>Assets\Naru.ico</ApplicationIcon>
     <!-- The Rust core is built for these two only. -->
     <Platforms>x64;ARM64</Platforms>
+    <!-- Restored together, so one build can bundle both. -->
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
     <!-- The platform picks the architecture, and the core is built to match. Without one, the build machine's is used. -->
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'x64'">win-x64</RuntimeIdentifier>
@@ -69,6 +71,25 @@
     <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
     <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
   </PropertyGroup>
+
+  <!-- The package version is the core's, X.Y.Z.0 as the Store requires. A copy of the manifest under obj carries it, so
+       Package.appxmanifest keeps no version of its own. -->
+  <PropertyGroup>
+    <CoreVersion>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\..\..\Cargo.toml')), '(?m)^version = "([^"]+)"').Groups[1].Value)</CoreVersion>
+  </PropertyGroup>
+
+  <Target Name="StampVersion" BeforeTargets="_ValidatePresenceOfAppxManifestItems">
+    <PropertyGroup>
+      <StampedManifest>$(MSBuildProjectDirectory)\$(IntermediateOutputPath)Package.appxmanifest</StampedManifest>
+    </PropertyGroup>
+    <Copy SourceFiles="@(AppxManifest)" DestinationFiles="$(StampedManifest)" />
+    <XmlPoke XmlInputPath="$(StampedManifest)" Query="/m:Package/m:Identity/@Version" Value="$(CoreVersion).0"
+             Namespaces="&lt;Namespace Prefix='m' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10' /&gt;" />
+    <ItemGroup>
+      <AppxManifest Remove="@(AppxManifest)" />
+      <AppxManifest Include="$(StampedManifest)" />
+    </ItemGroup>
+  </Target>
 
   <!-- The Rust core and its C# bindings. Both are build output and are never committed. -->
   <PropertyGroup>
