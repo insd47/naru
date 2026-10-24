@@ -3,8 +3,8 @@
   <h1>Naru</h1>
   <p>Use your Mac's built-in Screen Sharing from an iPad, an Android tablet, or a Windows PC.</p>
   <p>
-    <a href="https://apps.apple.com/app/id6821974353"><img src="https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg" width="144" height="48" align="middle" alt="Download on the App Store"></a>&nbsp;&nbsp;
-    <a href="https://apps.microsoft.com/detail/9NB04VKG0DBL"><img src="https://get.microsoft.com/images/en-us%20dark.svg" width="184" height="50" align="middle" alt="Get it from Microsoft"></a>&nbsp;&nbsp;
+    <a href="https://apps.apple.com/app/id6821974353"><img src="docs/images/app-store.svg" width="144" height="48" align="middle" alt="Download on the App Store"></a>&nbsp;&nbsp;
+    <a href="https://apps.microsoft.com/detail/9NB04VKG0DBL"><img src="docs/images/microsoft-store.svg" width="184" height="50" align="middle" alt="Get it from Microsoft"></a>&nbsp;&nbsp;
     <a href="https://play.google.com/store/apps/details?id=dev.insd.naru"><img src="docs/images/google-play.png" width="161" height="48" align="middle" alt="Get it on Google Play"></a>
   </p>
   <img src="docs/images/ipad.jpg" alt="Naru on an iPad, showing a Mac's lock screen">
