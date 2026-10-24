@@ -141,8 +141,8 @@ final class SessionController {
             return
         }
 
-        shortcut.keysyms.forEach { connection.key($0, down: true) }
-        shortcut.keysyms.reversed().forEach { connection.key($0, down: false) }
+        shortcut.keysyms.forEach { connection.key($0, usage: nil, down: true) }
+        shortcut.keysyms.reversed().forEach { connection.key($0, usage: nil, down: false) }
     }
 
     /// Writes the diagnostics log to a file and offers it in the share sheet.

@@ -54,9 +54,9 @@ struct Keys {
     }
 
     /// Releases every key still held, so no key stays down on the Mac after leaving the screen.
-    mutating func releaseAll() -> [UInt32] {
+    mutating func releaseAll() -> [(key: UIKeyboardHIDUsage, keysym: UInt32)] {
         defer { pressed.removeAll() }
-        return Array(pressed.values)
+        return pressed.map { ($0.key, $0.value) }
     }
 
     private static func keysym(_ key: UIKey, language: String?, switched: Bool, source: InputSource?) -> UInt32? {

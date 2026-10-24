@@ -127,7 +127,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         if window != nil {
             becomeFirstResponder()
         } else {
-            keys.releaseAll().forEach { connection?.key($0, down: false) }
+            keys.releaseAll().forEach { connection?.key($0.keysym, usage: $0.key.rawValue, down: false) }
             navigation?.timer.invalidate()
             navigation = nil
             momentum.stop()
@@ -203,7 +203,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
                 repeatTiming.delay = Date.now.timeIntervalSince(held.pressed)
             }
 
-            connection?.key(held.keysym, down: true)
+            connection?.key(held.keysym, usage: held.code.rawValue, down: true)
         }
 
         held.repeated = .now
@@ -217,10 +217,10 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         let timer = Timer.scheduledTimer(withTimeInterval: repeatTiming.delay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.navigation?.code == code else { return }
-                self.connection?.key(keysym, down: true)
+                self.connection?.key(keysym, usage: code.rawValue, down: true)
 
                 let timer = Timer.scheduledTimer(withTimeInterval: self.repeatTiming.interval, repeats: true) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.connection?.key(keysym, down: true) }
+                    MainActor.assumeIsolated { self?.connection?.key(keysym, usage: code.rawValue, down: true) }
                 }
                 self.navigation = (code, timer)
             }
@@ -274,7 +274,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
             }
         }
 
-        connection?.key(keysym, down: true)
+        connection?.key(keysym, usage: key.keyCode.rawValue, down: true)
 
         if typing.contains(key.keyCode) {
             held = (keysym, key.keyCode, .now, nil)
@@ -292,7 +292,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
             return
         }
 
-        connection.key(Self.capsLock, down: down)
+        connection.key(Self.capsLock, usage: key.keyCode.rawValue, down: down)
 
         if down, syncsLanguage, let previous = languages.previous {
             selectSource(for: previous)
@@ -343,7 +343,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
             }
 
             if let keysym = keys.release(key) {
-                connection?.key(keysym, down: false)
+                connection?.key(keysym, usage: key.keyCode.rawValue, down: false)
             }
         }
 
