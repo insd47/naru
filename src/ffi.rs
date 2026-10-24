@@ -5,8 +5,8 @@
 //! - Core types without tuples or private fields pass through as is; the rest are reshaped here for the native side.
 use crate::touchpad::TouchPhase;
 use crate::{
-    AccessUnit, AudioFrame, DecoderConfig, Error, InputSource, MediaStats, Mode, MomentumPhase, Phase, Stage,
-    VideoCodec,
+    AccessUnit, AudioFrame, ClipboardItem, DecoderConfig, Error, InputSource, MediaStats, Mode, MomentumPhase, Phase,
+    Stage, VideoCodec,
 };
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -127,8 +127,14 @@ pub enum Event {
     CursorHidden,
     /// The Mac's current input source. Pass the latest one to [`character`].
     Source { source: InputSource },
-    /// The Mac's clipboard text
-    Clipboard { text: String },
+    /// The Mac's clipboard changed to content of these kinds (UTIs). Fetch the data with `fetch_clipboard` when it is
+    /// needed, as when it is pasted.
+    ClipboardOffer { kinds: Vec<String> },
+    /// The Mac's clipboard data, one item per kind, answering `fetch_clipboard`
+    Clipboard { items: Vec<ClipboardItem> },
+    /// The Mac wants the data of the clipboard offered with `offer_clipboard`, as when it is pasted there. Answer with
+    /// `send_clipboard`.
+    ClipboardRequested,
     /// No frame has come out for too long. Recreate the decoder; the session requests the keyframe.
     ResetDecoder,
     /// Media reception stats. Arrives every 0.5 seconds after media negotiation.
@@ -166,7 +172,9 @@ impl From<crate::Event> for Event {
                 rgba: image.rgba.clone(),
             },
             crate::Event::InputSource(source) => Self::Source { source },
-            crate::Event::Clipboard(text) => Self::Clipboard { text },
+            crate::Event::ClipboardOffer(kinds) => Self::ClipboardOffer { kinds },
+            crate::Event::Clipboard(items) => Self::Clipboard { items },
+            crate::Event::ClipboardRequested => Self::ClipboardRequested,
             crate::Event::CursorHidden => Self::CursorHidden,
             crate::Event::ResetDecoder => Self::ResetDecoder,
             crate::Event::Present => Self::Present,
@@ -323,10 +331,21 @@ impl Session {
         let _ = self.session.select_input_source(&id);
     }
 
-    /// Puts text on the Mac's clipboard. Past the same size limit used when receiving, nothing is sent and `false` is
-    /// returned.
-    pub fn clipboard(&self, text: String) -> bool {
-        self.session.clipboard(&text).is_ok()
+    /// Puts content of these kinds (UTIs) on the Mac's clipboard without its data, as Apple's client does. The Mac
+    /// sends `ClipboardRequested` when it needs the data.
+    pub fn offer_clipboard(&self, kinds: Vec<String>) {
+        let _ = self.session.offer_clipboard(&kinds);
+    }
+
+    /// Sends clipboard data, one item per kind, either answering `ClipboardRequested` or on its own. Past the same size
+    /// limit used when receiving, nothing is sent and `false` is returned.
+    pub fn send_clipboard(&self, items: Vec<ClipboardItem>) -> bool {
+        self.session.send_clipboard(&items).is_ok()
+    }
+
+    /// Requests the data of the Mac's clipboard, which arrives as `Clipboard`.
+    pub fn fetch_clipboard(&self) {
+        let _ = self.session.fetch_clipboard();
     }
 
     /// Requests a keyframe, and again until one arrives. Call it once after recreating the decoder or dropping frames

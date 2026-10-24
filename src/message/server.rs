@@ -10,6 +10,7 @@ const MAX_CUT_TEXT_BYTES: usize = 1 << 20;
 const MAX_PENDING_BYTES: usize = MAX_CLIPBOARD_BYTES + (1 << 20);
 
 const STATUS_CLIPBOARD_CHANGED: u16 = 2;
+const STATUS_CLIPBOARD_REQUESTED: u16 = 3;
 const STATUS_CURSOR_HIDDEN: u16 = 11;
 
 /// A message the server sends on the control channel.
@@ -18,14 +19,16 @@ pub enum ServerMessage {
     /// Framebuffer update. In High Performance mode it carries rectangles such as cursor, layout, and media answers
     /// instead of screen pixels.
     FramebufferUpdate(Vec<Rect>),
-    /// Notice that the Mac's clipboard changed (status code 2). Request the content with `client::clipboard_request`.
+    /// Notice that the Mac's clipboard changed (status code 2). Request its kinds with `client::clipboard_offer_request`.
     ClipboardChanged,
+    /// The Mac wants the data of the clipboard the client offered, as when it is pasted there (status code 3).
+    ClipboardRequested,
     /// The Mac hid its cursor, as it does while typing or over playing video (status code 11). The next cursor shape
     /// shows it again.
     CursorHidden,
     /// Any other status notice, such as the periodic heartbeat (12)
     Status(u16),
-    /// A whole clipboard transfer message. Extract the text with `clipboard::text`.
+    /// A whole clipboard transfer message. Read it with `clipboard::parse`.
     Clipboard(Vec<u8>),
     /// A message that is not handled, such as standard RFB Bell and ServerCutText
     Ignored(u8),
@@ -103,6 +106,7 @@ impl ServerMessage {
 
                 match u16::from_be_bytes([high, low]) {
                     STATUS_CLIPBOARD_CHANGED => Self::ClipboardChanged,
+                    STATUS_CLIPBOARD_REQUESTED => Self::ClipboardRequested,
                     STATUS_CURSOR_HIDDEN => Self::CursorHidden,
                     code => Self::Status(code),
                 }

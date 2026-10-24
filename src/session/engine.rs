@@ -5,7 +5,8 @@ use super::negotiation::Negotiation;
 use super::{Command, Config, Event, Events, Stage};
 use crate::error::{Error, Result};
 use crate::media::VideoCodec;
-use crate::message::{CursorImage, Cursors, InputSource, Layout, Messages, Rect, ServerMessage, client, clipboard};
+use crate::message::clipboard::{self, Content};
+use crate::message::{CursorImage, Cursors, InputSource, Layout, Messages, Rect, ServerMessage, client};
 use crate::offer::Offer;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -40,6 +41,8 @@ pub struct Engine {
     // The latest resize asked before the first frame, sent once it arrives, since its framebuffer request derails the
     // start
     held_resize: Option<Vec<u8>>,
+    // The token of the latest request for the Mac's clipboard kinds. An offer with another token is stale.
+    clipboard_token: u32,
 }
 
 // Whichever awaited source finished first
@@ -71,6 +74,7 @@ impl Engine {
             cursor_hidden: false,
             pixels: None,
             held_resize: None,
+            clipboard_token: 0,
         }
     }
 
@@ -160,18 +164,26 @@ impl Engine {
         while let Some(message) = self.messages.pop()? {
             match message {
                 ServerMessage::FramebufferUpdate(rects) => self.rects(rects, now, outgoing).await?,
-                ServerMessage::ClipboardChanged => self.control.send(&client::clipboard_request()).await?,
+                ServerMessage::ClipboardChanged => {
+                    self.clipboard_token = self.clipboard_token.wrapping_add(1).max(1);
+                    self.control
+                        .send(&client::clipboard_offer_request(self.clipboard_token))
+                        .await?;
+                }
+                ServerMessage::ClipboardRequested => outgoing.push(Event::ClipboardRequested),
                 ServerMessage::CursorHidden => {
                     self.cursor_hidden = true;
                     outgoing.push(Event::CursorHidden);
                 }
                 // A malformed clipboard body does not misalign message boundaries, so only that content is dropped and
                 // the session stays up.
-                ServerMessage::Clipboard(message) => {
-                    if let Ok(Some(text)) = clipboard::text(&message) {
-                        outgoing.push(Event::Clipboard(text));
+                ServerMessage::Clipboard(message) => match clipboard::parse(&message) {
+                    Ok(Content::Offer { token, kinds }) if token == self.clipboard_token => {
+                        outgoing.push(Event::ClipboardOffer(kinds));
                     }
-                }
+                    Ok(Content::Data(items)) => outgoing.push(Event::Clipboard(items)),
+                    Ok(Content::Offer { .. }) | Err(_) => {}
+                },
                 ServerMessage::Status(_) | ServerMessage::Ignored(_) => {}
             }
         }

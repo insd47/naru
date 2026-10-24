@@ -9,8 +9,9 @@
 //!   retried once from scratch with H.264.
 use crate::error::{Error, Result};
 use crate::media::{AccessUnit, AudioFrame, DecoderConfig, VideoCodec};
+use crate::message::clipboard::{self, ClipboardItem};
 use crate::message::gesture::{MomentumPhase, Phase};
-use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, clipboard};
+use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, client};
 use control::Control;
 use engine::Engine;
 use media::Sockets;
@@ -137,8 +138,14 @@ pub enum Event {
     ServerName(String),
     /// The Mac's current input source, which decides what keys type there
     InputSource(InputSource),
-    /// The Mac's clipboard text
-    Clipboard(String),
+    /// The Mac's clipboard changed to content of these kinds (UTIs). Fetch the data with `fetch_clipboard` when it is
+    /// needed, as when it is pasted.
+    ClipboardOffer(Vec<String>),
+    /// The Mac's clipboard data, one item per kind, answering `fetch_clipboard`
+    Clipboard(Vec<ClipboardItem>),
+    /// The Mac wants the data of the clipboard offered with `offer_clipboard`, as when it is pasted there. Answer with
+    /// `send_clipboard`.
+    ClipboardRequested,
     /// No frame has come out for too long, so the decoder must be recreated. The session requests the keyframe.
     ResetDecoder,
     /// Media reception stats. Arrives every 0.5 seconds after media negotiation.
@@ -308,10 +315,21 @@ impl Session {
         self.send(Command::InputSource(id.to_owned()))
     }
 
-    /// Puts text on the Mac's clipboard. Past the same size limit used when receiving, nothing is sent and `TooLong` is
-    /// returned.
-    pub fn clipboard(&self, text: &str) -> Result<()> {
-        self.send(Command::Clipboard(clipboard::message(text)?))
+    /// Puts content of these kinds (UTIs) on the Mac's clipboard without its data, as Apple's client does. The Mac
+    /// sends `ClipboardRequested` when it needs the data.
+    pub fn offer_clipboard(&self, kinds: &[String]) -> Result<()> {
+        self.send(Command::Clipboard(clipboard::offer(kinds)?))
+    }
+
+    /// Sends clipboard data, one item per kind, either answering `ClipboardRequested` or on its own. Past the same size
+    /// limit used when receiving, nothing is sent and `TooLong` is returned.
+    pub fn send_clipboard(&self, items: &[ClipboardItem]) -> Result<()> {
+        self.send(Command::Clipboard(clipboard::data(items)?))
+    }
+
+    /// Requests the data of the Mac's clipboard, which arrives as `Clipboard`.
+    pub fn fetch_clipboard(&self) -> Result<()> {
+        self.send(Command::Clipboard(client::clipboard_request().to_vec()))
     }
 
     /// Requests a keyframe, and again until one arrives. Call it once after recreating the decoder or dropping frames

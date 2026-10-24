@@ -121,14 +121,23 @@ pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16, elapsed_us: u32) 
     message
 }
 
-/// Requests the server's clipboard. It must be exactly 8 bytes; any extra byte misaligns every later message.
+/// Requests the kinds on the server's clipboard. The offer that answers carries `token` back. It must be exactly 8
+/// bytes; any extra byte misaligns every later message.
+pub fn clipboard_offer_request(token: u32) -> [u8; 8] {
+    let [first, second, third, fourth] = token.to_be_bytes();
+    [0x0b, 1, 0, 0, first, second, third, fourth]
+}
+
+/// Requests the data on the server's clipboard.
 pub fn clipboard_request() -> [u8; 8] {
     [0x0b, 0, 0, 0, 0, 0, 0, 0]
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{framebuffer_request, key, pointer, set_encodings, viewer_info};
+    use super::{
+        clipboard_offer_request, clipboard_request, framebuffer_request, key, pointer, set_encodings, viewer_info,
+    };
     use crate::record::RecordKeys;
     use aes::Aes128;
     use aes::cipher::generic_array::GenericArray;
@@ -193,5 +202,16 @@ mod tests {
         let mut expected = vec![0x1a, 0, 0, 27, 0, 1, 0, 23];
         expected.extend_from_slice(b"com.apple.keylayout.ABC");
         assert_eq!(message, expected);
+    }
+
+    // Byte for byte what Apple's client sent in the 2026-10-24 relay capture: an offer request with its token, then a
+    // data request.
+    #[test]
+    fn clipboard_requests_match_apple() {
+        assert_eq!(
+            clipboard_offer_request(0x643c_986a),
+            [0x0b, 1, 0, 0, 0x64, 0x3c, 0x98, 0x6a]
+        );
+        assert_eq!(clipboard_request(), [0x0b, 0, 0, 0, 0, 0, 0, 0]);
     }
 }
