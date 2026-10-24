@@ -4,6 +4,7 @@ import android.util.Log
 import android.view.Surface
 import dev.insd.naru.TAG
 import dev.insd.naru.audio.Player
+import dev.insd.naru.core.ClipboardItem
 import dev.insd.naru.core.Config
 import dev.insd.naru.core.DisplayMode
 import dev.insd.naru.core.Event
@@ -58,7 +59,9 @@ class Connection(config: Config, private val listener: Listener) {
     fun selectInputSource(id: String) = session.selectInputSource(id)
 
     /** `true` if sent; `false` without sending if it exceeds the size limit */
-    fun clipboard(text: String): Boolean = session.clipboard(text)
+    fun sendClipboard(items: List<ClipboardItem>): Boolean = session.sendClipboard(items)
+
+    fun fetchClipboard() = session.fetchClipboard()
 
     fun resize(mode: DisplayMode) = session.resize(mode)
 
@@ -124,7 +127,8 @@ class Connection(config: Config, private val listener: Listener) {
         is Event.Cursor -> "Cursor ${event.width}×${event.height}"
         is Event.ServerName -> "Mac name: ${event.name}"
         is Event.Source -> "Input source: ${event.source.id} (secure input ${event.source.secure})"
-        is Event.Clipboard -> "Clipboard, ${event.text.length} chars"
+        is Event.ClipboardOffer -> "Clipboard offer: ${event.kinds.joinToString()}"
+        is Event.Clipboard -> "Clipboard data: ${event.items.joinToString { "${it.kind} ${it.data.size} bytes" }}"
         is Event.ResetDecoder -> "Decoder reset requested"
         is Event.Closed -> "Session closed: ${event.detail ?: "normally"}"
         is Event.AudioConfig -> "Audio config, ${event.config.size} bytes, decoder ${if (audio != null) "available" else "unavailable"}"

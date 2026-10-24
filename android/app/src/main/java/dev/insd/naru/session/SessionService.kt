@@ -159,7 +159,8 @@ class SessionService : Service() {
                 state = State.Connected(running.host)
             }
             is Event.ServerName -> rename(running, event.name)
-            is Event.Clipboard -> running.clipboard.onServer(event.text)
+            is Event.ClipboardOffer -> running.clipboard.onOffer(event.kinds)
+            is Event.Clipboard -> running.clipboard.onServer(event.items)
             is Event.Layout -> running.layout = event
             is Event.Cursor -> running.cursor = event
             is Event.Closed -> end(running, event)
