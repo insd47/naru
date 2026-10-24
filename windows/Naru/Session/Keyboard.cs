@@ -21,6 +21,8 @@ namespace Naru.Session;
 internal sealed class Keyboard : IDisposable
 {
     private const int KoreanLanguage = 0x0412;
+    // Scan code of the right Alt, which most Korean keyboards report as the Hangul key
+    private const uint RightAltScan = 0x38;
 
     private static readonly Dictionary<nint, Keyboard> Attached = [];
     private static nint hook;
@@ -36,8 +38,6 @@ internal sealed class Keyboard : IDisposable
     private Keys keys;
     private bool korean;
     private string language = "";
-    // The Mac input source last selected for the language, with Sync Keyboard Language on
-    private string? selected;
 
     public Keyboard(nint window, Connection connection, Preferences preferences, Func<bool> capturing, Func<bool> fullScreen, Action toggleFullScreen)
     {
@@ -59,7 +59,6 @@ internal sealed class Keyboard : IDisposable
     {
         keys = new Keys(preferences.SwapCommandOption);
         held.Clear();
-        selected = null;
         Report(Layout());
     }
 
@@ -152,8 +151,12 @@ internal sealed class Keyboard : IDisposable
 
         var layout = Layout();
 
+        // The Hangul key goes to the Mac as the key it is, mostly the right Alt, and the source of the new mode is asked
+        // for while it is held, so the Mac applies it at the key's release, as with Caps Lock from Apple's client.
         if (vk == VkHangul && (layout & 0xffff) == KoreanLanguage)
         {
+            Send(keys.Translate(scan == RightAltScan ? VkRMenu : vk, scan, extended, down, layout, held, language, connection.Source));
+
             if (down)
             {
                 korean = !korean;
@@ -214,21 +217,13 @@ internal sealed class Keyboard : IDisposable
         Sync();
     }
 
-    // The source goes out as soon as the language changes, so the Mac has switched before the user types. Selecting
-    // again before each key covers a source the Mac changed meanwhile; the Mac switches at that key.
+    // The source goes out as soon as the language changes, so the Mac has switched before the user types, and again
+    // before each key, which the core skips for the source it last asked for.
     private void Sync()
     {
-        if (!preferences.SyncKeyboardLanguage || language.Length == 0)
+        if (preferences.SyncKeyboardLanguage && language.Length > 0 && Core.NaruMethods.InputSource(language, connection.Source) is { } source)
         {
-            selected = null;
-            return;
-        }
-
-        if (Core.NaruMethods.InputSource(language, connection.Source) is { } source && source != selected)
-        {
-            selected = source;
             connection.SelectInputSource(source);
-            Log.Info($"Mac input source selected: {source}");
         }
     }
 

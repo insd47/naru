@@ -17,7 +17,8 @@ namespace Naru.Session;
 /// <item>Without Control, Option, or Command held, sends the shifted character (<c>A</c>, <c>!</c>); with any held, the unshifted one (<c>c</c>).</item>
 /// <item>A release sends the same keysym as the press, so no key stays held on the Mac if Shift changed in between.</item>
 /// <item>Dead keys (<c>´</c> then <c>e</c>) send the composed character (<c>é</c>).</item>
-/// <item>Caps Lock is not sent. Case is already in the character, and if Caps Lock switches the Mac to ABC, Korean comes out as separate jamo.</item>
+/// <item>Caps Lock and the Hangul key are sent as they are, as Apple's client sends its keys. The Mac does not switch input sources on a
+/// remote key.</item>
 /// </list>
 /// </remarks>
 internal sealed unsafe class Keys(bool swapCommandOption)
@@ -50,6 +51,8 @@ internal sealed unsafe class Keys(bool swapCommandOption)
         [VkRight] = 0xff53,
         [VkDown] = 0xff54,
         [VkSpace] = 0x20,
+        [VkCapital] = 0xffe5,
+        [VkHangul] = 0xff31,
     };
 
     private readonly Dictionary<uint, uint> pressed = [];
@@ -138,11 +141,6 @@ internal sealed unsafe class Keys(bool swapCommandOption)
         if (vk is >= 0x70 and <= 0x87)
         {
             return [0xffbe + vk - 0x70];
-        }
-
-        if (vk == VkCapital)
-        {
-            return [];
         }
 
         var keysyms = Characters(vk, scan, layout, held).Select(ToKeysym);
