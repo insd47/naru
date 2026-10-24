@@ -391,12 +391,12 @@ internal sealed partial class SessionWindow : Window
     {
         foreach (var keysym in keysyms)
         {
-            session.Connection.Key(keysym, true);
+            session.Connection.Key(keysym, null, true);
         }
 
         foreach (var keysym in keysyms.Reverse())
         {
-            session.Connection.Key(keysym, false);
+            session.Connection.Key(keysym, null, false);
         }
     }
 }

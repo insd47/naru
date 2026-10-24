@@ -56,32 +56,58 @@ internal sealed unsafe class Keys(bool swapCommandOption)
         [VkHangul] = 0xff31,
     };
 
-    private readonly Dictionary<uint, uint> pressed = [];
+    // Scan codes (set 1, as the keyboard hook reports them, with 0x100 for the extended ones) of physical keys and their
+    // USB HID usages, per Microsoft's keyboard scan code specification. The core turns a usage into the Mac's key code.
+    private static readonly Dictionary<uint, ushort> Usages = new()
+    {
+        [0x1e] = 0x04, [0x30] = 0x05, [0x2e] = 0x06, [0x20] = 0x07, [0x12] = 0x08, [0x21] = 0x09, [0x22] = 0x0a,
+        [0x23] = 0x0b, [0x17] = 0x0c, [0x24] = 0x0d, [0x25] = 0x0e, [0x26] = 0x0f, [0x32] = 0x10, [0x31] = 0x11,
+        [0x18] = 0x12, [0x19] = 0x13, [0x10] = 0x14, [0x13] = 0x15, [0x1f] = 0x16, [0x14] = 0x17, [0x16] = 0x18,
+        [0x2f] = 0x19, [0x11] = 0x1a, [0x2d] = 0x1b, [0x15] = 0x1c, [0x2c] = 0x1d,
+        [0x02] = 0x1e, [0x03] = 0x1f, [0x04] = 0x20, [0x05] = 0x21, [0x06] = 0x22, [0x07] = 0x23, [0x08] = 0x24,
+        [0x09] = 0x25, [0x0a] = 0x26, [0x0b] = 0x27,
+        [0x1c] = 0x28, [0x01] = 0x29, [0x0e] = 0x2a, [0x0f] = 0x2b, [0x39] = 0x2c, [0x0c] = 0x2d, [0x0d] = 0x2e,
+        [0x1a] = 0x2f, [0x1b] = 0x30, [0x2b] = 0x31, [0x27] = 0x33, [0x28] = 0x34, [0x29] = 0x35, [0x33] = 0x36,
+        [0x34] = 0x37, [0x35] = 0x38, [0x3a] = 0x39,
+        [0x3b] = 0x3a, [0x3c] = 0x3b, [0x3d] = 0x3c, [0x3e] = 0x3d, [0x3f] = 0x3e, [0x40] = 0x3f, [0x41] = 0x40,
+        [0x42] = 0x41, [0x43] = 0x42, [0x44] = 0x43, [0x57] = 0x44, [0x58] = 0x45,
+        [0x152] = 0x49, [0x147] = 0x4a, [0x149] = 0x4b, [0x153] = 0x4c, [0x14f] = 0x4d, [0x151] = 0x4e,
+        [0x14d] = 0x4f, [0x14b] = 0x50, [0x150] = 0x51, [0x148] = 0x52,
+        [0x45] = 0x53, [0x135] = 0x54, [0x37] = 0x55, [0x4a] = 0x56, [0x4e] = 0x57, [0x11c] = 0x58,
+        [0x4f] = 0x59, [0x50] = 0x5a, [0x51] = 0x5b, [0x4b] = 0x5c, [0x4c] = 0x5d, [0x4d] = 0x5e, [0x47] = 0x5f,
+        [0x48] = 0x60, [0x49] = 0x61, [0x52] = 0x62, [0x53] = 0x63, [0x56] = 0x64,
+        [0x1d] = 0xe0, [0x2a] = 0xe1, [0x38] = 0xe2, [0x15b] = 0xe3, [0x11d] = 0xe4, [0x36] = 0xe5, [0x138] = 0xe6,
+        [0x15c] = 0xe7,
+    };
+
+    // The keysym and usage each held key went with
+    private readonly Dictionary<uint, (uint Keysym, ushort? Usage)> pressed = [];
 
     private readonly Dictionary<uint, uint> modifiers = swapCommandOption
         ? new() { [VkLMenu] = CommandLeft, [VkRMenu] = CommandRight, [VkLWin] = OptionLeft, [VkRWin] = OptionRight }
         : new() { [VkLMenu] = OptionLeft, [VkRMenu] = OptionRight, [VkLWin] = CommandLeft, [VkRWin] = CommandRight };
 
     /// <summary>
-    /// The (keysym, down) pairs to send for a key, empty for a key the Mac does not get.
+    /// The keys to send for a key, empty for a key the Mac does not get: the keysym, the physical key as a USB HID usage,
+    /// and whether it is pressed.
     /// </summary>
     /// <param name="held">Keys held, this one included</param>
     /// <param name="language">The input language as a BCP 47 tag</param>
     /// <param name="source">The Mac's latest input source</param>
-    public List<(uint Keysym, bool Down)> Translate(uint vk, uint scan, bool extended, bool down, nint layout, IReadOnlySet<uint> held, string language, InputSource? source)
+    public List<(uint Keysym, ushort? Usage, bool Down)> Translate(uint vk, uint scan, bool extended, bool down, nint layout, IReadOnlySet<uint> held, string language, InputSource? source)
     {
         // The extended flag keeps the keypad Enter and the main Enter apart.
         var key = vk | (extended ? 0x100u : 0);
 
         if (!down)
         {
-            return pressed.Remove(key, out var sent) ? [(sent, false)] : [];
+            return pressed.Remove(key, out var sent) ? [(sent.Keysym, sent.Usage, false)] : [];
         }
 
         // Auto-repeat resends the keysym pressed first.
         if (pressed.TryGetValue(key, out var repeat))
         {
-            return [(repeat, true)];
+            return [(repeat.Keysym, repeat.Usage, true)];
         }
 
         var characters = Keysyms(vk, scan, layout, held, language, source);
@@ -91,24 +117,25 @@ internal sealed unsafe class Keys(bool swapCommandOption)
             return [];
         }
 
-        // A dead key that did not compose sends both characters. Only the last stays held.
-        pressed[key] = characters[^1];
-        var result = new List<(uint, bool)>();
+        // A dead key that did not compose sends both characters, the first as no key of its own. Only the last stays held.
+        var usage = Usages.TryGetValue(scan | (extended ? 0x100u : 0), out var found) ? found : (ushort?)null;
+        pressed[key] = (characters[^1], usage);
+        var result = new List<(uint, ushort?, bool)>();
 
         for (var index = 0; index < characters.Count - 1; index++)
         {
-            result.Add((characters[index], true));
-            result.Add((characters[index], false));
+            result.Add((characters[index], null, true));
+            result.Add((characters[index], null, false));
         }
 
-        result.Add((characters[^1], true));
+        result.Add((characters[^1], usage, true));
         return result;
     }
 
     /// <summary>Releases every pressed key so none stays held on the Mac when the window loses the keyboard.</summary>
-    public List<(uint Keysym, bool Down)> ReleaseAll()
+    public List<(uint Keysym, ushort? Usage, bool Down)> ReleaseAll()
     {
-        var released = pressed.Values.Select(keysym => (keysym, false)).ToList();
+        var released = pressed.Values.Select(sent => (sent.Keysym, sent.Usage, false)).ToList();
         pressed.Clear();
         return released;
     }

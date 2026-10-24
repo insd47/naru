@@ -37,7 +37,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import dev.insd.naru.core.Event
-import dev.insd.naru.core.inputSource
 import dev.insd.naru.session.Connection
 import dev.insd.naru.session.ImeLanguage
 import dev.insd.naru.session.Keys
@@ -122,6 +121,8 @@ class SessionActivity : ComponentActivity() {
         super.onStart()
         val current = service ?: return
         if (connection != null && current.connection !== connection) finish()
+        // The setting may have changed while away.
+        connection?.setSyncKeyboardLanguage(naru.preferences.syncKeyboardLanguage)
     }
 
     // No key stays held on the Mac after leaving the screen.
@@ -129,7 +130,7 @@ class SessionActivity : ComponentActivity() {
     override fun onStop() {
         loading = true
         momentum?.stop()
-        connection?.let { current -> keys.releaseAll().forEach { (keysym, down) -> current.key(keysym, down) } }
+        connection?.let { current -> keys.releaseAll().forEach { current.key(it.keysym, it.usage, it.down) } }
         super.onStop()
     }
 
@@ -160,10 +161,10 @@ class SessionActivity : ComponentActivity() {
         val tabletLanguage = language?.current.orEmpty()
         val translated = keys.translate(event, tabletLanguage, current.source)
 
-        if (translated.any { (_, down) -> down }) syncSource(current, tabletLanguage)
+        if (translated.any { it.down }) report(current, tabletLanguage)
 
-        for ((keysym, down) in translated) {
-            current.key(keysym, down)
+        for (key in translated) {
+            current.key(key.keysym, key.usage, key.down)
         }
 
         // Keys not sent to the Mac pass through to the system and IME: Korean/English switches the IME language, volume keys change volume, and Back changes the screen.
@@ -179,22 +180,10 @@ class SessionActivity : ComponentActivity() {
         return true
     }
 
-    // The source goes out as soon as the tablet's language changes, so the Mac has switched before the user types.
-    // Selecting before a key covers a change that was missed. A source the Mac changed to by itself is left alone, as
-    // Apple's client leaves it.
-    private fun syncSource(current: Connection, tabletLanguage: String) {
-        // Turned off, the Mac keeps its own source again, as with Apple's client; the agent would otherwise undo a switch
-        // made on the Mac at every key.
-        if (!naru.preferences.syncKeyboardLanguage) {
-            current.releaseInputSource()
-            return
-        }
-
-        if (tabletLanguage.isEmpty()) {
-            return
-        }
-
-        inputSource(tabletLanguage, current.source)?.let(current::selectInputSource)
+    // The language goes out as soon as the tablet's language changes, so the Mac has switched before the user types.
+    // Reporting it before a key covers a change that was missed; the core sends nothing for a language already reported.
+    private fun report(current: Connection, tabletLanguage: String) {
+        if (tabletLanguage.isNotEmpty()) current.setInputLanguage(tabletLanguage)
     }
 
     @Composable
@@ -230,7 +219,8 @@ class SessionActivity : ComponentActivity() {
     // Attaches this screen's input to the session's connection.
     private fun adopt(next: Connection) {
         connection = next
-        language = ImeLanguage(this) { changed -> syncSource(next, changed) }.also { it.sync(delayMs = 0) }
+        next.setSyncKeyboardLanguage(naru.preferences.syncKeyboardLanguage)
+        language = ImeLanguage(this) { changed -> report(next, changed) }.also { it.sync(delayMs = 0) }
         momentum = Momentum(this) { phase, dx, dy -> next.momentum(phase, dx, dy) }.also { touchpad = Touchpad(this, next, it) }
         immersive(true)
     }

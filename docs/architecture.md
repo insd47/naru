@@ -99,21 +99,25 @@ an error instead of panicking.
 
 ## Keys on each platform
 
-Every app sends, per key, what the user means to type. Shortcuts (Command, Control, or Option held) send the Latin key
-itself. What differs is what each system hands the app:
+Every app sends, per key, what the user means to type, with the physical key as a USB HID usage. Shortcuts (Command,
+Control, or Option held) send the Latin key itself. What differs is what each system hands the app:
 
 | | Gets | Sends |
 |---|---|---|
-| Android | the physical key's Latin character, and the IME's language | `character(latin, language)`, or the Latin character |
-| Windows | the Windows layout's character, and a Korean/English mode tracked by the app | `character(char, language)`, or the character |
-| iPad | the character iPadOS typed in its input language | `character(physical Latin, language)` for languages with a Mac layout, otherwise iPadOS's character |
+| Android | the physical key's Latin character and Linux key code, and the IME's language | `character(latin, language)`, or the Latin character |
+| Windows | the Windows layout's character and scan code, and a Korean/English mode tracked by the app | `character(char, language)`, or the character |
+| iPad | the character iPadOS typed in its input language, and the key's HID usage | `character(physical Latin, language)` for languages with a Mac layout, otherwise iPadOS's character |
 
-With "Sync Keyboard Language" on, as in Apple's client, each app also selects the Mac's input source for its input
-language: `input_source(language, source)` gives the ID and `select_input_source` sends it. An app asks as soon as its
-language changes, from the system's notice where there is one, as on the iPad, where it comes a moment after the switch
-key, and before keys typed in it, which catches a late notice. The core asks the Mac only for a source other than the
-last one, so a source the Mac changes to by itself, as when another window takes focus, is left alone until the
-client's language changes, as Apple's client leaves it. Turning the option off releases the source.
+Android and Windows turn their key codes into HID usages with the standard tables; the core turns a usage into the
+Mac's key code, and a modifier's from its keysym, since a PC's Alt goes as Command.
+
+Each app also reports its input language with `set_input_language`, as soon as it changes, from the system's notice
+where there is one, as on the iPad, where it comes a moment after the switch key, and before keys typed in it, which
+catches a late notice. `set_sync_keyboard_language` follows Apple's "Sync Keyboard Language". With it on, the core asks
+the Mac for the source of the language, once the Mac has reported its own, which picks the mode of a language
+(Sebeolsik, Kana typing). It asks only for a source other than the last one, so a source the Mac changes to by itself,
+as when another window takes focus, is left alone until the client's language changes, as Apple's client leaves it.
+Turning the option off releases the source.
 
 The agent applies a requested source only at the next key event, and when that event is a typed key it often reads the
 old source's layout and keeps it. Apple's client applies the source at the release of its switch key instead. The core
@@ -126,9 +130,9 @@ switching to English stays composing until Space. Like Apple's client, keys go w
 Mac is on the source of the client's language, so the agent presses the physical key when a character is missing from
 the layout it holds. With the option on, the source last asked for counts as the Mac's, since keys wait for the switch;
 with it off, the source the Mac reported does. On another source keys go without one, and the Mac types the character
-the client chose. After a switch the agent sometimes still keeps the old source's layout, mostly after another window
-took focus, and the Mac then types the key's Latin letter until a text field takes focus again, the same as with Apple's
-client; without the key code it typed separate jamo.
+the client chose. After a switch the agent sometimes still keeps the old source's layout, mostly right after connecting
+or after another window took focus, and the Mac then types the key's Latin letter until a text field takes focus again,
+the same as with Apple's client; without the key code it typed separate jamo.
 
 iPadOS applies a hardware keyboard language switch only when its text system sees the next key, and that key's
 `UIKey.characters` is still in the old language. The iPad app therefore passes typing keys to the text system first and

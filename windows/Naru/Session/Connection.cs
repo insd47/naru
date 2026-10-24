@@ -35,11 +35,12 @@ internal sealed class Connection : SessionListener
         session = Core.Session.Connect(config, this);
     }
 
-    public void Key(uint keysym, bool down) => session.Key(keysym, null, down);
+    /// <summary>A key, with the physical key as a USB HID usage, or <c>null</c> for one the app makes up.</summary>
+    public void Key(uint keysym, ushort? usage, bool down) => session.Key(keysym, usage, down);
 
-    public void SelectInputSource(string id) => session.SelectInputSource(id);
+    public void SetInputLanguage(string language) => session.SetInputLanguage(language);
 
-    public void ReleaseInputSource() => session.ReleaseInputSource();
+    public void SetSyncKeyboardLanguage(bool on) => session.SetSyncKeyboardLanguage(on);
 
     public void Pointer(byte buttons, ushort x, ushort y) => session.Pointer(buttons, x, y);
 

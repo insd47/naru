@@ -26,10 +26,10 @@ final class Connection: SessionListener, @unchecked Sendable {
         video.requestKeyframe = { [weak self] in self?.session.requestKeyframe() }
     }
 
-    /// `usage` is the physical key as a USB HID usage, which goes to the Mac as its key code so the Mac presses that very
-    /// key, or `nil` for a key with no physical key, such as one of a shortcut the app makes up.
+    /// `usage` is the physical key as a USB HID usage, or `nil` for a key with no physical key, such as one of a
+    /// shortcut the app makes up.
     func key(_ keysym: UInt32, usage: Int?, down: Bool) {
-        session.key(keysym: keysym, keycode: usage.flatMap { macKeycode(usage: UInt16($0)) }, down: down)
+        session.key(keysym: keysym, usage: usage.flatMap { UInt16(exactly: $0) }, down: down)
     }
 
     func pointer(_ buttons: UInt8, x: UInt16, y: UInt16) { session.pointer(buttons: buttons, x: x, y: y) }
@@ -42,9 +42,9 @@ final class Connection: SessionListener, @unchecked Sendable {
 
     func magnify(_ phase: Phase, scale: Float) { session.magnify(phase: phase, scale: scale) }
 
-    func selectInputSource(_ id: String) { session.selectInputSource(id: id) }
+    func setInputLanguage(_ language: String) { session.setInputLanguage(language: language) }
 
-    func releaseInputSource() { session.releaseInputSource() }
+    func setSyncKeyboardLanguage(_ on: Bool) { session.setSyncKeyboardLanguage(on: on) }
 
     func offerClipboard(_ kinds: [String]) { session.offerClipboard(kinds: kinds) }
 

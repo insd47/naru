@@ -15,6 +15,7 @@ use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, client};
 use control::Control;
 use engine::Engine;
 use media::Sockets;
+use sources::Sources;
 use std::fmt;
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -27,6 +28,7 @@ mod engine;
 mod input;
 mod media;
 mod negotiation;
+mod sources;
 mod switching;
 
 const RETRY_DELAY: Duration = Duration::from_millis(800);
@@ -230,13 +232,14 @@ impl Events {
 enum Command {
     Key {
         keysym: u32,
+        usage: Option<u16>,
         down: bool,
     },
     /// An input and when it happened. Double clicks are judged from this time, not from when the engine handled it.
     Input(input::Event, Instant),
     Clipboard(Vec<u8>),
-    InputSource(String),
-    ReleaseInputSource,
+    Language(String),
+    SyncKeyboardLanguage(bool),
     Keyframe,
     Resize(Vec<u8>),
 }
@@ -267,15 +270,12 @@ impl Session {
     /// - It goes to the Mac as is. Choosing it is the client's job; the FFI's `character` gives what a Latin key types
     ///   in a language.
     /// - Release with the keysym that was pressed, so no key stays held on the Mac if the language changed in between.
-    /// - `keycode` is the macOS virtual key code of the physical key, which `keyboard::mac_keycode` gives for a USB HID
-    ///   usage. With it the key goes as Apple's client sends keys, and the agent presses that key, so the Mac's input
-    ///   method composes it even when the agent holds the wrong layout after a source switch. Without one, as for a
-    ///   shortcut the client makes up, only the keysym goes and the agent looks it up in its layout.
-    pub fn key(&self, keysym: u32, keycode: Option<u16>, down: bool) -> Result<()> {
-        match keycode {
-            Some(keycode) => self.input(input::Event::Key { keysym, keycode, down }),
-            None => self.send(Command::Key { keysym, down }),
-        }
+    /// - `usage` is the physical key as a USB HID keyboard usage (page 7). Like Apple's client, the key goes with its
+    ///   macOS key code while the Mac is on the source of the client's language, and the agent presses that very key,
+    ///   so the Mac's input method composes it even when the agent holds the wrong layout after a source switch.
+    ///   `None` for a key with no physical key, such as one of a shortcut the client makes up.
+    pub fn key(&self, keysym: u32, usage: Option<u16>, down: bool) -> Result<()> {
+        self.send(Command::Key { keysym, usage, down })
     }
 
     /// Sends the pointer position and button state. Coordinates are pixels in `Layout.pixels`.
@@ -316,21 +316,20 @@ impl Session {
         self.input(input::Event::Magnify { phase, scale })
     }
 
-    /// Selects the Mac's input source by its ID, as Apple's "Sync Keyboard Language" does.
+    /// The client's input language as a BCP 47 tag (`ko-KR`). Report it at the start and whenever it changes, from the
+    /// system's notice when there is one, and before the first key typed in it.
     ///
-    /// - Call it as soon as the client's language changes, from the system's notice when there is one, and before the
-    ///   first key typed in it. The source last asked for is not asked again, so a source the Mac changes to by itself,
-    ///   as when another window takes focus, is left alone until the client's language changes, as with Apple's client.
-    /// - The Mac switches at once, and keys sent meanwhile wait until it reports the new source, a few milliseconds.
-    pub fn select_input_source(&self, id: &str) -> Result<()> {
-        self.send(Command::InputSource(id.to_owned()))
+    /// - With "Sync Keyboard Language" on, the Mac switches to the source of the language at once, and keys sent
+    ///   meanwhile wait until it reports the new source, a few milliseconds.
+    /// - It also decides whether keys go with their physical key, as `key` describes.
+    pub fn set_input_language(&self, language: &str) -> Result<()> {
+        self.send(Command::Language(language.to_owned()))
     }
 
-    /// Lets the Mac keep its own input source again, as Apple's client does when "Sync Keyboard Language" is turned
-    /// off. The agent otherwise applies the source last asked for at every key, undoing a switch made on the Mac.
-    /// Nothing is sent when no source was asked for.
-    pub fn release_input_source(&self) -> Result<()> {
-        self.send(Command::ReleaseInputSource)
+    /// Turns Apple's "Sync Keyboard Language" on or off: whether the Mac's input source follows the client's input
+    /// language. Off lets the Mac keep its own source again, as Apple's client does.
+    pub fn set_sync_keyboard_language(&self, on: bool) -> Result<()> {
+        self.send(Command::SyncKeyboardLanguage(on))
     }
 
     /// Puts content of these kinds (UTIs) on the Mac's clipboard without its data, as Apple's client does. The Mac
@@ -397,14 +396,16 @@ async fn run(
 }
 
 async fn attempts(config: &Config, commands: &mut mpsc::UnboundedReceiver<Command>, events: &mut Events) -> Result<()> {
-    let result = attempt_session(config, config.codec, commands, events).await;
+    // The client's language and the option outlast an attempt.
+    let mut sources = Sources::default();
+    let result = attempt_session(config, config.codec, commands, events, &mut sources).await;
 
     // Video packets that arrived without a start mean a lossy path, which another attempt would not fix. No video at
     // all under HEVC may be a Mac that does not send HEVC, so that one case retries with H.264.
     match result {
         Err(Error::NoMedia(stats)) if config.codec == VideoCodec::Hevc && stats.authenticated == 0 => {
             tokio::time::sleep(RETRY_DELAY).await;
-            attempt_session(config, VideoCodec::H264, commands, events).await
+            attempt_session(config, VideoCodec::H264, commands, events, &mut sources).await
         }
         result => result,
     }
@@ -415,6 +416,7 @@ async fn attempt_session(
     codec: VideoCodec,
     commands: &mut mpsc::UnboundedReceiver<Command>,
     events: &mut Events,
+    sources: &mut Sources,
 ) -> Result<()> {
     events.send(Event::Progress(Stage::Warmup)).await?;
     let server = resolve(&config.host, config.port).await?;
@@ -428,7 +430,7 @@ async fn attempt_session(
     let control = Control::connect(config, server, events).await;
     punch.abort_all();
 
-    Engine::new(control?, sockets, config, codec)
+    Engine::new(control?, sockets, config, codec, sources)
         .run(commands, events)
         .await
 }

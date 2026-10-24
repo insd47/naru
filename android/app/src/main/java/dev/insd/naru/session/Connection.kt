@@ -44,7 +44,8 @@ class Connection(config: Config, private val listener: Listener) {
     /** Surface to draw video on, or `null` once it is gone */
     fun attach(next: Surface?) = video.attach(next)
 
-    fun key(keysym: Int, down: Boolean) = session.key(keysym.toUInt(), null, down)
+    /** A key, with the physical key as a USB HID usage, or `null` for one the app makes up */
+    fun key(keysym: Int, usage: Int?, down: Boolean) = session.key(keysym.toUInt(), usage?.toUShort(), down)
 
     fun pointer(buttons: Int, x: Int, y: Int) = session.pointer(buttons.toUByte(), x.toUShort(), y.toUShort())
 
@@ -56,9 +57,9 @@ class Connection(config: Config, private val listener: Listener) {
 
     fun magnify(phase: Phase, scale: Float) = session.magnify(phase, scale)
 
-    fun selectInputSource(id: String) = session.selectInputSource(id)
+    fun setInputLanguage(language: String) = session.setInputLanguage(language)
 
-    fun releaseInputSource() = session.releaseInputSource()
+    fun setSyncKeyboardLanguage(on: Boolean) = session.setSyncKeyboardLanguage(on)
 
     /** `true` if sent; `false` without sending if it exceeds the size limit */
     fun sendClipboard(items: List<ClipboardItem>): Boolean = session.sendClipboard(items)

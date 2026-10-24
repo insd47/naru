@@ -12,7 +12,7 @@ mod languages;
 mod layout;
 mod tables;
 
-pub use keycodes::mac_keycode;
+pub use keycodes::keycode;
 
 const ABC: &str = "com.apple.keylayout.ABC";
 
@@ -40,6 +40,8 @@ pub fn character(latin: u32, language: &str, source: Option<&InputSource>) -> Op
 /// does. `None` in secure input, where the Mac forces ABC.
 ///
 /// - A Mac already on another mode of the same language (Sebeolsik, Kana typing) keeps it. Latin languages get ABC.
+/// - With more than one non-Latin language the Mac may show the new source but keep typing with the old one, as with
+///   Apple's client.
 pub fn source(language: &str, current: Option<&InputSource>) -> Option<String> {
     if current.is_some_and(|current| current.secure) {
         return None;

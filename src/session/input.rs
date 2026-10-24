@@ -21,8 +21,6 @@ pub enum Event {
     Wheel { points: (f32, f32), lines: (f32, f32) },
     /// Magnify. The scale starts at 1.0 and is cumulative.
     Magnify { phase: Phase, scale: f32 },
-    /// A key with its macOS virtual key code
-    Key { keysym: u32, keycode: u16, down: bool },
 }
 
 /// Turns input into messages for the Mac.
@@ -88,14 +86,14 @@ impl Input {
             }
             Event::Wheel { points, lines } => Some(self.scroll(points, lines, None, None, false)),
             Event::Magnify { phase, scale } => Some(self.magnify(phase, scale)),
-            // Key events carry the time since the previous key event.
-            Event::Key { keysym, keycode, down } => {
-                let elapsed_us =
-                    u32::try_from(now.saturating_duration_since(self.keyed).as_micros()).unwrap_or(u32::MAX);
-                self.keyed = now;
-                Some(client::key_event(&self.keys, keysym, down, keycode, elapsed_us).to_vec())
-            }
         }
+    }
+
+    /// A key with its macOS virtual key code. Key events carry the time since the previous key event.
+    pub fn key(&mut self, keysym: u32, keycode: u16, down: bool, now: Instant) -> Vec<u8> {
+        let elapsed_us = u32::try_from(now.saturating_duration_since(self.keyed).as_micros()).unwrap_or(u32::MAX);
+        self.keyed = now;
+        client::key_event(&self.keys, keysym, down, keycode, elapsed_us).to_vec()
     }
 
     // Pointer events carry the time since the previous pointer event, which decides double clicks.

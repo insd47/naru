@@ -59,6 +59,7 @@ internal sealed class Keyboard : IDisposable
     {
         keys = new Keys(preferences.SwapCommandOption);
         held.Clear();
+        connection.SetSyncKeyboardLanguage(preferences.SyncKeyboardLanguage);
         Report(Layout());
     }
 
@@ -194,11 +195,11 @@ internal sealed class Keyboard : IDisposable
         return !shared;
     }
 
-    private void Send(List<(uint Keysym, bool Down)> events)
+    private void Send(List<(uint Keysym, ushort? Usage, bool Down)> events)
     {
-        foreach (var (keysym, down) in events)
+        foreach (var (keysym, usage, down) in events)
         {
-            connection.Key(keysym, down);
+            connection.Key(keysym, usage, down);
         }
     }
 
@@ -211,26 +212,7 @@ internal sealed class Keyboard : IDisposable
         {
             language = next;
             Log.Info($"Input language: {language}");
-        }
-
-        Sync();
-    }
-
-    // The core asks only for a source other than the last one, so a source the Mac changed to by itself, as when another
-    // window took focus, is left alone until the language changes, as Apple's client leaves it.
-    private void Sync()
-    {
-        // Turned off, the Mac keeps its own source again, as with Apple's client; the agent would otherwise undo a switch
-        // made on the Mac at every key.
-        if (!preferences.SyncKeyboardLanguage)
-        {
-            connection.ReleaseInputSource();
-            return;
-        }
-
-        if (language.Length > 0 && Core.NaruMethods.InputSource(language, connection.Source) is { } source)
-        {
-            connection.SelectInputSource(source);
+            connection.SetInputLanguage(language);
         }
     }
 

@@ -281,12 +281,12 @@ impl Session {
     /// Option is Meta (`0xffe7`), and [`character`] gives what a Latin key types in a language. Release with the keysym
     /// that was pressed.
     ///
-    /// - `keycode` is the macOS virtual key code of the physical key, which [`mac_keycode`] gives for a USB HID usage.
-    ///   With it the Mac presses that very key, as for Apple's client, so its input method composes it even when the
-    ///   agent holds the wrong layout after a source switch. Pass `None` for a key with no physical key, such as one
-    ///   of a shortcut the app makes up.
-    pub fn key(&self, keysym: u32, keycode: Option<u16>, down: bool) {
-        let _ = self.session.key(keysym, keycode, down);
+    /// - `usage` is the physical key as a USB HID keyboard usage (page 7). Like Apple's client, the key goes with its
+    ///   macOS key code while the Mac is on the source of the client's language, so the Mac's input method composes it
+    ///   even when the agent holds the wrong layout after a source switch. Pass `None` for a key with no physical key,
+    ///   such as one of a shortcut the app makes up.
+    pub fn key(&self, keysym: u32, usage: Option<u16>, down: bool) {
+        let _ = self.session.key(keysym, usage, down);
     }
 
     /// Pointer position in layout pixels and pressed buttons (left 1, right 2, middle 4)
@@ -328,22 +328,21 @@ impl Session {
         let _ = self.session.magnify(phase, scale);
     }
 
-    /// Selects the Mac's input source by its ID, as Apple's "Sync Keyboard Language" does. [`input_source`] gives the
-    /// ID for a language.
+    /// The client's input language as a BCP 47 tag (`ko-KR`). Report it at the start and whenever it changes, from the
+    /// system's notice when there is one, and before the first key typed in it.
     ///
-    /// - Call it as soon as the client's language changes, from the system's notice when there is one, and before the
-    ///   first key typed in it. The source last asked for is not asked again, so a source the Mac changes to by itself,
-    ///   as when another window takes focus, is left alone until the client's language changes, as with Apple's client.
-    /// - The Mac switches at once, and keys sent meanwhile wait until it reports the new source, a few milliseconds.
-    pub fn select_input_source(&self, id: String) {
-        let _ = self.session.select_input_source(&id);
+    /// - With "Sync Keyboard Language" on, the Mac switches to the source of the language at once, and keys sent
+    ///   meanwhile wait until it reports the new source, a few milliseconds. A source the Mac changes to by itself, as
+    ///   when another window takes focus, is left alone until the language changes, as with Apple's client.
+    /// - It also decides whether keys go with their physical key, as [`Session::key`] describes.
+    pub fn set_input_language(&self, language: String) {
+        let _ = self.session.set_input_language(&language);
     }
 
-    /// Lets the Mac keep its own input source again, as Apple's client does when "Sync Keyboard Language" is turned
-    /// off. The agent otherwise applies the source last asked for at every key, undoing a switch made on the Mac.
-    /// Nothing is sent when no source was asked for.
-    pub fn release_input_source(&self) {
-        let _ = self.session.release_input_source();
+    /// Turns Apple's "Sync Keyboard Language" on or off: whether the Mac's input source follows the client's input
+    /// language. Off lets the Mac keep its own source again, as Apple's client does.
+    pub fn set_sync_keyboard_language(&self, on: bool) {
+        let _ = self.session.set_sync_keyboard_language(on);
     }
 
     /// Puts content of these kinds (UTIs) on the Mac's clipboard without its data, as Apple's client does. The Mac
@@ -439,13 +438,6 @@ impl From<crate::touchpad::Gesture> for Gesture {
     }
 }
 
-/// The macOS virtual key code of a key given as a USB HID keyboard usage (page 7), for [`Session::key`]. `None` for a
-/// key the Mac has no code for.
-#[uniffi::export]
-pub fn mac_keycode(usage: u16) -> Option<u16> {
-    crate::keyboard::mac_keycode(usage)
-}
-
 /// What to send so the Mac types what this Latin key means in `language` (a BCP 47 tag such as `ko-KR`), given the
 /// Mac's input source from the latest `Event::Source`.
 ///
@@ -457,17 +449,6 @@ pub fn mac_keycode(usage: u16) -> Option<u16> {
 #[uniffi::export]
 pub fn character(latin: u32, language: String, source: Option<InputSource>) -> Option<u32> {
     crate::keyboard::character(latin, &language, source.as_ref())
-}
-
-/// The Mac input source that types `language` (a BCP 47 tag), for "Sync Keyboard Language": select it with
-/// `select_input_source` when the client's input language changes. `None` in secure input, where the Mac forces ABC.
-///
-/// - A Mac already on another mode of the same language (Sebeolsik, Kana typing) keeps it. Latin languages get ABC.
-/// - With more than one non-Latin language the Mac may show the new source but keep typing with the old one, as with
-///   Apple's client.
-#[uniffi::export]
-pub fn input_source(language: String, current: Option<InputSource>) -> Option<String> {
-    crate::keyboard::source(&language, current.as_ref())
 }
 
 #[cfg(test)]

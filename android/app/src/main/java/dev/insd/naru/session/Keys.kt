@@ -20,7 +20,11 @@ import dev.insd.naru.core.character
  * - Caps Lock is not sent. Case is already in the character, and if Caps Lock switches the Mac to ABC, Korean comes out as separate jamo.
  */
 class Keys(swapCommandOption: Boolean) {
-    private val pressed = HashMap<Int, Int>()
+    /** A key to send: the keysym, the physical key as a USB HID usage or `null`, and whether it is pressed */
+    data class Key(val keysym: Int, val usage: Int?, val down: Boolean)
+
+    // The keysym and usage each held key went with
+    private val pressed = HashMap<Int, Key>()
 
     // Combining character of the pending dead key, composed with the next character.
     private var accent = 0
@@ -41,8 +45,8 @@ class Keys(swapCommandOption: Boolean) {
         )
     }
 
-    /** The (keysym, down) pairs to send, empty for an unknown key. [language] is the IME's, and [source] the Mac's latest input source. */
-    fun translate(event: KeyEvent, language: String, source: InputSource?): List<Pair<Int, Boolean>> {
+    /** The keys to send, empty for an unknown key. [language] is the IME's, and [source] the Mac's latest input source. */
+    fun translate(event: KeyEvent, language: String, source: InputSource?): List<Key> {
         val down = when (event.action) {
             KeyEvent.ACTION_DOWN -> true
             KeyEvent.ACTION_UP -> false
@@ -50,12 +54,13 @@ class Keys(swapCommandOption: Boolean) {
         }
 
         if (!down) {
-            return pressed.remove(event.keyCode)?.let { listOf(it to false) } ?: emptyList()
+            return pressed.remove(event.keyCode)?.let { listOf(it.copy(down = false)) } ?: emptyList()
         }
 
         val keysym = keysym(event, language, source) ?: return emptyList()
-        pressed[event.keyCode] = keysym
-        return listOf(keysym to true)
+        val key = Key(keysym, USAGES[event.scanCode], down = true)
+        pressed[event.keyCode] = key
+        return listOf(key)
     }
 
     /**
@@ -72,7 +77,7 @@ class Keys(swapCommandOption: Boolean) {
     fun isDeadKey(event: KeyEvent): Boolean = char(event) and KeyCharacterMap.COMBINING_ACCENT != 0
 
     /** Releases every held key so none stays held on the Mac when leaving the screen. */
-    fun releaseAll(): List<Pair<Int, Boolean>> = pressed.values.map { it to false }.also { pressed.clear() }
+    fun releaseAll(): List<Key> = pressed.values.map { it.copy(down = false) }.also { pressed.clear() }
 
     private fun keysym(event: KeyEvent, language: String, source: InputSource?): Int? {
         modifiers[event.keyCode]?.let { return it }
@@ -121,6 +126,25 @@ class Keys(swapCommandOption: Boolean) {
         private const val COMMAND_RIGHT = 0xffea
         private const val OPTION_LEFT = 0xffe7
         private const val OPTION_RIGHT = 0xffe8
+
+        // Linux input event codes, which Android reports as a key's scan code, of physical keys and their USB HID usages,
+        // as the kernel's HID driver maps them. The core turns a usage into the Mac's key code.
+        private val USAGES = mapOf(
+            30 to 0x04, 48 to 0x05, 46 to 0x06, 32 to 0x07, 18 to 0x08, 33 to 0x09, 34 to 0x0a, 35 to 0x0b, 23 to 0x0c,
+            36 to 0x0d, 37 to 0x0e, 38 to 0x0f, 50 to 0x10, 49 to 0x11, 24 to 0x12, 25 to 0x13, 16 to 0x14, 19 to 0x15,
+            31 to 0x16, 20 to 0x17, 22 to 0x18, 47 to 0x19, 17 to 0x1a, 45 to 0x1b, 21 to 0x1c, 44 to 0x1d,
+            2 to 0x1e, 3 to 0x1f, 4 to 0x20, 5 to 0x21, 6 to 0x22, 7 to 0x23, 8 to 0x24, 9 to 0x25, 10 to 0x26, 11 to 0x27,
+            28 to 0x28, 1 to 0x29, 14 to 0x2a, 15 to 0x2b, 57 to 0x2c, 12 to 0x2d, 13 to 0x2e, 26 to 0x2f, 27 to 0x30,
+            43 to 0x31, 39 to 0x33, 40 to 0x34, 41 to 0x35, 51 to 0x36, 52 to 0x37, 53 to 0x38, 58 to 0x39,
+            59 to 0x3a, 60 to 0x3b, 61 to 0x3c, 62 to 0x3d, 63 to 0x3e, 64 to 0x3f, 65 to 0x40, 66 to 0x41, 67 to 0x42,
+            68 to 0x43, 87 to 0x44, 88 to 0x45,
+            110 to 0x49, 102 to 0x4a, 104 to 0x4b, 111 to 0x4c, 107 to 0x4d, 109 to 0x4e, 106 to 0x4f, 105 to 0x50,
+            108 to 0x51, 103 to 0x52,
+            69 to 0x53, 98 to 0x54, 55 to 0x55, 74 to 0x56, 78 to 0x57, 96 to 0x58, 79 to 0x59, 80 to 0x5a, 81 to 0x5b,
+            75 to 0x5c, 76 to 0x5d, 77 to 0x5e, 71 to 0x5f, 72 to 0x60, 73 to 0x61, 82 to 0x62, 83 to 0x63, 86 to 0x64,
+            117 to 0x67,
+            29 to 0xe0, 42 to 0xe1, 56 to 0xe2, 125 to 0xe3, 97 to 0xe4, 54 to 0xe5, 100 to 0xe6, 126 to 0xe7,
+        )
 
         private val SPECIAL = mapOf(
             KeyEvent.KEYCODE_SHIFT_LEFT to 0xffe1,

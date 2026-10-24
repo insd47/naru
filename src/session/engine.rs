@@ -2,7 +2,7 @@ use super::control::Control;
 use super::input::{self, Input};
 use super::media::{Media, Sockets};
 use super::negotiation::Negotiation;
-use super::switching::Switching;
+use super::sources::Sources;
 use super::{Command, Config, Event, Events, Stage};
 use crate::error::{Error, Result};
 use crate::media::VideoCodec;
@@ -26,7 +26,7 @@ const MEDIA_START: Duration = Duration::from_secs(10);
 /// Session state once the record layer is on. One task handles the control channel, UDP, timers, and commands.
 ///
 /// - Record sequence numbers and CBC state are tied to send order, so only this task sends on the control channel.
-pub struct Engine {
+pub struct Engine<'a> {
     control: Control,
     sockets: Sockets,
     media: Media,
@@ -44,9 +44,8 @@ pub struct Engine {
     held_resize: Option<Vec<u8>>,
     // The token of the latest request for the Mac's clipboard kinds. An offer with another token is stale.
     clipboard_token: u32,
-    // The input source last asked for, and one the Mac is switching to, holding keys until it reports it
-    input_source: Option<String>,
-    switching: Option<Switching>,
+    // The Mac's input source and keys, kept across attempts
+    sources: &'a mut Sources,
 }
 
 // Whichever awaited source finished first
@@ -62,10 +61,17 @@ enum Wake {
     Command(Option<Command>),
 }
 
-impl Engine {
+impl<'a> Engine<'a> {
     /// `codec` is the codec to request in this attempt. If HEVC does not start, the session retries with H.264.
-    pub fn new(control: Control, sockets: Sockets, config: &Config, codec: VideoCodec) -> Self {
+    pub fn new(
+        control: Control,
+        sockets: Sockets,
+        config: &Config,
+        codec: VideoCodec,
+        sources: &'a mut Sources,
+    ) -> Self {
         let offer = Offer::new(config.audio, codec);
+        sources.connect();
 
         Self {
             media: Media::new(sockets.clone(), &offer, codec),
@@ -79,9 +85,8 @@ impl Engine {
             cursor_hidden: false,
             pixels: None,
             held_resize: None,
-            input_source: None,
-            switching: None,
             clipboard_token: 0,
+            sources,
         }
     }
 
@@ -105,7 +110,7 @@ impl Engine {
         loop {
             let deadline = self.media.deadline();
             let retry = self.negotiation.deadline();
-            let switched = self.switching.as_ref().map(Switching::deadline);
+            let switched = self.sources.deadline();
 
             let wake = tokio::select! {
                 opened = self.control.receive(&mut tcp_buffer) => Wake::Tcp(opened),
@@ -135,7 +140,10 @@ impl Engine {
                 Wake::Feedback => self.media.feedback(now).await,
                 Wake::Retry => self.retry(now).await?,
                 Wake::Deadline => self.media.drain(now, &mut outgoing).await,
-                Wake::Switched => self.switched().await?,
+                Wake::Switched => {
+                    let messages = self.sources.switched();
+                    self.send_all(messages).await?;
+                }
                 Wake::Command(None) => return Ok(()),
                 Wake::Command(Some(command)) => self.command(command, now, &mut outgoing).await?,
             }
@@ -254,14 +262,8 @@ impl Engine {
                         continue;
                     };
 
-                    if self
-                        .switching
-                        .as_ref()
-                        .is_some_and(|switching| switching.done(&source.id))
-                    {
-                        self.switched().await?;
-                    }
-
+                    let messages = self.sources.reported(source.clone(), now);
+                    self.send_all(messages).await?;
                     outgoing.push(Event::InputSource(source));
                 }
                 Rect::Skipped(_) => {}
@@ -303,41 +305,30 @@ impl Engine {
 
     async fn command(&mut self, command: Command, now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
         match command {
-            Command::Key { keysym, down } => self.send_key(client::key(keysym, down).to_vec()).await,
-            // A source already asked for is not asked again, so one the Mac changed to by itself, as when another window
-            // took focus, is left alone until the client's language changes, as Apple's client leaves it: asking right
-            // after such a change can leave the agent typing with the other source's layout.
-            Command::InputSource(id) if self.input_source.as_ref() == Some(&id) => Ok(()),
-            Command::InputSource(id) => {
-                let (switching, messages) = Switching::start(&id, self.switching.take(), now);
-                self.switching = Some(switching);
-                self.input_source = Some(id);
+            Command::Key { keysym, usage, down } => {
+                let message = match self.sources.keycode(keysym, usage) {
+                    Some(keycode) => self.input.key(keysym, keycode, down, now),
+                    None => client::key(keysym, down).to_vec(),
+                };
 
-                for message in messages {
-                    self.control.send(&message).await?;
+                match self.sources.hold(message) {
+                    Some(message) => self.control.send(&message).await,
+                    None => Ok(()),
                 }
-
-                Ok(())
             }
-            // Nothing to release unless a source was asked for. Keys waiting for a switch go first.
-            Command::ReleaseInputSource => {
-                if self.input_source.take().is_none() {
-                    return Ok(());
-                }
-
-                self.switched().await?;
-                self.control.send(&client::input_source("")).await
+            Command::Language(language) => {
+                let messages = self.sources.language(language, now);
+                self.send_all(messages).await
+            }
+            Command::SyncKeyboardLanguage(on) => {
+                let messages = self.sources.sync(on, now);
+                self.send_all(messages).await
             }
             Command::Input(event, at) => {
                 let pointer = matches!(event, input::Event::Pointer { .. });
-                let key = matches!(event, input::Event::Key { .. });
                 let Some(message) = self.input.handle(event, at) else {
                     return Ok(());
                 };
-
-                if key {
-                    return self.send_key(message).await;
-                }
 
                 // The Mac shows a hidden cursor once the pointer moves, but sends no shape when it has not changed.
                 if pointer && self.cursor_hidden {
@@ -370,24 +361,8 @@ impl Engine {
         }
     }
 
-    // Sends a key, or holds it while the Mac switches its input source.
-    async fn send_key(&mut self, message: Vec<u8>) -> Result<()> {
-        match &mut self.switching {
-            Some(switching) => {
-                switching.hold(message);
-                Ok(())
-            }
-            None => self.control.send(&message).await,
-        }
-    }
-
-    // Sends the messages held for an input source switch, once the Mac reported it or stopped being waited for.
-    async fn switched(&mut self) -> Result<()> {
-        let Some(switching) = self.switching.take() else {
-            return Ok(());
-        };
-
-        for message in switching.release() {
+    async fn send_all(&mut self, messages: Vec<Vec<u8>>) -> Result<()> {
+        for message in messages {
             self.control.send(&message).await?;
         }
 
