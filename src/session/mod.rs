@@ -310,7 +310,10 @@ impl Session {
     /// Selects the Mac's input source by its ID, as Apple's "Sync Keyboard Language" does.
     ///
     /// - The agent applies it at the next key and reports the new source a few milliseconds later. Like Apple's client,
-    ///   keys are not held for that report, which would only come after them.
+    ///   keys are not held for that report, which would only come after them. Apple's client asks while its switch key,
+    ///   Caps Lock, is held, so its release is that next key.
+    /// - Nothing is sent for the source last asked for, so call it before every key. A source the Mac changes to by
+    ///   itself is left alone until the client's language changes, as with Apple's client.
     pub fn select_input_source(&self, id: &str) -> Result<()> {
         self.send(Command::InputSource(id.to_owned()))
     }

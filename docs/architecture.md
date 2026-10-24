@@ -108,13 +108,22 @@ itself. What differs is what each system hands the app:
 | Windows | the Windows layout's character, and a Korean/English mode tracked by the app | `character(char, language)`, or the character |
 | iPad | the character iPadOS typed in its input language | `character(physical Latin, language)` for languages with a Mac layout, otherwise iPadOS's character |
 
-With "Sync Keyboard Language" on, as in Apple's client, each app also selects the Mac's input source when its own
-input language changes: `input_source(language, source)` gives the ID and `select_input_source` sends it. The Mac's
-agent switches only at the next key and reports the new source a few milliseconds after it. Apple's client sends that
-key right away instead of waiting for the report, and so does the core, so a key typed at the very moment of a switch
-can still reach the old input method, as with Apple's client. Switching also commits a composition the Mac's input method still holds; without the option, Korean typed before switching to
-English stays composing until Space. The Mac shows the new source but may keep
-typing with the old input method when more than one non-Latin source is involved, the same as with Apple's client.
+With "Sync Keyboard Language" on, as in Apple's client, each app also selects the Mac's input source for its input
+language: `input_source(language, source)` gives the ID and `select_input_source` sends it. The Mac's agent applies a
+requested source only at the next key and reports it a few milliseconds later. Apple's client asks while its switch key,
+Caps Lock, is held, and sends that key to the Mac too, so the key's release applies the source before the user types.
+The Mac does not switch on a remote Caps Lock itself. The apps do the same with their own switch key, sent as the key it
+is: Caps Lock on the iPad, where iPadOS reveals the new language only with the first key in it, so the app asks for the
+language it switched from last; the Hangul key on Windows, mostly the right Alt. Each app also asks before every key,
+which catches a switch it could not foresee, but the core sends only a source other than the last one asked for. When
+the Mac changes source by itself, as when another window takes focus, it is left alone until the client's language
+changes, as Apple's client leaves it: asking right after such a change can leave the agent typing with the other
+source's layout. Keys are never held, as with Apple's client.
+
+Switching also commits a composition the Mac's input method still holds; without the option, Korean typed before
+switching to English stays composing until Space. After a switch, the agent sometimes keeps the old source's layout,
+mostly after another window took focus, and types Korean as separate jamo until a text field takes focus again. Apple's
+client hits the same state.
 
 iPadOS applies a hardware keyboard language switch only when its text system sees the next key, and that key's
 `UIKey.characters` is still in the old language. The iPad app therefore passes typing keys to the text system first and
