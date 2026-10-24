@@ -265,8 +265,15 @@ impl Session {
     /// - It goes to the Mac as is. Choosing it is the client's job; the FFI's `character` gives what a Latin key types
     ///   in a language.
     /// - Release with the keysym that was pressed, so no key stays held on the Mac if the language changed in between.
-    pub fn key(&self, keysym: u32, down: bool) -> Result<()> {
-        self.send(Command::Key { keysym, down })
+    /// - `keycode` is the macOS virtual key code of the physical key, which `keyboard::mac_keycode` gives for a USB HID
+    ///   usage. With it the key goes as Apple's client sends keys, and the agent presses that key, so the Mac's input
+    ///   method composes it even when the agent holds the wrong layout after a source switch. Without one, as for a
+    ///   shortcut the client makes up, only the keysym goes and the agent looks it up in its layout.
+    pub fn key(&self, keysym: u32, keycode: Option<u16>, down: bool) -> Result<()> {
+        match keycode {
+            Some(keycode) => self.input(input::Event::Key { keysym, keycode, down }),
+            None => self.send(Command::Key { keysym, down }),
+        }
     }
 
     /// Sends the pointer position and button state. Coordinates are pixels in `Layout.pixels`.

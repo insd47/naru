@@ -2,14 +2,17 @@
 //!
 //! - The Mac stays on the user's native-language input method, and the client decides per key what to type. The agent
 //!   looks up each received character in the Mac's current layout and presses that key, so a Korean Mac must receive
-//!   `ㄱ`, not `r`, for its input method to compose.
+//!   `ㄱ`, not `r`, for its input method to compose. A key sent with its physical key code is pressed as that key.
 //! - Nothing here holds session state. Clients pass the Mac's latest input source from `Event::Source`.
 use crate::message::InputSource;
 use layout::Layout;
 
+mod keycodes;
 mod languages;
 mod layout;
 mod tables;
+
+pub use keycodes::mac_keycode;
 
 const ABC: &str = "com.apple.keylayout.ABC";
 

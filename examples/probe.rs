@@ -293,7 +293,7 @@ async fn type_text(session: Session, text: String) {
 
     for keysym in keysyms {
         for down in [true, false] {
-            if session.key(keysym, down).is_err() {
+            if session.key(keysym, None, down).is_err() {
                 return;
             }
 

@@ -21,6 +21,8 @@ pub enum Event {
     Wheel { points: (f32, f32), lines: (f32, f32) },
     /// Magnify. The scale starts at 1.0 and is cumulative.
     Magnify { phase: Phase, scale: f32 },
+    /// A key with its macOS virtual key code
+    Key { keysym: u32, keycode: u16, down: bool },
 }
 
 /// Turns input into messages for the Mac.
@@ -28,8 +30,9 @@ pub enum Event {
 /// - Scroll and magnify happen at the last pointer position, so it remembers the position and includes it.
 pub struct Input {
     keys: RecordKeys,
-    // When the previous pointer event was sent, and its buttons and position
+    // When the previous pointer event and key event were sent, and the pointer's buttons and position
     pointed: Instant,
+    keyed: Instant,
     sent: Option<(u8, (u16, u16))>,
     bounds: (u16, u16),
     at: (u16, u16),
@@ -44,6 +47,7 @@ impl Input {
         Self {
             keys,
             pointed: Instant::now(),
+            keyed: Instant::now(),
             sent: None,
             bounds: (u16::MAX, u16::MAX),
             at: (0, 0),
@@ -84,6 +88,13 @@ impl Input {
             }
             Event::Wheel { points, lines } => Some(self.scroll(points, lines, None, None, false)),
             Event::Magnify { phase, scale } => Some(self.magnify(phase, scale)),
+            // Key events carry the time since the previous key event.
+            Event::Key { keysym, keycode, down } => {
+                let elapsed_us =
+                    u32::try_from(now.saturating_duration_since(self.keyed).as_micros()).unwrap_or(u32::MAX);
+                self.keyed = now;
+                Some(client::key_event(&self.keys, keysym, down, keycode, elapsed_us).to_vec())
+            }
         }
     }
 

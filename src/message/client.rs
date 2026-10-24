@@ -111,7 +111,33 @@ pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16, elapsed_us: u32) 
     plain[11] = buttons;
     plain[12..14].copy_from_slice(&x.to_be_bytes());
     plain[14..16].copy_from_slice(&y.to_be_bytes());
+    encrypted(keys, plain)
+}
 
+/// Builds an encrypted key event with the physical key, as Apple's client sends every key. This message is still
+/// wrapped in a record when sent.
+///
+/// - `keycode` is the macOS virtual key code of the physical key (`kVK_ANSI_F` for both `f` and `ㄹ`). The agent
+///   presses that key, so the Mac's input method composes it even when the agent still holds another source's layout,
+///   which a keysym alone (`key`) is looked up in.
+/// - `elapsed_us` is the microseconds since the previous key event.
+/// - The keyboard type is an ANSI Mac keyboard's, as Apple's client sent from a MacBook.
+pub fn key_event(keys: &RecordKeys, keysym: u32, down: bool, keycode: u16, elapsed_us: u32) -> [u8; 18] {
+    let mut plain = [0; 16];
+    plain[0] = 0xff;
+    plain[1] = down.into();
+    plain[2..6].copy_from_slice(&keysym.to_be_bytes());
+    plain[6..10].copy_from_slice(&elapsed_us.to_be_bytes());
+    plain[10..14].copy_from_slice(&ANSI_KEYBOARD.to_be_bytes());
+    plain[14..16].copy_from_slice(&keycode.to_be_bytes());
+    encrypted(keys, plain)
+}
+
+// Keyboard type 40, which the agent also logs as the viewer's
+const ANSI_KEYBOARD: u32 = 40;
+
+// An input event: its 16 bytes encrypted with the content key as one AES block, after the type and a padding byte
+fn encrypted(keys: &RecordKeys, plain: [u8; 16]) -> [u8; 18] {
     let mut block = GenericArray::from(plain);
     Aes128::new(&keys.content_key.into()).encrypt_block(&mut block);
 
@@ -136,7 +162,8 @@ pub fn clipboard_request() -> [u8; 8] {
 #[cfg(test)]
 mod tests {
     use super::{
-        clipboard_offer_request, clipboard_request, framebuffer_request, key, pointer, set_encodings, viewer_info,
+        clipboard_offer_request, clipboard_request, framebuffer_request, key, key_event, pointer, set_encodings,
+        viewer_info,
     };
     use crate::record::RecordKeys;
     use aes::Aes128;
@@ -176,6 +203,25 @@ mod tests {
     #[test]
     fn key_event_carries_the_keysym_big_endian() {
         assert_eq!(key(0xffeb, true), [4, 1, 0, 0, 0, 0, 0xff, 0xeb]);
+    }
+
+    // Byte for byte the plaintext Apple's client sent for Shift down in the 2026-10-19 relay capture.
+    #[test]
+    fn key_event_plaintext_matches_apple() {
+        let keys = RecordKeys {
+            content_key: [5; 16],
+            iv: [0; 16],
+        };
+
+        let message = key_event(&keys, 0xffe1, true, 0x38, 0x0007_5e8d);
+        assert_eq!(&message[..2], [0x10, 0]);
+
+        let mut block = GenericArray::clone_from_slice(&message[2..]);
+        Aes128::new(&keys.content_key.into()).decrypt_block(&mut block);
+        assert_eq!(
+            block.as_slice(),
+            [0xff, 1, 0, 0, 0xff, 0xe1, 0, 7, 0x5e, 0x8d, 0, 0, 0, 0x28, 0, 0x38]
+        );
     }
 
     #[test]

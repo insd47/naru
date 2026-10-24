@@ -280,8 +280,13 @@ impl Session {
     /// Key input. `keysym` is an X11 keysym of what the Mac should type, sent as is; Command is Super (`0xffeb`) and
     /// Option is Meta (`0xffe7`), and [`character`] gives what a Latin key types in a language. Release with the keysym
     /// that was pressed.
-    pub fn key(&self, keysym: u32, down: bool) {
-        let _ = self.session.key(keysym, down);
+    ///
+    /// - `keycode` is the macOS virtual key code of the physical key, which [`mac_keycode`] gives for a USB HID usage.
+    ///   With it the Mac presses that very key, as for Apple's client, so its input method composes it even when the
+    ///   agent holds the wrong layout after a source switch. Pass `None` for a key with no physical key, such as one
+    ///   of a shortcut the app makes up.
+    pub fn key(&self, keysym: u32, keycode: Option<u16>, down: bool) {
+        let _ = self.session.key(keysym, keycode, down);
     }
 
     /// Pointer position in layout pixels and pressed buttons (left 1, right 2, middle 4)
@@ -436,6 +441,13 @@ impl From<crate::touchpad::Gesture> for Gesture {
 ///   produced.
 /// - In secure input it returns the Latin key, since the Mac forces ABC there.
 /// - Not for shortcuts: with Command, Control, or Option held, send the Latin key as is.
+/// The macOS virtual key code of a key given as a USB HID keyboard usage (page 7), for [`Session::key`]. `None` for a
+/// key the Mac has no code for.
+#[uniffi::export]
+pub fn mac_keycode(usage: u16) -> Option<u16> {
+    crate::keyboard::mac_keycode(usage)
+}
+
 #[uniffi::export]
 pub fn character(latin: u32, language: String, source: Option<InputSource>) -> Option<u32> {
     crate::keyboard::character(latin, &language, source.as_ref())
