@@ -78,6 +78,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         let scroll = UIPanGestureRecognizer(target: self, action: #selector(scroll))
         scroll.allowedScrollTypesMask = .continuous
         scroll.allowedTouchTypes = []
+        scroll.delegate = self
         addGestureRecognizer(scroll)
 
         let wheel = UIPanGestureRecognizer(target: self, action: #selector(wheel))
@@ -184,6 +185,16 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
             _ = self.resignFirstResponder()
             _ = self.becomeFirstResponder()
         }
+    }
+
+    // Fingers resting on the trackpad stop momentum, as they stop a scroll view's. iPadOS tells it only as a scroll event
+    // to the scroll recognizer, which begins once the fingers move.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive event: UIEvent) -> Bool {
+        if event.type == .scroll {
+            momentum.stop()
+        }
+
+        return true
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
