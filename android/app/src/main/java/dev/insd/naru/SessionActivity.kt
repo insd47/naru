@@ -64,6 +64,8 @@ class SessionActivity : ComponentActivity() {
     private var language: ImeLanguage? = null
     private var touchpad: Touchpad? = null
     private var momentum: Momentum? = null
+    // The Mac input source last asked for
+    private var asked: String? = null
 
     private val listener = object : Connection.Listener {
         override fun onEvent(event: Event) = handle(event)
@@ -179,14 +181,20 @@ class SessionActivity : ComponentActivity() {
         return true
     }
 
-    // The source goes out as soon as the tablet's language changes, so the Mac has switched before the user types, and
-    // again before each key, which the core skips for the source it last asked for.
+    // The source goes out as soon as the tablet's language changes, so the Mac has switched before the user types.
+    // Selecting before a key covers a change that was missed. A source the Mac changed to by itself is left alone, as
+    // Apple's client leaves it.
     private fun syncSource(current: Connection, tabletLanguage: String) {
         if (!naru.preferences.syncKeyboardLanguage || tabletLanguage.isEmpty()) {
             return
         }
 
-        inputSource(tabletLanguage, current.source)?.let(current::selectInputSource)
+        val source = inputSource(tabletLanguage, current.source) ?: return
+
+        if (source != asked) {
+            current.selectInputSource(source)
+            asked = source
+        }
     }
 
     @Composable
@@ -222,6 +230,7 @@ class SessionActivity : ComponentActivity() {
     // Attaches this screen's input to the session's connection.
     private fun adopt(next: Connection) {
         connection = next
+        asked = null
         language = ImeLanguage(this) { changed -> syncSource(next, changed) }.also { it.sync(delayMs = 0) }
         momentum = Momentum(this) { phase, dx, dy -> next.momentum(phase, dx, dy) }.also { touchpad = Touchpad(this, next, it) }
         immersive(true)
