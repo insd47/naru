@@ -64,8 +64,6 @@ class SessionActivity : ComponentActivity() {
     private var language: ImeLanguage? = null
     private var touchpad: Touchpad? = null
     private var momentum: Momentum? = null
-    // The Mac input source last asked for
-    private var asked: String? = null
 
     private val listener = object : Connection.Listener {
         override fun onEvent(event: Event) = handle(event)
@@ -188,8 +186,7 @@ class SessionActivity : ComponentActivity() {
         // Turned off, the Mac keeps its own source again, as with Apple's client; the agent would otherwise undo a switch
         // made on the Mac at every key.
         if (!naru.preferences.syncKeyboardLanguage) {
-            if (asked != null) current.releaseInputSource()
-            asked = null
+            current.releaseInputSource()
             return
         }
 
@@ -197,12 +194,7 @@ class SessionActivity : ComponentActivity() {
             return
         }
 
-        val source = inputSource(tabletLanguage, current.source) ?: return
-
-        if (source != asked) {
-            current.selectInputSource(source)
-            asked = source
-        }
+        inputSource(tabletLanguage, current.source)?.let(current::selectInputSource)
     }
 
     @Composable
@@ -238,7 +230,6 @@ class SessionActivity : ComponentActivity() {
     // Attaches this screen's input to the session's connection.
     private fun adopt(next: Connection) {
         connection = next
-        asked = null
         language = ImeLanguage(this) { changed -> syncSource(next, changed) }.also { it.sync(delayMs = 0) }
         momentum = Momentum(this) { phase, dx, dy -> next.momentum(phase, dx, dy) }.also { touchpad = Touchpad(this, next, it) }
         immersive(true)

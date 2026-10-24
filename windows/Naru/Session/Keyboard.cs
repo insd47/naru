@@ -38,8 +38,6 @@ internal sealed class Keyboard : IDisposable
     private Keys keys;
     private bool korean;
     private string language = "";
-    // The Mac input source last asked for
-    private string? asked;
 
     public Keyboard(nint window, Connection connection, Preferences preferences, Func<bool> capturing, Func<bool> fullScreen, Action toggleFullScreen)
     {
@@ -56,12 +54,11 @@ internal sealed class Keyboard : IDisposable
         Install();
     }
 
-    /// <summary>The window came to the front: settings may have changed, and the language is read and selected again.</summary>
+    /// <summary>The window came to the front: settings may have changed, and the language is read again.</summary>
     public void Activated()
     {
         keys = new Keys(preferences.SwapCommandOption);
         held.Clear();
-        asked = null;
         Report(Layout());
     }
 
@@ -219,22 +216,21 @@ internal sealed class Keyboard : IDisposable
         Sync();
     }
 
-    // The source goes out when the language changes, so a source the Mac changed to by itself, as when another window
-    // took focus, is left alone until the language changes, as Apple's client leaves it.
+    // The core asks only for a source other than the last one, so a source the Mac changed to by itself, as when another
+    // window took focus, is left alone until the language changes, as Apple's client leaves it.
     private void Sync()
     {
         // Turned off, the Mac keeps its own source again, as with Apple's client; the agent would otherwise undo a switch
         // made on the Mac at every key.
-        if (!preferences.SyncKeyboardLanguage && asked is not null)
+        if (!preferences.SyncKeyboardLanguage)
         {
             connection.ReleaseInputSource();
-            asked = null;
+            return;
         }
 
-        if (preferences.SyncKeyboardLanguage && language.Length > 0 && Core.NaruMethods.InputSource(language, connection.Source) is { } source && source != asked)
+        if (language.Length > 0 && Core.NaruMethods.InputSource(language, connection.Source) is { } source)
         {
             connection.SelectInputSource(source);
-            asked = source;
         }
     }
 

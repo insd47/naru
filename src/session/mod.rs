@@ -236,6 +236,7 @@ enum Command {
     Input(input::Event, Instant),
     Clipboard(Vec<u8>),
     InputSource(String),
+    ReleaseInputSource,
     Keyframe,
     Resize(Vec<u8>),
 }
@@ -318,7 +319,8 @@ impl Session {
     /// Selects the Mac's input source by its ID, as Apple's "Sync Keyboard Language" does.
     ///
     /// - Call it as soon as the client's language changes, from the system's notice when there is one, and before the
-    ///   first key typed in it. Every call is sent, so call it only when the language changes.
+    ///   first key typed in it. The source last asked for is not asked again, so a source the Mac changes to by itself,
+    ///   as when another window takes focus, is left alone until the client's language changes, as with Apple's client.
     /// - The Mac switches at once, and keys sent meanwhile wait until it reports the new source, a few milliseconds.
     pub fn select_input_source(&self, id: &str) -> Result<()> {
         self.send(Command::InputSource(id.to_owned()))
@@ -326,8 +328,9 @@ impl Session {
 
     /// Lets the Mac keep its own input source again, as Apple's client does when "Sync Keyboard Language" is turned
     /// off. The agent otherwise applies the source last asked for at every key, undoing a switch made on the Mac.
+    /// Nothing is sent when no source was asked for.
     pub fn release_input_source(&self) -> Result<()> {
-        self.send(Command::InputSource(String::new()))
+        self.send(Command::ReleaseInputSource)
     }
 
     /// Puts content of these kinds (UTIs) on the Mac's clipboard without its data, as Apple's client does. The Mac

@@ -109,10 +109,11 @@ itself. What differs is what each system hands the app:
 | iPad | the character iPadOS typed in its input language | `character(physical Latin, language)` for languages with a Mac layout, otherwise iPadOS's character |
 
 With "Sync Keyboard Language" on, as in Apple's client, each app also selects the Mac's input source for its input
-language: `input_source(language, source)` gives the ID and `select_input_source` sends it. An app asks only when its
-language changes: from the system's notice where there is one, as on the iPad, where it comes a moment after the switch
-key, and before the first key typed in a new language, which catches a late notice. A source the Mac changes to by
-itself, as when another window takes focus, is left alone, as Apple's client leaves it.
+language: `input_source(language, source)` gives the ID and `select_input_source` sends it. An app asks as soon as its
+language changes, from the system's notice where there is one, as on the iPad, where it comes a moment after the switch
+key, and before keys typed in it, which catches a late notice. The core asks the Mac only for a source other than the
+last one, so a source the Mac changes to by itself, as when another window takes focus, is left alone until the
+client's language changes, as Apple's client leaves it. Turning the option off releases the source.
 
 The agent applies a requested source only at the next key event, and when that event is a typed key it often reads the
 old source's layout and keeps it. Apple's client applies the source at the release of its switch key instead. The core

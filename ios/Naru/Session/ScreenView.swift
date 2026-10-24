@@ -19,7 +19,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     var connection: Connection? {
         didSet {
             guard connection !== oldValue else { return }
-            asked = nil
             oldValue?.video.layer.removeFromSuperlayer()
             if let layer = connection?.video.layer { self.layer.insertSublayer(layer, at: 0) }
             setNeedsLayout()
@@ -45,9 +44,8 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     private let cursorLayer = CALayer()
     private var keys = Keys()
     private var atTop = false
-    // The iPad's input language, and the Mac input source last asked for
+    // The iPad's input language
     private var language: String?
-    private var asked: String?
     // Presses also given to the text system, so their release goes there too
     private var typing = Set<UIKeyboardHIDUsage>()
     // The latest typing key still held, which the text system's repeats resend
@@ -288,14 +286,14 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
     // Like Apple's client, a key goes with its physical key only while the Mac is on the source of the iPad's language,
     // where that key types the same there, and otherwise the Mac types the keysym the iPad chose. With Sync Keyboard
-    // Language on, the source last asked for counts as the Mac's, as for Apple's client, since keys wait for the switch;
-    // with it off, the source the Mac reported does.
+    // Language on, the Mac is on it, as for Apple's client, since keys wait for the switch to it; with it off, the source
+    // the Mac reported counts.
     private func press(_ keysym: UInt32, _ key: UIKeyboardHIDUsage, down: Bool) {
         guard let connection else { return }
 
-        let mac = syncsLanguage ? asked : connection.source?.id
         let source = connection.source.flatMap { source in language.flatMap { inputSource(language: $0, current: source) } }
-        connection.key(keysym, usage: source != nil && source == mac ? key.rawValue : nil, down: down)
+        let onSource = source != nil && (syncsLanguage || source == connection.source?.id)
+        connection.key(keysym, usage: onSource ? key.rawValue : nil, down: down)
     }
 
     // iPadOS reports a language switch on its own a moment after the switch key, usually before the first key in the
@@ -311,8 +309,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     // Like Apple's client, turning Sync Keyboard Language on asks for the current language's source at once, and turning
     // it off lets the Mac keep its own source, which the agent would otherwise undo at every key.
     private func syncChanged() {
-        asked = nil
-
         if !syncsLanguage {
             connection?.releaseInputSource()
         } else if let language = language ?? textInputMode?.primaryLanguage {
@@ -320,16 +316,12 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         }
     }
 
-    // A source already asked for is not asked again, so a source the Mac changed to by itself, as when another window
-    // took focus, is left alone until the language changes, as Apple's client leaves it: asking right after such a
-    // change can leave the agent typing with the other source's layout.
     private func selectSource(for language: String) {
-        guard let connection, let source = inputSource(language: language, current: connection.source), source != asked else {
+        guard let connection, let source = inputSource(language: language, current: connection.source) else {
             return
         }
 
         connection.selectInputSource(source)
-        asked = source
     }
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {

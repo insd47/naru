@@ -44,7 +44,8 @@ pub struct Engine {
     held_resize: Option<Vec<u8>>,
     // The token of the latest request for the Mac's clipboard kinds. An offer with another token is stale.
     clipboard_token: u32,
-    // An input source the Mac is switching to, holding keys until it reports it
+    // The input source last asked for, and one the Mac is switching to, holding keys until it reports it
+    input_source: Option<String>,
     switching: Option<Switching>,
 }
 
@@ -78,6 +79,7 @@ impl Engine {
             cursor_hidden: false,
             pixels: None,
             held_resize: None,
+            input_source: None,
             switching: None,
             clipboard_token: 0,
         }
@@ -302,20 +304,29 @@ impl Engine {
     async fn command(&mut self, command: Command, now: Instant, outgoing: &mut Vec<Event>) -> Result<()> {
         match command {
             Command::Key { keysym, down } => self.send_key(client::key(keysym, down).to_vec()).await,
-            // A release of the source lets the Mac keep its own, so keys waiting for a switch go first.
-            Command::InputSource(id) if id.is_empty() => {
-                self.switched().await?;
-                self.control.send(&client::input_source("")).await
-            }
+            // A source already asked for is not asked again, so one the Mac changed to by itself, as when another window
+            // took focus, is left alone until the client's language changes, as Apple's client leaves it: asking right
+            // after such a change can leave the agent typing with the other source's layout.
+            Command::InputSource(id) if self.input_source.as_ref() == Some(&id) => Ok(()),
             Command::InputSource(id) => {
                 let (switching, messages) = Switching::start(&id, self.switching.take(), now);
                 self.switching = Some(switching);
+                self.input_source = Some(id);
 
                 for message in messages {
                     self.control.send(&message).await?;
                 }
 
                 Ok(())
+            }
+            // Nothing to release unless a source was asked for. Keys waiting for a switch go first.
+            Command::ReleaseInputSource => {
+                if self.input_source.take().is_none() {
+                    return Ok(());
+                }
+
+                self.switched().await?;
+                self.control.send(&client::input_source("")).await
             }
             Command::Input(event, at) => {
                 let pointer = matches!(event, input::Event::Pointer { .. });
