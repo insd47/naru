@@ -161,8 +161,15 @@ internal sealed class Keyboard : IDisposable
         {
             Send(keys.Translate(scan == RightAltScan ? VkRMenu : vk, scan, extended, down, layout, held, language, connection.Source));
 
+            // The agent's source is released first, as when Sync Keyboard Language turns off: switching right after another
+            // switch otherwise often leaves the agent typing with the other source's layout, which this keeps far rarer.
             if (down)
             {
+                if (preferences.SyncKeyboardLanguage)
+                {
+                    connection.ReleaseInputSource();
+                }
+
                 Sync(again: true);
                 korean = !korean;
             }
