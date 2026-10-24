@@ -1,0 +1,67 @@
+name: Android
+
+# Builds the Android app bundle at a tag, signed with the upload key, and leaves it as a draft release on the closed
+# testing track.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build, such as v0.1.0
+        required: true
+
+jobs:
+  play:
+    name: Google Play
+    runs-on: ubuntu-latest
+
+    steps:
+      # The version code is the commit count.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Install Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Rust
+        run: rustup target add aarch64-linux-android
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - name: Write the upload key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+        run: printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+
+      # cargo-ndk takes the newest NDK on the image.
+      - name: Build
+        working-directory: android
+        env:
+          ORG_GRADLE_PROJECT_naruUploadStoreFile: ${{ runner.temp }}/upload.jks
+          ORG_GRADLE_PROJECT_naruUploadStorePassword: ${{ secrets.ANDROID_UPLOAD_PASSWORD }}
+          ORG_GRADLE_PROJECT_naruUploadKeyPassword: ${{ secrets.ANDROID_UPLOAD_PASSWORD }}
+          ORG_GRADLE_PROJECT_naruUploadKeyAlias: upload
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          ./gradlew --no-daemon :app:bundleRelease
+
+      - name: Upload to Google Play
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT }}
+          packageName: dev.insd.naru
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: alpha
+          status: draft

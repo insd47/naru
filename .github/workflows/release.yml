@@ -1,0 +1,95 @@
+name: Release
+
+# release-plz keeps a release PR open with the next version and its changelog. Merging it tags the version, and the
+# apps built from that tag go to each store's test channel. Review and release stay with the owner in each store.
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    concurrency:
+      group: release
+      cancel-in-progress: false
+
+    outputs:
+      released: ${{ steps.release.outputs.releases_created }}
+      tag: ${{ steps.release.outputs.releases_created == 'true' && fromJSON(steps.release.outputs.releases)[0].tag || '' }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - name: Release
+        id: release
+        uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-pr:
+    name: Release PR
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    concurrency:
+      group: release-pr
+      cancel-in-progress: false
+
+    # A token of the owner's, since a PR opened with the default token runs no checks.
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLZ_TOKEN }}
+
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - name: Update release PR
+        uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+
+  # A tag pushed with the default token starts no workflow, so the apps are built from here.
+  ipad:
+    name: iPad
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    uses: ./.github/workflows/ipad.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets: inherit
+
+  android:
+    name: Android
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    uses: ./.github/workflows/android.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets: inherit
+
+  windows:
+    name: Windows
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    uses: ./.github/workflows/windows.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets: inherit
