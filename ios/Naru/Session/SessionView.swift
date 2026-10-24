@@ -3,69 +3,21 @@ import SwiftUI
 /// The session screen. Shows the Mac's screen under a title bar, with a loading state until the first frame arrives.
 ///
 /// - The title bar follows Screen Sharing's toolbar: the way back to the connections, the Mac's name, and the Mac's
-///   window shortcuts. In a window it is the navigation bar of a `NavigationStack`.
-/// - Filling the screen, it comes down with the status bar when the pointer rests at the top edge, as in Screen Sharing
-///   on the Mac, and the Mac's screen moves down below it. iPadOS has no toolbar that does this; macOS's
-///   `windowToolbarFullScreenVisibility(.onHover)` is not available. The window's own navigation bar is removed there,
-///   since one hidden in full screen kept the window draggable only within the full screen's top strip after going back
-///   to a window, and the stage lays out a navigation bar of its own.
+///   window shortcuts.
+/// - The stage is built again when the window starts or stops filling its screen, since a navigation bar hidden in full
+///   screen kept the window draggable only within the full screen's top strip after going back to a window.
 struct SessionView: View {
     @Environment(SessionController.self) private var session
     @State private var fillsScreen = false
-    // Filling the screen, whether the title bar came down for the pointer at the top edge
-    @State private var revealed = false
-    @State private var reveal: Task<Void, Never>?
 
     var body: some View {
-        Group {
-            if fillsScreen {
-                screen(revealed: revealed)
-                    .ignoresSafeArea()
-            } else {
-                NavigationStack {
-                    screen(revealed: nil)
-                        .ignoresSafeArea(edges: [.horizontal, .bottom])
-                        .navigationTitle(session.state?.host.title ?? "")
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar { toolbar }
-                }
-            }
-        }
-        .statusBarHidden(fillsScreen && !revealed)
-        // Hidden only when filling the screen, since in a window it also hides the window's controls.
-        .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
-        .background {
-            Backdrop { fills in
-                fillsScreen = fills
-                if !fills { revealed = false }
-            }
-        }
-    }
-
-    // As in Screen Sharing on the Mac, the title bar comes down after the pointer rests at the top edge for half a second,
-    // and goes once the pointer leaves it downward.
-    private func pointerAtTop(_ top: Bool) {
-        reveal?.cancel()
-
-        if top {
-            reveal = Task {
-                try? await Task.sleep(for: .milliseconds(500))
-                guard !Task.isCancelled else { return }
-                revealed = true
-            }
-        } else if revealed {
-            revealed = false
-        }
-    }
-
-    // `revealed` is whether the stage's own title bar shows, or `nil` for a stage without one.
-    private func screen(revealed: Bool?) -> some View {
-        ZStack {
-            ScreenStage(
-                session: session, connection: session.connection, layout: session.layout, cursor: session.cursor,
-                syncsLanguage: session.syncsKeyboardLanguage, revealed: revealed, onTop: pointerAtTop
-            )
-
+        ScreenStage(
+            session: session, connection: session.connection, layout: session.layout, cursor: session.cursor,
+            syncsLanguage: session.syncsKeyboardLanguage, fillsScreen: fillsScreen
+        )
+        .id(fillsScreen)
+        .ignoresSafeArea()
+        .overlay {
             if !session.shown {
                 ProgressView()
                     .controlSize(.large)
@@ -74,179 +26,173 @@ struct SessionView: View {
                     .tint(.white)
             }
         }
-        // Only behind the screen, so the title bar keeps the system background.
-        .background(.black, ignoresSafeAreaEdges: [])
-    }
-
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button("Connections", systemImage: "chevron.backward") { session.presented = false }
-        }
-
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            Button("Mission Control", systemImage: "rectangle.3.group") { session.press(.missionControl) }
-            Button("App Windows", systemImage: "macwindow.on.rectangle") { session.press(.appWindows) }
-            Button("Desktop", systemImage: "menubar.dock.rectangle") { session.press(.desktop) }
-            Menu("More", systemImage: "ellipsis") {
-                Button("Disconnect", systemImage: "xmark", role: .destructive) { session.close() }
-            }
+        // Hidden only when filling the screen, since in a window it also hides the window's controls.
+        .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
+        .background {
+            Backdrop { fillsScreen = $0 }
         }
     }
 }
 
-// The Mac's screen, and filling the screen the title bar over it
-private struct ScreenStage: UIViewRepresentable {
+// The stage, in a window inside a navigation controller whose bar shows its title, and filling the screen on its own
+// with a bar it brings down. The coordinator is the stage, so updates reach it either way.
+private struct ScreenStage: UIViewControllerRepresentable {
     let session: SessionController
     let connection: Connection?
     let layout: SessionController.Layout?
     let cursor: SessionController.Cursor?
     let syncsLanguage: Bool
-    let revealed: Bool?
-    let onTop: (Bool) -> Void
+    let fillsScreen: Bool
 
-    func makeUIView(context: Context) -> StageView {
-        let stage = StageView()
-        if revealed != nil { stage.addBar(titleItem()) }
-        return stage
+    func makeCoordinator() -> StageController {
+        StageController(session: session, fillsScreen: fillsScreen)
     }
 
-    func updateUIView(_ stage: StageView, context: Context) {
-        let view = stage.screen
-        view.connection = connection
-        view.layout = layout
-        view.cursor = cursor
-        view.syncsLanguage = syncsLanguage
-        view.onTop = onTop
-        view.onResize = { [session] mode in session.resize(mode) }
-        stage.bar?.topItem?.title = session.state?.host.title
-        stage.reveal(revealed ?? false)
+    func makeUIViewController(context: Context) -> UIViewController {
+        let stage = context.coordinator
+        return fillsScreen ? stage : UINavigationController(rootViewController: stage)
     }
 
-    // The window's toolbar items
-    private func titleItem() -> UINavigationItem {
-        let item = UINavigationItem()
-        item.leftBarButtonItem = UIBarButtonItem(title: "Connections", image: UIImage(systemName: "chevron.backward"), primaryAction: UIAction { [session] _ in session.presented = false })
-        item.rightBarButtonItems = [
-            UIBarButtonItem(title: "More", image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: [
-                UIAction(title: "Disconnect", image: UIImage(systemName: "xmark"), attributes: .destructive) { [session] _ in session.close() },
-            ])),
-            UIBarButtonItem(title: "Desktop", image: UIImage(systemName: "menubar.dock.rectangle"), primaryAction: UIAction { [session] _ in session.press(.desktop) }),
-            UIBarButtonItem(title: "App Windows", image: UIImage(systemName: "macwindow.on.rectangle"), primaryAction: UIAction { [session] _ in session.press(.appWindows) }),
-            UIBarButtonItem(title: "Mission Control", image: UIImage(systemName: "rectangle.3.group"), primaryAction: UIAction { [session] _ in session.press(.missionControl) }),
-        ]
-        return item
+    func updateUIViewController(_ controller: UIViewController, context: Context) {
+        let stage = context.coordinator
+        stage.navigationItem.title = session.state?.host.title
+
+        let screen = stage.screen
+        screen.connection = connection
+        screen.layout = layout
+        screen.cursor = cursor
+        screen.syncsLanguage = syncsLanguage
+        screen.onResize = { [session] mode in session.resize(mode) }
     }
 }
 
-/// Lays out the Mac's screen at its own full size and, filling the screen, a navigation bar at the top of the safe area,
-/// attached to the top so its background goes under the status bar.
+/// Shows the Mac's screen at its own full size under the title bar.
 ///
-/// - Hidden, the bar sits above the window; shown, the screen moves down to its bottom. Both are placed in the same
-///   layout pass and move with UIKit springs. The screen moves rather than shrinks, since a new size would resize the
-///   Mac's display.
-/// - The status bar comes a moment after it is asked for, so the bar comes down with it, when the safe area grows, rather
-///   than at once and again when it grows.
-/// - Touches pass through where neither is, as over a hidden bar.
-final class StageView: UIView, UINavigationBarDelegate {
+/// - In a window the bar is its navigation controller's. Filling the screen, the stage lays out a navigation bar of its
+///   own at the top of the safe area, attached to the top so its background goes under the status bar. As in Screen
+///   Sharing on the Mac, it comes down with the status bar when the pointer rests at the top edge, and goes once the
+///   pointer leaves it downward. iPadOS has no toolbar that does this; macOS's
+///   `windowToolbarFullScreenVisibility(.onHover)` is not available.
+/// - The bar, the status bar, and the screen move in one UIKit spring. The screen moves rather than shrinks, since a
+///   new size would resize the Mac's display.
+final class StageController: UIViewController, UINavigationBarDelegate, UIGestureRecognizerDelegate {
     let screen = ScreenView()
-    private(set) var bar: UINavigationBar?
+    private let fillsScreen: Bool
+    private var bar: UINavigationBar?
     private var revealed = false
-    // Shown, whether the bar waits for the status bar
-    private var waiting = false
+    private var reveal: Task<Void, Never>?
 
-    init() {
-        super.init(frame: .zero)
-        // The hidden bar sits above the stage, where it would show while the session slides in.
-        clipsToBounds = true
-        addSubview(screen)
+    init(session: SessionController, fillsScreen: Bool) {
+        self.fillsScreen = fillsScreen
+        super.init(nibName: nil, bundle: nil)
+
+        navigationItem.largeTitleDisplayMode = .never
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Connections", image: UIImage(systemName: "chevron.backward"), primaryAction: UIAction { _ in session.presented = false })
+        navigationItem.rightBarButtonItems = [
+            UIBarButtonItem(title: "More", image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: [
+                UIAction(title: "Disconnect", image: UIImage(systemName: "xmark"), attributes: .destructive) { _ in session.close() },
+            ])),
+            UIBarButtonItem(title: "Desktop", image: UIImage(systemName: "menubar.dock.rectangle"), primaryAction: UIAction { _ in session.press(.desktop) }),
+            UIBarButtonItem(title: "App Windows", image: UIImage(systemName: "macwindow.on.rectangle"), primaryAction: UIAction { _ in session.press(.appWindows) }),
+            UIBarButtonItem(title: "Mission Control", image: UIImage(systemName: "rectangle.3.group"), primaryAction: UIAction { _ in session.press(.missionControl) }),
+        ]
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    func addBar(_ item: UINavigationItem) {
+    override var prefersStatusBarHidden: Bool { fillsScreen && !revealed }
+    override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .slide }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        // Only behind the screen, so the title bar keeps the system background.
+        view.backgroundColor = .systemBackground
+        screen.backgroundColor = .black
+        // The hidden bar sits above the stage, where it would show while the session slides in.
+        view.clipsToBounds = true
+        view.addSubview(screen)
+
+        guard fillsScreen else { return }
+
         let bar = UINavigationBar()
         bar.delegate = self
-        bar.setItems([item], animated: false)
-        addSubview(bar)
+        bar.setItems([navigationItem], animated: false)
+        view.addSubview(bar)
         self.bar = bar
+
+        let hover = UIHoverGestureRecognizer(target: self, action: #selector(hover))
+        hover.delegate = self
+        view.addGestureRecognizer(hover)
     }
 
-    func reveal(_ revealed: Bool) {
-        guard revealed != self.revealed else { return }
-        self.revealed = revealed
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
 
-        guard revealed, safeAreaInsets.top == 0 else {
-            waiting = false
-            UIView.animate(springDuration: 0.35, bounce: 0) { self.place() }
-            return
-        }
-
-        // Not for long, should the status bar never come
-        waiting = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.come() }
-    }
-
-    private func come() {
-        guard waiting else { return }
-        waiting = false
-        UIView.animate(springDuration: 0.35, bounce: 0) {
-            self.setNeedsLayout()
-            self.layoutIfNeeded()
-        }
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-
-        // Bounds and centers rather than frames, which a transform would distort
-        screen.bounds = bounds
-        screen.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        // Bounds and centers rather than frames, which a transform would distort. In a window the screen starts below
+        // the navigation bar.
+        let bounds = view.bounds
+        let top = bar == nil ? view.safeAreaInsets.top : 0
+        screen.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height - top)
+        screen.center = CGPoint(x: bounds.midX, y: top + (bounds.height - top) / 2)
 
         if let bar {
             let height = bar.sizeThatFits(bounds.size).height
             bar.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: height)
-            bar.center = CGPoint(x: bounds.midX, y: safeAreaInsets.top + height / 2)
+            bar.center = CGPoint(x: bounds.midX, y: view.safeAreaInsets.top + height / 2)
+            place()
         }
-
-        place()
-    }
-
-    override func safeAreaInsetsDidChange() {
-        super.safeAreaInsetsDidChange()
-
-        if waiting, safeAreaInsets.top > 0 {
-            come()
-        } else {
-            UIView.animate(springDuration: 0.35, bounce: 0) {
-                self.setNeedsLayout()
-                self.layoutIfNeeded()
-            }
-        }
-    }
-
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let hit = super.hitTest(point, with: event)
-        return hit === self ? nil : hit
     }
 
     func position(for bar: any UIBarPositioning) -> UIBarPosition {
         .topAttached
     }
 
-    private func place() {
-        guard let bar else {
-            screen.transform = .identity
-            screen.topZone = 0
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
+    }
+
+    // As in Screen Sharing on the Mac, the bar comes down after the pointer rests at the top edge for half a second,
+    // and goes once the pointer leaves it downward. The edge reaches a little past the bar while it shows.
+    @objc private func hover(_ recognizer: UIHoverGestureRecognizer) {
+        guard recognizer.state == .began || recognizer.state == .changed, let bar else {
             return
         }
 
-        let shown = revealed && !waiting
+        let edge = revealed ? bar.frame.maxY + 16 : 2
+
+        if recognizer.location(in: view).y > edge {
+            reveal?.cancel()
+            reveal = nil
+            if revealed { show(false) }
+        } else if !revealed, reveal == nil {
+            reveal = Task {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                reveal = nil
+                show(true)
+            }
+        }
+    }
+
+    // The status bar comes in the same animation, and the safe area it brings places the bar.
+    private func show(_ revealed: Bool) {
+        self.revealed = revealed
+
+        UIView.animate(springDuration: 0.35, bounce: 0) {
+            self.setNeedsStatusBarAppearanceUpdate()
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    private func place() {
+        guard let bar else { return }
+
         let bottom = bar.center.y + bar.bounds.height / 2
-        bar.transform = shown ? .identity : CGAffineTransform(translationX: 0, y: -bottom)
-        screen.transform = CGAffineTransform(translationX: 0, y: shown ? bottom : 0)
-        screen.topZone = shown ? bottom + 16 : 2
+        bar.transform = revealed ? .identity : CGAffineTransform(translationX: 0, y: -bottom)
+        screen.transform = CGAffineTransform(translationX: 0, y: revealed ? bottom : 0)
     }
 }
 

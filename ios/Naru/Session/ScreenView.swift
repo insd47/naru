@@ -11,10 +11,6 @@ import UIKit
 /// - After a size change it waits briefly, then reports the virtual display size through [onResize].
 final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGestureRecognizerDelegate {
     var onResize: (DisplayMode) -> Void = { _ in }
-    /// How far from the window's top the pointer counts as at the top, or 0 to not watch it
-    var topZone: CGFloat = 0
-    /// Called when the pointer comes within `topZone` of the window's top or leaves it
-    var onTop: (Bool) -> Void = { _ in }
 
     var connection: Connection? {
         didSet {
@@ -43,7 +39,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
     private let cursorLayer = CALayer()
     private var keys = Keys()
-    private var atTop = false
     // The iPad's input language
     private var language: String?
     // Presses also given to the text system, so their release goes there too
@@ -389,12 +384,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         }
 
         move(to: recognizer.location(in: self))
-
-        let top = topZone > 0 && recognizer.location(in: window).y <= topZone
-        if top != atTop {
-            atTop = top
-            onTop(top)
-        }
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
