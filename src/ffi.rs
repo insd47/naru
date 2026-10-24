@@ -439,6 +439,13 @@ impl From<crate::touchpad::Gesture> for Gesture {
     }
 }
 
+/// The macOS virtual key code of a key given as a USB HID keyboard usage (page 7), for [`Session::key`]. `None` for a
+/// key the Mac has no code for.
+#[uniffi::export]
+pub fn mac_keycode(usage: u16) -> Option<u16> {
+    crate::keyboard::mac_keycode(usage)
+}
+
 /// What to send so the Mac types what this Latin key means in `language` (a BCP 47 tag such as `ko-KR`), given the
 /// Mac's input source from the latest `Event::Source`.
 ///
@@ -447,13 +454,6 @@ impl From<crate::touchpad::Gesture> for Gesture {
 ///   produced.
 /// - In secure input it returns the Latin key, since the Mac forces ABC there.
 /// - Not for shortcuts: with Command, Control, or Option held, send the Latin key as is.
-/// The macOS virtual key code of a key given as a USB HID keyboard usage (page 7), for [`Session::key`]. `None` for a
-/// key the Mac has no code for.
-#[uniffi::export]
-pub fn mac_keycode(usage: u16) -> Option<u16> {
-    crate::keyboard::mac_keycode(usage)
-}
-
 #[uniffi::export]
 pub fn character(latin: u32, language: String, source: Option<InputSource>) -> Option<u32> {
     crate::keyboard::character(latin, &language, source.as_ref())

@@ -24,6 +24,11 @@ const APP_VERSION: [u32; 3] = [6, 1, 0];
 const OS_VERSION: [u32; 3] = [15, 3, 0];
 const CAPABILITIES: [(usize, u8); 5] = [(0, 0xb0), (2, 0x0c), (3, 0x03), (4, 0x90), (10, 0x40)];
 
+// Input events carry the flags Apple's client sends, and key events an ANSI Mac keyboard's type, which the agent also
+// logs as the viewer's.
+const INPUT_FLAGS: u8 = 0x03;
+const ANSI_KEYBOARD: u32 = 40;
+
 /// Builds the 66-byte ViewerInfo that announces the client kind and its capabilities.
 pub fn viewer_info() -> Vec<u8> {
     let mut message = vec![0x21, 0];
@@ -132,11 +137,6 @@ pub fn key_event(keys: &RecordKeys, keysym: u32, down: bool, keycode: u16, elaps
     plain[14..16].copy_from_slice(&keycode.to_be_bytes());
     encrypted(keys, plain)
 }
-
-// Keyboard type 40, which the agent also logs as the viewer's
-const ANSI_KEYBOARD: u32 = 40;
-
-const INPUT_FLAGS: u8 = 0x03;
 
 // An input event: its 16 bytes encrypted with the content key as one AES block, after the type and a flags byte.
 //

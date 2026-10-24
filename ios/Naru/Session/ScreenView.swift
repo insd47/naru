@@ -288,8 +288,8 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
     // Like Apple's client, a key goes with its physical key only while the Mac is on the source of the iPad's language,
     // where that key types the same there, and otherwise the Mac types the keysym the iPad chose. With Sync Keyboard
-    // Language on, the source last asked for counts as the Mac's, as for Apple's client, since the Mac switches at this
-    // very key; with it off, the source the Mac reported does.
+    // Language on, the source last asked for counts as the Mac's, as for Apple's client, since keys wait for the switch;
+    // with it off, the source the Mac reported does.
     private func press(_ keysym: UInt32, _ key: UIKeyboardHIDUsage, down: Bool) {
         guard let connection else { return }
 

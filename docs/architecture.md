@@ -123,12 +123,11 @@ meanwhile wait for the Mac to report the new source, a few milliseconds.
 Switching also commits a composition the Mac's input method still holds; without the option, Korean typed before
 switching to English stays composing until Space. Like Apple's client, keys go with their macOS key code while the
 Mac is on the source of the client's language, so the agent presses the physical key when a character is missing from
-the layout it holds. With the option on, the source last asked for counts as the Mac's, since the Mac switches at the
-next key; with it off, the source the Mac reported does. On another source keys go without one, and the Mac types the
-character the client chose. After a switch the agent sometimes still keeps the old source's
-layout, mostly after another window took focus, and the Mac then types the key's Latin
-letter until a text field takes focus again, the same as with Apple's client; without the key code it typed separate
-jamo.
+the layout it holds. With the option on, the source last asked for counts as the Mac's, since keys wait for the switch;
+with it off, the source the Mac reported does. On another source keys go without one, and the Mac types the character
+the client chose. After a switch the agent sometimes still keeps the old source's layout, mostly after another window
+took focus, and the Mac then types the key's Latin letter until a text field takes focus again, the same as with Apple's
+client; without the key code it typed separate jamo.
 
 iPadOS applies a hardware keyboard language switch only when its text system sees the next key, and that key's
 `UIKey.characters` is still in the old language. The iPad app therefore passes typing keys to the text system first and
