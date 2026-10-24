@@ -154,27 +154,14 @@ internal sealed class Keyboard : IDisposable
 
         var layout = Layout();
 
-        // The Hangul key goes to the Mac as the key it is, mostly the right Alt. Like Apple's client with Caps Lock, the
-        // current source is asked for while it is held, so its release changes nothing, and the new mode's after the
-        // release, so the first typed key switches.
+        // The Hangul key goes to the Mac as the key it is, mostly the right Alt, and switches the Mac with the mode.
         if (vk == VkHangul && (layout & 0xffff) == KoreanLanguage)
         {
             Send(keys.Translate(scan == RightAltScan ? VkRMenu : vk, scan, extended, down, layout, held, language, connection.Source));
 
-            // The agent's source is released first, as when Sync Keyboard Language turns off: switching right after another
-            // switch otherwise often leaves the agent typing with the other source's layout, which this keeps far rarer.
             if (down)
             {
-                if (preferences.SyncKeyboardLanguage)
-                {
-                    connection.ReleaseInputSource();
-                }
-
-                Sync(again: true);
                 korean = !korean;
-            }
-            else
-            {
                 Report(layout);
             }
 
@@ -232,10 +219,9 @@ internal sealed class Keyboard : IDisposable
         Sync();
     }
 
-    // The source goes out when the language changes. A source already asked for is asked again only for the Hangul key,
-    // as Apple's client does with Caps Lock, so a source the Mac changed to by itself, as when another window took focus,
-    // is left alone until the language changes, as Apple's client leaves it.
-    private void Sync(bool again = false)
+    // The source goes out when the language changes, so a source the Mac changed to by itself, as when another window
+    // took focus, is left alone until the language changes, as Apple's client leaves it.
+    private void Sync()
     {
         // Turned off, the Mac keeps its own source again, as with Apple's client; the agent would otherwise undo a switch
         // made on the Mac at every key.
@@ -245,7 +231,7 @@ internal sealed class Keyboard : IDisposable
             asked = null;
         }
 
-        if (preferences.SyncKeyboardLanguage && language.Length > 0 && Core.NaruMethods.InputSource(language, connection.Source) is { } source && (again || source != asked))
+        if (preferences.SyncKeyboardLanguage && language.Length > 0 && Core.NaruMethods.InputSource(language, connection.Source) is { } source && source != asked)
         {
             connection.SelectInputSource(source);
             asked = source;
