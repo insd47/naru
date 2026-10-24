@@ -39,6 +39,8 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     }
 
     private let cursorLayer = CALayer()
+    private static let capsLock: UInt32 = 0xffe5
+
     private var keys = Keys()
     // The input language of the last key and the one before it, which Caps Lock switches back to, and the Mac input
     // source last asked for
@@ -246,6 +248,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
             if Keys.isSystem(key) {
                 system.insert(press)
+                capsLock(key, down: true)
             } else if Keys.isTyping(key) {
                 system.insert(press)
                 typing.insert(key.keyCode)
@@ -300,17 +303,22 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         connection.key(keysym, usage: source != nil && source == mac ? key.rawValue : nil, down: down)
     }
 
-    // Caps Lock stays with iPadOS, which switches the input language with it; the Mac does not switch on a remote Caps
-    // Lock. With Sync Keyboard Language on, the language Caps Lock switches to is assumed at its release, which keeps
-    // repeated presses in step, and its source asked for, applied at the next key. iPadOS reveals the language only with
-    // the first typed key, which corrects a wrong guess.
-    private func capsLockReleased(_ key: UIKey) {
-        guard key.keyCode == .keyboardCapsLock, syncsLanguage, let previous = languages.previous else {
+    // Caps Lock goes to iPadOS, which switches the input language with it, and with Sync Keyboard Language on also to
+    // the Mac, as Apple's client sends it, though as a keysym alone: the Mac then does not switch on it, which would only
+    // toggle and drift apart from the iPad, but the agent applies a requested source at it. So the language Caps Lock
+    // switches to is assumed and asked for while it is held, and applied at its release, before the user types. iPadOS
+    // reveals the language only with the first typed key, which corrects a wrong guess.
+    private func capsLock(_ key: UIKey, down: Bool) {
+        guard key.keyCode == .keyboardCapsLock, syncsLanguage, let connection else {
             return
         }
 
-        languages = (previous, languages.current)
-        selectSource(for: previous)
+        if down, let previous = languages.previous {
+            languages = (previous, languages.current)
+            selectSource(for: previous)
+        }
+
+        connection.key(Self.capsLock, usage: nil, down: down)
     }
 
     // Like Apple's client, turning Sync Keyboard Language on asks for the current language's source at once, and turning
@@ -353,7 +361,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
             if Keys.isSystem(key) {
                 system.insert(press)
-                capsLockReleased(key)
+                capsLock(key, down: false)
                 continue
             }
 

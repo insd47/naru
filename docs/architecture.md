@@ -116,9 +116,9 @@ window takes focus, is left alone, as Apple's client leaves it: asking right aft
 typing with the other source's layout.
 
 The switch key differs per app. Apple's client sends Caps Lock to the Mac, which toggles its own source with it, so
-once the two sides disagree every press keeps them apart. The iPad app keeps Caps Lock for iPadOS and asks for the
-language Caps Lock switches to at its release, since iPadOS reveals the new language only with the first typed key,
-which corrects a wrong guess. The Windows app sends
+once the two sides disagree every press keeps them apart. The iPad app sends Caps Lock as a keysym alone, which the
+Mac does not switch on, and asks for the language Caps Lock switches to while it is held, so its release applies it
+before the user types; iPadOS reveals the new language only with the first typed key, which corrects a wrong guess. The Windows app sends
 its Hangul key as the key it is, mostly the right Alt, which does not switch the Mac, asking for the current source
 while it is held and for the new one after its release, as Apple's client does with Caps Lock.
 
