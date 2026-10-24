@@ -1,0 +1,123 @@
+name: Check
+
+# The core's checks from CONTRIBUTING.md, and a build of each app against it.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: core
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+  android:
+    name: android
+    runs-on: ubuntu-latest
+
+    steps:
+      # The version code is the commit count.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Rust
+        run: rustup target add aarch64-linux-android
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+
+      # cargo-ndk takes the newest NDK on the image.
+      - name: Build
+        working-directory: android
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          ./gradlew --no-daemon :app:assembleDebug
+
+  ipad:
+    name: ipad
+    runs-on: xcode-27
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        run: rustup target add aarch64-apple-ios
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ipad
+
+      - name: Build
+        run: >
+          xcodebuild -project ios/Naru.xcodeproj -scheme Naru -configuration Release
+          -destination generic/platform=iOS -derivedDataPath ios/build/dd CODE_SIGNING_ALLOWED=NO build
+
+  windows:
+    name: windows
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows
+
+      # Built from git, so it is kept between runs.
+      - name: Cache uniffi-bindgen-cs
+        id: bindgen
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/uniffi-bindgen-cs.exe
+          key: uniffi-bindgen-cs-v0.11.1+v0.31.0
+
+      - name: Install uniffi-bindgen-cs
+        if: steps.bindgen.outputs.cache-hit != 'true'
+        run: cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.11.1+v0.31.0
+
+      - name: Build
+        working-directory: windows/Naru
+        run: dotnet build -c Release -p:Platform=x64 -nologo
