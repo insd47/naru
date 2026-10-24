@@ -249,6 +249,12 @@ mod tests {
         );
     }
 
+    // Byte for byte what Apple's client sent when Sync Keyboard Language was turned off in the 2026-10-24 relay capture.
+    #[test]
+    fn empty_input_source_matches_apple() {
+        assert_eq!(super::input_source(""), [0x1a, 0, 0, 4, 0, 1, 0, 0]);
+    }
+
     #[test]
     fn input_source_has_padding_and_lengths() {
         let message = super::input_source("com.apple.keylayout.ABC");

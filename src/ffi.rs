@@ -277,7 +277,7 @@ impl Session {
         Arc::new(Self { session })
     }
 
-    /// Key input. `keysym` is an X11 keysym of what the Mac should type, sent as is; Command is Super (`0xffeb`) and
+    /// Key input. `keysym` is an X11 keysym of what the Mac should type, sent as is; Command is Alt (`0xffe9`) and
     /// Option is Meta (`0xffe7`), and [`character`] gives what a Latin key types in a language. Release with the keysym
     /// that was pressed.
     ///
@@ -338,6 +338,12 @@ impl Session {
     ///   another window takes focus, is left alone until the client's language changes, as with Apple's client.
     pub fn select_input_source(&self, id: String) {
         let _ = self.session.select_input_source(&id);
+    }
+
+    /// Lets the Mac keep its own input source again, as Apple's client does when "Sync Keyboard Language" is turned
+    /// off. The agent otherwise applies the source last asked for at every key, undoing a switch made on the Mac.
+    pub fn release_input_source(&self) {
+        let _ = self.session.release_input_source();
     }
 
     /// Puts content of these kinds (UTIs) on the Mac's clipboard without its data, as Apple's client does. The Mac

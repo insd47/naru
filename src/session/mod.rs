@@ -259,7 +259,7 @@ impl Session {
         (Self { commands, closed }, events_receiver)
     }
 
-    /// Presses or releases a key. The key is an X11 keysym of what the Mac should type; Command is Super (`0xffeb`) and
+    /// Presses or releases a key. The key is an X11 keysym of what the Mac should type; Command is Alt (`0xffe9`) and
     /// Option is Meta (`0xffe7`).
     ///
     /// - It goes to the Mac as is. Choosing it is the client's job; the FFI's `character` gives what a Latin key types
@@ -322,6 +322,12 @@ impl Session {
     ///   key's release changes nothing, and for the new source after the release, so the first typed key switches.
     pub fn select_input_source(&self, id: &str) -> Result<()> {
         self.send(Command::InputSource(id.to_owned()))
+    }
+
+    /// Lets the Mac keep its own input source again, as Apple's client does when "Sync Keyboard Language" is turned
+    /// off. The agent otherwise applies the source last asked for at every key, undoing a switch made on the Mac.
+    pub fn release_input_source(&self) -> Result<()> {
+        self.send(Command::InputSource(String::new()))
     }
 
     /// Puts content of these kinds (UTIs) on the Mac's clipboard without its data, as Apple's client does. The Mac
