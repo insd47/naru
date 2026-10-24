@@ -89,7 +89,22 @@ cargo run --example probe -- my-mac.local myname --display 1280x800@2 --seconds 
 - Open an issue before a large change, so the design can be agreed first.
 - Keep a pull request to one concern, run the local checks, build every app you touched, and say how you tested it:
   offline only, or against which macOS version and app.
+- Pull requests are squashed into `main`, so the title becomes the commit and a line of `CHANGELOG.md`: a
+  Conventional Commits subject in English, lowercase and imperative. CI checks the title, and the core's checks and a
+  build of each app must pass.
 - Never attach screen captures, or logs and recordings that show personal data.
+
+## Releases
+
+The core and the three apps share one version, the `naru` package's in `Cargo.toml`, and each app reads it when it
+builds. The build number is the commit count, `git rev-list --count HEAD`.
+
+[release-plz](https://release-plz.dev) keeps a release PR open with the next version and its changelog, from the
+`feat`, `fix`, `perf`, and `revert` commits and breaking changes since the last tag. Merging it tags `v{version}`, and
+the `Release` workflow builds each app from that tag and uploads it to the store's test channel: TestFlight, a draft on
+Google Play's closed testing track, and the Partner Center submission draft. The same builds are attached to the
+GitHub release, with an APK for devices without Google Play. Submitting for review and releasing are done by hand in
+each store. An app that failed is built again with the run's Re-run failed jobs.
 
 ## Style
 

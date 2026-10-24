@@ -1,0 +1,274 @@
+name: Release
+
+# release-plz keeps a release PR open with the next version and its changelog. Merging it tags the version, and the
+# apps built from that tag go to each store's test channel and to the GitHub release. Review and release stay with the
+# owner in each store. A failed app is built again with "Re-run failed jobs".
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    concurrency:
+      group: release
+      cancel-in-progress: false
+
+    outputs:
+      released: ${{ steps.release.outputs.releases_created }}
+      tag: ${{ steps.release.outputs.releases_created == 'true' && fromJSON(steps.release.outputs.releases)[0].tag || '' }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - name: Release
+        id: release
+        uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-pr:
+    name: Release PR
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    concurrency:
+      group: release-pr
+      cancel-in-progress: false
+
+    # A token of the owner's, since a PR opened with the default token runs no checks.
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLZ_TOKEN }}
+
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - name: Update release PR
+        uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+
+  # Signing is cloud-managed through the App Store Connect API key, so no certificate goes into the runner's keychain.
+  ipad:
+    name: iPad
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: xcode-27
+
+    permissions:
+      contents: write
+
+    env:
+      TAG: ${{ needs.release.outputs.tag }}
+
+    steps:
+      # The build number is the commit count.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Install Rust
+        run: rustup target add aarch64-apple-ios
+
+      - name: Write the API key
+        env:
+          KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+        run: printf '%s' "$KEY" > "$RUNNER_TEMP/key.p8"
+
+      - name: Archive
+        run: >
+          xcodebuild -project ios/Naru.xcodeproj -scheme Naru -configuration Release -destination generic/platform=iOS
+          -archivePath "$RUNNER_TEMP/Naru.xcarchive" -allowProvisioningUpdates
+          -authenticationKeyPath "$RUNNER_TEMP/key.p8"
+          -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          archive
+
+      # The same options export the IPA kept on the release, and with the destination switched, upload it.
+      - name: Write the export options
+        run: |
+          for destination in export upload; do
+            cat > "$RUNNER_TEMP/$destination.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>$destination</string>
+            <key>teamID</key><string>9C733G7JPX</string>
+          </dict>
+          </plist>
+          PLIST
+          done
+
+      - name: Export the IPA
+        run: >
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Naru.xcarchive"
+          -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/export" -allowProvisioningUpdates
+          -authenticationKeyPath "$RUNNER_TEMP/key.p8"
+          -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+
+      - name: Upload to TestFlight
+        run: >
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Naru.xcarchive"
+          -exportOptionsPlist "$RUNNER_TEMP/upload.plist" -exportPath "$RUNNER_TEMP/upload" -allowProvisioningUpdates
+          -authenticationKeyPath "$RUNNER_TEMP/key.p8"
+          -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mv "$RUNNER_TEMP/export/Naru.ipa" "$RUNNER_TEMP/naru-$TAG.ipa"
+          gh release upload "$TAG" "$RUNNER_TEMP/naru-$TAG.ipa"
+
+  # The bundle goes to Google Play, and an APK signed with the same upload key goes to the release for devices
+  # without Google Play.
+  android:
+    name: Android
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    env:
+      TAG: ${{ needs.release.outputs.tag }}
+
+    steps:
+      # The version code is the commit count.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Install Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Rust
+        run: rustup target add aarch64-linux-android
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - name: Write the upload key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+        run: printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+
+      # cargo-ndk takes the newest NDK on the image.
+      - name: Build
+        working-directory: android
+        env:
+          ORG_GRADLE_PROJECT_naruUploadStoreFile: ${{ runner.temp }}/upload.jks
+          ORG_GRADLE_PROJECT_naruUploadStorePassword: ${{ secrets.ANDROID_UPLOAD_PASSWORD }}
+          ORG_GRADLE_PROJECT_naruUploadKeyPassword: ${{ secrets.ANDROID_UPLOAD_PASSWORD }}
+          ORG_GRADLE_PROJECT_naruUploadKeyAlias: upload
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          ./gradlew --no-daemon :app:bundleRelease :app:assembleRelease
+
+      - name: Upload to Google Play
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT }}
+          packageName: dev.insd.naru
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: alpha
+          status: draft
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/bundle/release/app-release.aab "$RUNNER_TEMP/naru-$TAG.aab"
+          cp android/app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/naru-$TAG.apk"
+          gh release upload "$TAG" "$RUNNER_TEMP/naru-$TAG.aab" "$RUNNER_TEMP/naru-$TAG.apk"
+
+  # Packaged for x64 and ARM64 and added to the Partner Center submission draft without committing it. The Store signs
+  # the package.
+  windows:
+    name: Windows
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: windows-2025-vs2026
+
+    permissions:
+      contents: write
+
+    env:
+      TAG: ${{ needs.release.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Install Rust
+        run: rustup target add aarch64-pc-windows-msvc
+
+      # Built from git, so it is kept between runs.
+      - name: Cache uniffi-bindgen-cs
+        id: bindgen
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/uniffi-bindgen-cs.exe
+          key: uniffi-bindgen-cs-v0.11.1+v0.31.0
+
+      - name: Install uniffi-bindgen-cs
+        if: steps.bindgen.outputs.cache-hit != 'true'
+        run: cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.11.1+v0.31.0
+
+      - name: Package
+        working-directory: windows/Naru
+        run: >
+          dotnet build -c Release -p:Platform=x64 -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=StoreUpload
+          -p:AppxBundle=Always "-p:AppxBundlePlatforms=x64|ARM64" -p:AppxSymbolPackageEnabled=false
+          "-p:AppxPackageDir=${{ runner.temp }}\packages\" -nologo
+
+      - name: Install msstore
+        uses: microsoft/microsoft-store-apppublisher@v1.4
+
+      - name: Sign in to Partner Center
+        run: >
+          msstore reconfigure --tenantId ${{ secrets.PARTNER_CENTER_TENANT_ID }} --sellerId ${{ secrets.PARTNER_CENTER_SELLER_ID }}
+          --clientId ${{ secrets.PARTNER_CENTER_CLIENT_ID }} --clientSecret ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+
+      - name: Upload to the submission draft
+        run: msstore publish windows/Naru --inputDirectory "${{ runner.temp }}\packages" --appId 9NB04VKG0DBL --noCommit
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $package = Get-ChildItem "${{ runner.temp }}\packages\*.msixupload" | Select-Object -First 1
+          Copy-Item $package.FullName "${{ runner.temp }}\naru-$env:TAG.msixupload"
+          gh release upload $env:TAG "${{ runner.temp }}\naru-$env:TAG.msixupload"
