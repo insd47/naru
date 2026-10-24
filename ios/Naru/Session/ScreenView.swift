@@ -39,12 +39,9 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     }
 
     private let cursorLayer = CALayer()
-    private static let capsLock: UInt32 = 0xffe5
-
     private var keys = Keys()
-    // The input language of the last key and the one before it, which Caps Lock switches back to, and the Mac input
-    // source last asked for
-    private var languages: (current: String?, previous: String?)
+    // The iPad's input language, and the Mac input source last asked for
+    private var language: String?
     private var asked: String?
     // Presses also given to the text system, so their release goes there too
     private var typing = Set<UIKeyboardHIDUsage>()
@@ -248,7 +245,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
             if Keys.isSystem(key) {
                 system.insert(press)
-                capsLock(key, down: true)
             } else if Keys.isTyping(key) {
                 system.insert(press)
                 typing.insert(key.keyCode)
@@ -273,13 +269,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         // Only a typing key carries the input language. iPadOS switches it at the first one, so a modifier pressed before,
         // such as Shift for a capital, still reports the old language, and selecting it would switch the Mac back.
         if typing.contains(key.keyCode), let language {
-            if language != languages.current {
-                languages = (language, languages.current)
-            }
-
-            if syncsLanguage {
-                selectSource(for: language)
-            }
+            changed(to: language)
         }
 
         press(keysym, key.keyCode, down: true)
@@ -299,30 +289,18 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         guard let connection else { return }
 
         let mac = syncsLanguage ? asked : connection.source?.id
-        let source = connection.source.flatMap { source in languages.current.flatMap { inputSource(language: $0, current: source) } }
+        let source = connection.source.flatMap { source in language.flatMap { inputSource(language: $0, current: source) } }
         connection.key(keysym, usage: source != nil && source == mac ? key.rawValue : nil, down: down)
     }
 
-    // Caps Lock goes to iPadOS, which switches the input language with it, and with Sync Keyboard Language on also to
-    // the Mac, as Apple's client sends it, though as a keysym alone: the Mac then does not switch on it, which would only
-    // toggle and drift apart from the iPad, but the agent applies a requested source at it. So the language Caps Lock
-    // switches to is assumed and asked for while it is held, and applied at its release, before the user types. iPadOS
-    // reveals the language only with the first typed key, which corrects a wrong guess. The agent's source is released
-    // first, as when Sync Keyboard Language turns off: switching right after another switch otherwise often leaves the
-    // agent typing with the other source's layout, which this keeps far rarer.
-    private func capsLock(_ key: UIKey, down: Bool) {
-        guard key.keyCode == .keyboardCapsLock, syncsLanguage, let connection else {
-            return
-        }
+    // iPadOS reports a language switch on its own a moment after the switch key, usually before the first key in the
+    // new language, which also reports it and catches a notice that came late. The core switches the Mac at once.
+    private func changed(to language: String) {
+        self.language = language
 
-        if down, let previous = languages.previous {
-            languages = (previous, languages.current)
-            connection.releaseInputSource()
-            asked = nil
-            selectSource(for: previous)
+        if syncsLanguage {
+            selectSource(for: language)
         }
-
-        connection.key(Self.capsLock, usage: nil, down: down)
     }
 
     // Like Apple's client, turning Sync Keyboard Language on asks for the current language's source at once, and turning
@@ -332,7 +310,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
         if !syncsLanguage {
             connection?.releaseInputSource()
-        } else if let language = languages.current ?? textInputMode?.primaryLanguage {
+        } else if let language = language ?? textInputMode?.primaryLanguage {
             selectSource(for: language)
         }
     }
@@ -365,7 +343,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
             if Keys.isSystem(key) {
                 system.insert(press)
-                capsLock(key, down: false)
                 continue
             }
 
@@ -391,7 +368,12 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     }
 
     @objc private func languageChanged() {
-        Diagnostics.input.log("Input language changed to \(self.textInputMode?.primaryLanguage ?? "none", privacy: .public)")
+        let language = textInputMode?.primaryLanguage
+        Diagnostics.input.log("Input language changed to \(language ?? "none", privacy: .public)")
+
+        if let language {
+            changed(to: language)
+        }
     }
 
     // MARK: Pointer
