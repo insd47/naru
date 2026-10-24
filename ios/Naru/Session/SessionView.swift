@@ -36,7 +36,7 @@ struct SessionView: View {
 
     private var screen: some View {
         ZStack {
-            Screen(connection: session.connection, layout: session.layout, cursor: session.cursor, syncsLanguage: session.syncsKeyboardLanguage) { mode in
+            Screen(connection: session.connection, layout: session.layout, cursor: session.cursor, syncsLanguage: session.syncsKeyboardLanguage, onPaste: session.paste) { mode in
                 session.resize(mode)
             }
 
@@ -104,6 +104,7 @@ private struct Screen: UIViewRepresentable {
     let layout: SessionController.Layout?
     let cursor: SessionController.Cursor?
     let syncsLanguage: Bool
+    let onPaste: () -> Void
     let onResize: (DisplayMode) -> Void
 
     func makeUIView(context: Context) -> ScreenView {
@@ -115,6 +116,7 @@ private struct Screen: UIViewRepresentable {
         view.layout = layout
         view.cursor = cursor
         view.syncsLanguage = syncsLanguage
+        view.onPaste = onPaste
         view.onResize = onResize
     }
 }

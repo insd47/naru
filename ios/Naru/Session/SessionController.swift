@@ -73,8 +73,7 @@ final class SessionController {
     private let preferences: Preferences
     private var running: Running?
     private var background = UIBackgroundTaskIdentifier.invalid
-    private var pasteboardChange = UIPasteboard.general.changeCount
-    private var clipboard: String?
+    private var clipboard: Clipboard?
 
     init(hosts: Hosts, preferences: Preferences) {
         self.hosts = hosts
@@ -104,6 +103,7 @@ final class SessionController {
 
         self.running = running
         self.connection = connection
+        clipboard = Clipboard(connection: connection, preferences: preferences)
     }
 
     /// Clears a failure after it has been shown.
@@ -125,34 +125,19 @@ final class SessionController {
         connection?.resize(mode)
     }
 
-    /// Sends text copied in another app to the Mac. Called when the app returns to the foreground.
-    ///
-    /// - Reading the clipboard makes iPadOS ask for paste permission, so it is read only when it has changed.
+    /// Offers content copied in another app to the Mac. Called when the app returns to the foreground.
     func syncClipboard() {
-        let pasteboard = UIPasteboard.general
-
-        guard let connection, preferences.sharedClipboard, pasteboard.changeCount != pasteboardChange else {
-            return
-        }
-
-        pasteboardChange = pasteboard.changeCount
-
-        if let text = pasteboard.string, text != clipboard, connection.clipboard(text) {
-            clipboard = text
-        }
+        clipboard?.sync()
     }
 
-    /// Sends the current clipboard text to the Mac whether or not it changed. Backs Send Clipboard in the Edit menu.
+    /// Offers the current clipboard to the Mac whether or not it changed. Backs Send Clipboard in the Edit menu.
     func sendClipboard() {
-        guard let connection, let text = UIPasteboard.general.string else {
-            return
-        }
+        clipboard?.send()
+    }
 
-        pasteboardChange = UIPasteboard.general.changeCount
-
-        if connection.clipboard(text) {
-            clipboard = text
-        }
+    /// Sends the current clipboard's data to the Mac for a paste the user made on the screen.
+    func paste() {
+        clipboard?.paste()
     }
 
     /// Presses a shortcut's keys in order and releases them in reverse.
@@ -230,12 +215,12 @@ final class SessionController {
             presented = true
         case let .serverName(name):
             rename(running, name)
-        case let .clipboard(text):
-            // Text echoed back from what was sent to the Mac is not written again.
-            guard preferences.sharedClipboard, text != clipboard else { break }
-            clipboard = text
-            UIPasteboard.general.string = text
-            pasteboardChange = UIPasteboard.general.changeCount
+        case let .clipboardOffer(kinds):
+            clipboard?.offered(kinds)
+        case let .clipboard(items):
+            clipboard?.received(items)
+        case .clipboardRequested:
+            clipboard?.requested()
         case let .layout(logicalWidth, logicalHeight, pixelWidth, pixelHeight):
             layout = Layout(
                 logical: CGSize(width: Int(logicalWidth), height: Int(logicalHeight)),
@@ -247,6 +232,7 @@ final class SessionController {
         case .cursorHidden:
             cursor = nil
         case let .closed(failure, _):
+            clipboard = nil
             end(running, failure: failure)
         default:
             break

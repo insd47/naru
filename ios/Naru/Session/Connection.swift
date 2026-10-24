@@ -40,8 +40,12 @@ final class Connection: SessionListener, @unchecked Sendable {
 
     func selectInputSource(_ id: String) { session.selectInputSource(id: id) }
 
+    func offerClipboard(_ kinds: [String]) { session.offerClipboard(kinds: kinds) }
+
     /// `true` if sent, or `false` without sending when it exceeds the size limit.
-    func clipboard(_ text: String) -> Bool { session.clipboard(text: text) }
+    func sendClipboard(_ items: [ClipboardItem]) -> Bool { session.sendClipboard(items: items) }
+
+    func fetchClipboard() { session.fetchClipboard() }
 
     func resize(_ mode: DisplayMode) { session.resize(mode: mode) }
 
@@ -101,7 +105,8 @@ final class Connection: SessionListener, @unchecked Sendable {
         case let .cursor(width, height, _, _, _): "cursor \(width)×\(height)"
         case let .serverName(name): "Mac name: \(name)"
         case let .source(source): "input source: \(source.id) (secure input \(source.secure))"
-        case let .clipboard(text): "clipboard, \(text.count) characters"
+        case let .clipboardOffer(kinds): "clipboard offer: \(kinds.joined(separator: ", "))"
+        case let .clipboard(items): "clipboard data: \(items.map { "\($0.kind) \($0.data.count) bytes" }.joined(separator: ", "))"
         case .resetDecoder: "decoder reset requested"
         case let .closed(_, detail): "session closed: \(detail ?? "normally")"
         case let .audioConfig(config): "audio config, \(config.count) bytes"
