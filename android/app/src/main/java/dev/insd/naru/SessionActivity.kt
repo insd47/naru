@@ -65,9 +65,6 @@ class SessionActivity : ComponentActivity() {
     private var touchpad: Touchpad? = null
     private var momentum: Momentum? = null
 
-    // The Mac input source last selected for the tablet's language, with Sync Keyboard Language on
-    private var selectedSource: String? = null
-
     private val listener = object : Connection.Listener {
         override fun onEvent(event: Event) = handle(event)
         override fun onFirstFrame() {
@@ -182,21 +179,14 @@ class SessionActivity : ComponentActivity() {
         return true
     }
 
-    // The source goes out as soon as the tablet's language changes, so the Mac has switched before the user types.
-    // Selecting before a key covers a change that was missed; the Mac switches at that key.
+    // The source goes out as soon as the tablet's language changes, so the Mac has switched before the user types, and
+    // again before each key, which the core skips for the source it last asked for.
     private fun syncSource(current: Connection, tabletLanguage: String) {
         if (!naru.preferences.syncKeyboardLanguage || tabletLanguage.isEmpty()) {
-            selectedSource = null
             return
         }
 
-        val source = inputSource(tabletLanguage, current.source) ?: return
-
-        if (source != selectedSource) {
-            current.selectInputSource(source)
-            selectedSource = source
-            Log.i(TAG, "Mac input source selected: $source")
-        }
+        inputSource(tabletLanguage, current.source)?.let(current::selectInputSource)
     }
 
     @Composable
@@ -232,7 +222,6 @@ class SessionActivity : ComponentActivity() {
     // Attaches this screen's input to the session's connection.
     private fun adopt(next: Connection) {
         connection = next
-        selectedSource = null
         language = ImeLanguage(this) { changed -> syncSource(next, changed) }.also { it.sync(delayMs = 0) }
         momentum = Momentum(this) { phase, dx, dy -> next.momentum(phase, dx, dy) }.also { touchpad = Touchpad(this, next, it) }
         immersive(true)
