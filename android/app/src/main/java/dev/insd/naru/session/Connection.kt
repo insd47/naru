@@ -44,7 +44,7 @@ class Connection(config: Config, private val listener: Listener) {
     /** Surface to draw video on, or `null` once it is gone */
     fun attach(next: Surface?) = video.attach(next)
 
-    fun key(keysym: Int, down: Boolean) = session.key(keysym.toUInt(), down)
+    fun key(keysym: Int, down: Boolean) = session.key(keysym.toUInt(), null, down)
 
     fun pointer(buttons: Int, x: Int, y: Int) = session.pointer(buttons.toUByte(), x.toUShort(), y.toUShort())
 

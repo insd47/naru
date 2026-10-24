@@ -35,7 +35,7 @@ internal sealed class Connection : SessionListener
         session = Core.Session.Connect(config, this);
     }
 
-    public void Key(uint keysym, bool down) => session.Key(keysym, down);
+    public void Key(uint keysym, bool down) => session.Key(keysym, null, down);
 
     public void SelectInputSource(string id) => session.SelectInputSource(id);
 
