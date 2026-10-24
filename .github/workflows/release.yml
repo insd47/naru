@@ -2,7 +2,7 @@ name: Release
 
 # release-plz keeps a release PR open with the next version and its changelog. Merging it tags the version, and the
 # apps built from that tag go to each store's test channel and to the GitHub release. Review and release stay with the
-# owner in each store. A failed app is built again with "Re-run failed jobs".
+# owner in each store. An app that failed is built again with "Re-run failed jobs".
 on:
   push:
     branches: [ main ]
@@ -111,6 +111,12 @@ jobs:
           -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
 
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          files: ${{ runner.temp }}/export/Naru.ipa
+
       # The same archive goes up with the export options' destination switched to upload.
       - name: Upload to TestFlight
         run: |
@@ -121,12 +127,6 @@ jobs:
             -authenticationKeyPath "$RUNNER_TEMP/key.p8" \
             -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_KEY_ID }} \
             -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-
-      - name: Attach to the release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.release.outputs.tag }}
-          files: ${{ runner.temp }}/export/Naru.ipa
 
   # The bundle goes to Google Play, and an APK signed with the same upload key goes to the release for devices
   # without Google Play.
@@ -178,6 +178,14 @@ jobs:
           ORG_GRADLE_PROJECT_naruUploadKeyAlias: upload
         run: ./gradlew :app:bundleRelease :app:assembleRelease
 
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          files: |
+            android/app/build/outputs/bundle/release/Naru-release.aab
+            android/app/build/outputs/apk/release/Naru-release.apk
+
       - name: Upload to Google Play
         uses: r0adkll/upload-google-play@v1
         with:
@@ -186,14 +194,6 @@ jobs:
           releaseFiles: android/app/build/outputs/bundle/release/Naru-release.aab
           track: alpha
           status: draft
-
-      - name: Attach to the release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.release.outputs.tag }}
-          files: |
-            android/app/build/outputs/bundle/release/Naru-release.aab
-            android/app/build/outputs/apk/release/Naru-release.apk
 
   # Packaged for x64 and ARM64 and added to the Partner Center submission draft without committing it. The Store signs
   # the package.
@@ -233,6 +233,12 @@ jobs:
           dotnet build -c Release -p:Platform=x64 -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=StoreUpload
           -p:AppxBundle=Always "-p:AppxBundlePlatforms=x64|ARM64" -p:AppxSymbolPackageEnabled=false -nologo
 
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          files: windows/Naru/AppPackages/*.msixupload
+
       - name: Install msstore
         uses: microsoft/microsoft-store-apppublisher@v1.4
 
@@ -243,9 +249,3 @@ jobs:
 
       - name: Upload to the submission draft
         run: msstore publish windows/Naru --inputDirectory windows/Naru/AppPackages --appId 9NB04VKG0DBL --noCommit
-
-      - name: Attach to the release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.release.outputs.tag }}
-          files: windows/Naru/AppPackages/*.msixupload
