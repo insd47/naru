@@ -127,7 +127,8 @@ switching to English stays composing until Space. Like Apple's client, keys go w
 Mac is on the source of the client's language, so the agent presses the physical key when a character is missing from
 the layout it holds. With the option on, the source last asked for counts as the Mac's, since the Mac switches at the
 next key; with it off, the source the Mac reported does. On another source keys go without one, and the Mac types the
-character the client chose. After a switch it
+character the client chose. Before each switch on the switch key the apps release the
+agent's source, as when the option turns off, which makes the next state far rarer. After a switch the agent
 sometimes keeps the old source's layout, mostly after another window took focus, and the Mac then types the key's Latin
 letter until a text field takes focus again, the same as with Apple's client; without the key code it typed separate
 jamo.

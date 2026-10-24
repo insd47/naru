@@ -307,7 +307,9 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     // the Mac, as Apple's client sends it, though as a keysym alone: the Mac then does not switch on it, which would only
     // toggle and drift apart from the iPad, but the agent applies a requested source at it. So the language Caps Lock
     // switches to is assumed and asked for while it is held, and applied at its release, before the user types. iPadOS
-    // reveals the language only with the first typed key, which corrects a wrong guess.
+    // reveals the language only with the first typed key, which corrects a wrong guess. The agent's source is released
+    // first, as when Sync Keyboard Language turns off: switching right after another switch otherwise often leaves the
+    // agent typing with the other source's layout, which this keeps far rarer.
     private func capsLock(_ key: UIKey, down: Bool) {
         guard key.keyCode == .keyboardCapsLock, syncsLanguage, let connection else {
             return
@@ -315,6 +317,8 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
         if down, let previous = languages.previous {
             languages = (previous, languages.current)
+            connection.releaseInputSource()
+            asked = nil
             selectSource(for: previous)
         }
 
