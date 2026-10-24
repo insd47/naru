@@ -6,7 +6,7 @@ import UIKit
 /// - For a language with a Mac layout (Korean), the core's `character` gives what the physical Latin key types there, which also follows the Mac's
 ///   secure input and its own layout of that language. For other languages, the character iPadOS produced is sent, which keeps layouts such as QWERTZ.
 /// - With Control, Option, or Command held, the key is a shortcut, so the Latin character at the physical position is sent.
-/// - The Globe key and Caps Lock are left to iPadOS, which uses them to switch input languages. The screen also sends Caps Lock to the Mac.
+/// - The Globe key and Caps Lock are not sent because iPadOS uses them to switch input languages.
 /// - A release sends the keysym sent on press, so no key stays held on the Mac if modifiers or the language changed in between.
 @MainActor
 struct Keys {

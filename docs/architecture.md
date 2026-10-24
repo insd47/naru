@@ -110,18 +110,24 @@ itself. What differs is what each system hands the app:
 
 With "Sync Keyboard Language" on, as in Apple's client, each app also selects the Mac's input source for its input
 language: `input_source(language, source)` gives the ID and `select_input_source` sends it. The Mac's agent applies a
-requested source only at the next key and reports it a few milliseconds later. Apple's client sends its switch key,
-Caps Lock, to the Mac, which does not switch on it, asks for its current source while the key is held, so the release
-changes nothing, and for the new source after the release, so the first typed key switches. The apps do the same with
-their own switch key, sent as the key it is: Caps Lock on the iPad, where iPadOS reveals the new language only with the
-first key in it, so the app asks for the language it switched from last and that key corrects a wrong guess; the Hangul
-key on Windows, mostly the right Alt. Otherwise an app asks only when its language changes. When the Mac changes source
-by itself, as when another window takes focus, it is left alone, as Apple's client leaves it: asking right after such
-a change can leave the agent typing with the other source's layout. Keys are never held, as with Apple's client.
+requested source only at the next key and reports it a few milliseconds later; keys are never held for that, as with
+Apple's client. An app asks only when its language changes, so a source the Mac changes to by itself, as when another
+window takes focus, is left alone, as Apple's client leaves it: asking right after such a change can leave the agent
+typing with the other source's layout.
+
+The switch key differs per app. Apple's client sends Caps Lock to the Mac, which toggles its own source with it, so
+once the two sides disagree every press keeps them apart. The iPad app keeps Caps Lock for iPadOS and asks for the
+language Caps Lock switches to at its release, since iPadOS reveals the new language only with the first typed key,
+which corrects a wrong guess. The Windows app sends
+its Hangul key as the key it is, mostly the right Alt, which does not switch the Mac, asking for the current source
+while it is held and for the new one after its release, as Apple's client does with Caps Lock.
 
 Switching also commits a composition the Mac's input method still holds; without the option, Korean typed before
-switching to English stays composing until Space. Keys go with their macOS key code, as Apple's client sends
-them, so the agent presses the physical key when a character is missing from the layout it holds. After a switch it
+switching to English stays composing until Space. Like Apple's client, keys go with their macOS key code while the
+Mac is on the source of the client's language, so the agent presses the physical key when a character is missing from
+the layout it holds. With the option on, the source last asked for counts as the Mac's, since the Mac switches at the
+next key; with it off, the source the Mac reported does. On another source keys go without one, and the Mac types the
+character the client chose. After a switch it
 sometimes keeps the old source's layout, mostly after another window took focus, and the Mac then types the key's Latin
 letter until a text field takes focus again, the same as with Apple's client; without the key code it typed separate
 jamo.

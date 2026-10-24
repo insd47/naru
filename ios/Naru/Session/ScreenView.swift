@@ -34,8 +34,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     var syncsLanguage = false
 
     private let cursorLayer = CALayer()
-    private static let capsLock: UInt32 = 0xffe5
-
     private var keys = Keys()
     // The input language of the last key and the one before it, which Caps Lock switches back to, and the Mac input
     // source last asked for
@@ -130,7 +128,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         if window != nil {
             becomeFirstResponder()
         } else {
-            keys.releaseAll().forEach { connection?.key($0.keysym, usage: $0.key.rawValue, down: false) }
+            keys.releaseAll().forEach { press($0.keysym, $0.key, down: false) }
             navigation?.timer.invalidate()
             navigation = nil
             momentum.stop()
@@ -206,7 +204,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
                 repeatTiming.delay = Date.now.timeIntervalSince(held.pressed)
             }
 
-            connection?.key(held.keysym, usage: held.code.rawValue, down: true)
+            press(held.keysym, held.code, down: true)
         }
 
         held.repeated = .now
@@ -220,10 +218,10 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         let timer = Timer.scheduledTimer(withTimeInterval: repeatTiming.delay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.navigation?.code == code else { return }
-                self.connection?.key(keysym, usage: code.rawValue, down: true)
+                self.press(keysym, code, down: true)
 
                 let timer = Timer.scheduledTimer(withTimeInterval: self.repeatTiming.interval, repeats: true) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.connection?.key(keysym, usage: code.rawValue, down: true) }
+                    MainActor.assumeIsolated { self?.press(keysym, code, down: true) }
                 }
                 self.navigation = (code, timer)
             }
@@ -243,7 +241,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
             if Keys.isSystem(key) {
                 system.insert(press)
-                capsLock(key, down: true)
             } else if Keys.isTyping(key) {
                 system.insert(press)
                 typing.insert(key.keyCode)
@@ -277,7 +274,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
             }
         }
 
-        connection?.key(keysym, usage: key.keyCode.rawValue, down: true)
+        press(keysym, key.keyCode, down: true)
 
         if typing.contains(key.keyCode) {
             held = (keysym, key.keyCode, .now, nil)
@@ -286,28 +283,36 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         }
     }
 
-    // Caps Lock goes to iPadOS, which switches the input language with it, and to the Mac, as Apple's client sends it.
-    // The Mac does not switch on a remote Caps Lock but applies a requested source at the next key. Like Apple's client,
-    // the current source is asked for while Caps Lock is held, so its release changes nothing, and the language Caps Lock
-    // switches back to after the release, so the first typed key switches. iPadOS reveals the new language only with
-    // that key, which corrects a wrong guess.
-    private func capsLock(_ key: UIKey, down: Bool) {
-        guard key.keyCode == .keyboardCapsLock, let connection else {
+    // Like Apple's client, a key goes with its physical key only while the Mac is on the source of the iPad's language,
+    // where that key types the same there, and otherwise the Mac types the keysym the iPad chose. With Sync Keyboard
+    // Language on, the source last asked for counts as the Mac's, as for Apple's client, since the Mac switches at this
+    // very key; with it off, the source the Mac reported does.
+    private func press(_ keysym: UInt32, _ key: UIKeyboardHIDUsage, down: Bool) {
+        guard let connection else { return }
+
+        let mac = syncsLanguage ? asked : connection.source?.id
+        let source = connection.source.flatMap { source in languages.current.flatMap { inputSource(language: $0, current: source) } }
+        connection.key(keysym, usage: source != nil && source == mac ? key.rawValue : nil, down: down)
+    }
+
+    // Caps Lock stays with iPadOS, which switches the input language with it; the Mac does not switch on a remote Caps
+    // Lock. With Sync Keyboard Language on, the language Caps Lock switches to is assumed at its release, which keeps
+    // repeated presses in step, and its source asked for, applied at the next key. iPadOS reveals the language only with
+    // the first typed key, which corrects a wrong guess.
+    private func capsLockReleased(_ key: UIKey) {
+        guard key.keyCode == .keyboardCapsLock, syncsLanguage, let previous = languages.previous else {
             return
         }
 
-        connection.key(Self.capsLock, usage: key.keyCode.rawValue, down: down)
-
-        if syncsLanguage, let language = down ? languages.current : languages.previous {
-            selectSource(for: language, again: true)
-        }
+        languages = (previous, languages.current)
+        selectSource(for: previous)
     }
 
-    // A source already asked for is asked again only for Caps Lock, as Apple's client does. A source the Mac changed to
-    // by itself, as when another window took focus, is left alone until the language changes, as Apple's client leaves
-    // it: asking right after such a change can leave the agent typing with the other source's layout.
-    private func selectSource(for language: String, again: Bool = false) {
-        guard let connection, let source = inputSource(language: language, current: connection.source), again || source != asked else {
+    // A source already asked for is not asked again, so a source the Mac changed to by itself, as when another window
+    // took focus, is left alone until the language changes, as Apple's client leaves it: asking right after such a
+    // change can leave the agent typing with the other source's layout.
+    private func selectSource(for language: String) {
+        guard let connection, let source = inputSource(language: language, current: connection.source), source != asked else {
             return
         }
 
@@ -331,7 +336,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
             if Keys.isSystem(key) {
                 system.insert(press)
-                capsLock(key, down: false)
+                capsLockReleased(key)
                 continue
             }
 
@@ -349,7 +354,7 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
             }
 
             if let keysym = keys.release(key) {
-                connection?.key(keysym, usage: key.keyCode.rawValue, down: false)
+                self.press(keysym, key.keyCode, down: false)
             }
         }
 
