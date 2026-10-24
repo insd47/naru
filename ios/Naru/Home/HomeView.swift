@@ -105,6 +105,10 @@ struct HomeView: View {
                 Divider()
                 Button("Delete", role: .destructive) { delete(host) }
             }
+            .swipeActions {
+                Button("Delete", systemImage: "trash", role: .destructive) { delete(host) }
+                Button("Edit", systemImage: "info.circle") { editing = host }
+            }
         }
         .overlay {
             if hosts.list.isEmpty {
