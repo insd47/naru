@@ -135,11 +135,6 @@ final class SessionController {
         clipboard?.send()
     }
 
-    /// Sends the current clipboard's data to the Mac for a paste the user made on the screen.
-    func paste() {
-        clipboard?.paste()
-    }
-
     /// Presses a shortcut's keys in order and releases them in reverse.
     func press(_ shortcut: Shortcut) {
         guard let connection else {

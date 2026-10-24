@@ -53,11 +53,6 @@ struct Keys {
         pressed.removeValue(forKey: key.keyCode)
     }
 
-    /// Whether a Command key is down on the Mac
-    var holdsCommand: Bool {
-        pressed.values.contains { $0 == Self.special[227] || $0 == Self.special[231] }
-    }
-
     /// Releases every key still held, so no key stays down on the Mac after leaving the screen.
     mutating func releaseAll() -> [UInt32] {
         defer { pressed.removeAll() }

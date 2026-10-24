@@ -11,11 +11,6 @@ import UIKit
 /// - After a size change it waits briefly, then reports the virtual display size through [onResize].
 final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGestureRecognizerDelegate {
     var onResize: (DisplayMode) -> Void = { _ in }
-    var onPaste: () -> Void = {}
-
-    // Super, which the Mac maps to Command, and the V key
-    private static let command: UInt32 = 0xffeb
-    private static let v: UInt32 = 0x76
 
     var connection: Connection? {
         didSet {
@@ -237,25 +232,6 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
     // Typing keys go to the text system before they are translated: a pending hardware keyboard language switch takes
     // effect only when the text system sees the next key, so the language read afterwards is the one that key types in.
-    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        action == #selector(paste(_:)) ? connection != nil : super.canPerformAction(action, withSender: sender)
-    }
-
-    // Command-V and Paste in the Edit menu come here rather than as key presses. A paste the user makes reads the
-    // clipboard without a permission prompt, so its content goes to the Mac first, then the Mac's own Command-V.
-    override func paste(_ sender: Any?) {
-        guard let connection else { return }
-
-        onPaste()
-
-        let command = keys.holdsCommand
-        if !command { connection.key(Self.command, down: true) }
-        connection.key(Self.v, down: true)
-        connection.key(Self.v, down: false)
-        if !command { connection.key(Self.command, down: false) }
-        Diagnostics.input.log("Paste sent to the Mac, Command \(command ? "held" : "pressed", privacy: .public)")
-    }
-
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let before = textInputMode?.primaryLanguage
         var system = Set<UIPress>()
