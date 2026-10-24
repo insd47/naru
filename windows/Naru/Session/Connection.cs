@@ -49,8 +49,12 @@ internal sealed class Connection : SessionListener
 
     public void Magnify(Phase phase, float scale) => session.Magnify(phase, scale);
 
+    public void OfferClipboard(string[] kinds) => session.OfferClipboard(kinds);
+
     /// <summary><c>true</c> if sent; <c>false</c> without sending if it exceeds the size limit.</summary>
-    public bool Clipboard(string text) => session.Clipboard(text);
+    public bool SendClipboard(ClipboardItem[] items) => session.SendClipboard(items);
+
+    public void FetchClipboard() => session.FetchClipboard();
 
     public void Resize(DisplayMode mode) => session.Resize(mode);
 
@@ -144,7 +148,8 @@ internal sealed class Connection : SessionListener
         Event.Cursor cursor => $"Cursor {cursor.Width}×{cursor.Height}",
         Event.ServerName name => $"Mac name: {name.Name}",
         Event.Source source => $"Input source: {source.SourceValue.Id} (secure input {source.SourceValue.Secure})",
-        Event.Clipboard clipboard => $"Clipboard, {clipboard.Text.Length} chars",
+        Event.ClipboardOffer offer => $"Clipboard offer: {string.Join(", ", offer.Kinds)}",
+        Event.Clipboard clipboard => $"Clipboard data: {string.Join(", ", clipboard.Items.Select(item => $"{item.Kind} {item.Data.Length} bytes"))}",
         Event.ResetDecoder => "Decoder reset requested",
         Event.AudioConfig audioConfig => $"Audio config, {audioConfig.Config.Length} bytes",
         Event.Closed closed => $"Session closed: {closed.Detail ?? "normally"}",

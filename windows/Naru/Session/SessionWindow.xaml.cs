@@ -144,8 +144,14 @@ internal sealed partial class SessionWindow : Window
     {
         switch (@event)
         {
-            case Event.Clipboard text:
-                clipboard.OnServer(text.Text);
+            case Event.ClipboardOffer offer:
+                clipboard.OnOffer(offer.Kinds);
+                break;
+            case Event.Clipboard data:
+                clipboard.OnServer(data.Items);
+                break;
+            case Event.ClipboardRequested:
+                clipboard.OnRequested();
                 break;
             case Event.Cursor shape:
                 cursor.Show(shape);
