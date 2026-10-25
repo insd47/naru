@@ -106,9 +106,10 @@ final class StageController: UIViewController, UINavigationBarDelegate, UIGestur
                     completion(groups.map { group in UIMenu(options: .displayInline, children: group.map { $0.action(session) }) })
                 },
             ])),
-            UIBarButtonItem(title: "Desktop", image: UIImage(systemName: "menubar.dock.rectangle"), primaryAction: UIAction { _ in session.press(.desktop) }),
-            UIBarButtonItem(title: "App Windows", image: UIImage(systemName: "macwindow.on.rectangle"), primaryAction: UIAction { _ in session.press(.appWindows) }),
-            UIBarButtonItem(title: "Mission Control", image: UIImage(systemName: "rectangle.3.group"), primaryAction: UIAction { _ in session.press(.missionControl) }),
+            // Screen Sharing's toolbar has these three. App Windows stays in the View menu, since Mission Control shows the same windows.
+            UIBarButtonItem(title: "Desktop", image: UIImage(systemName: "menubar.dock.rectangle"), primaryAction: UIAction { _ in session.toggle(.desktop) }),
+            UIBarButtonItem(title: "Mission Control", image: UIImage(systemName: "rectangle.3.group"), primaryAction: UIAction { _ in session.toggle(.missionControl) }),
+            UIBarButtonItem(title: "Apps", image: UIImage(systemName: "square.grid.3x3"), primaryAction: UIAction { _ in session.toggle(.apps) }),
         ]
     }
 

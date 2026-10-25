@@ -28,12 +28,6 @@ internal sealed partial class SessionWindow : Window
     /// <summary>Height of the bar above the Mac's screen, in device-independent pixels</summary>
     public const double BarHeight = 48;
 
-    // The Mac's default shortcuts for the toolbar: Control-Up Arrow, Control-Down Arrow, F11
-    private const uint ControlKey = 0xffe3;
-    private const uint UpKey = 0xff52;
-    private const uint DownKey = 0xff54;
-    private const uint F11Key = 0xffc8;
-
     // Windows has no system line height. Edge and Chrome scroll 100 DIPs a notch at the default 3 lines.
     private const float LineHeight = 100f / 3;
 
@@ -375,28 +369,15 @@ internal sealed partial class SessionWindow : Window
         e.Handled = true;
     }
 
-    private void OnMissionControl(object sender, RoutedEventArgs e) => Press(ControlKey, UpKey);
+    private void OnApps(object sender, RoutedEventArgs e) => session.Connection.Toggle(Dock.Apps);
 
-    private void OnAppWindows(object sender, RoutedEventArgs e) => Press(ControlKey, DownKey);
+    private void OnMissionControl(object sender, RoutedEventArgs e) => session.Connection.Toggle(Dock.MissionControl);
 
-    private void OnDesktop(object sender, RoutedEventArgs e) => Press(F11Key);
+    private void OnDesktop(object sender, RoutedEventArgs e) => session.Connection.Toggle(Dock.Desktop);
 
     private void OnFullScreen(object sender, RoutedEventArgs e) => ToggleFullScreen();
 
     private void OnShowConnections(object sender, RoutedEventArgs e) => App.Current.ShowConnections();
 
     private void OnDisconnect(object sender, RoutedEventArgs e) => sessions.Close(session.Host.Id);
-
-    private void Press(params uint[] keysyms)
-    {
-        foreach (var keysym in keysyms)
-        {
-            session.Connection.Key(keysym, null, true);
-        }
-
-        foreach (var keysym in keysyms.Reverse())
-        {
-            session.Connection.Key(keysym, null, false);
-        }
-    }
 }

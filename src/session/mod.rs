@@ -9,9 +9,10 @@
 //!   retried once from scratch with H.264.
 use crate::error::{Error, Result};
 use crate::media::{AccessUnit, AudioFrame, DecoderConfig, VideoCodec};
+use crate::message::client::{self, Dock};
 use crate::message::clipboard::{self, ClipboardItem};
 use crate::message::gesture::{MomentumPhase, Phase};
-use crate::message::{CursorImage, DisplayConfig, InputSource, Layout, client};
+use crate::message::{CursorImage, DisplayConfig, InputSource, Layout};
 use control::Control;
 use engine::Engine;
 use media::Sockets;
@@ -235,6 +236,7 @@ enum Command {
         usage: Option<u16>,
         down: bool,
     },
+    Dock(Dock),
     /// An input and when it happened. Double clicks are judged from this time, not from when the engine handled it.
     Input(input::Event, Instant),
     Clipboard(Vec<u8>),
@@ -273,9 +275,14 @@ impl Session {
     /// - `usage` is the physical key as a USB HID keyboard usage (page 7). Like Apple's client, the key goes with its
     ///   macOS key code while the Mac is on the source of the client's language, and the agent presses that very key,
     ///   so the Mac's input method composes it even when the agent holds the wrong layout after a source switch.
-    ///   `None` for a key with no physical key, such as one of a shortcut the client makes up.
+    ///   `None` when the physical key is unknown.
     pub fn key(&self, keysym: u32, usage: Option<u16>, down: bool) -> Result<()> {
         self.send(Command::Key { keysym, usage, down })
+    }
+
+    /// Opens or closes a Dock feature, as Apple's client does from its toolbar and View menu.
+    pub fn toggle(&self, feature: Dock) -> Result<()> {
+        self.send(Command::Dock(feature))
     }
 
     /// Sends the pointer position and button state. Coordinates are pixels in `Layout.pixels`.

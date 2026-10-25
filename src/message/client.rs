@@ -138,6 +138,25 @@ pub fn key_event(keys: &RecordKeys, keysym: u32, down: bool, keycode: u16, elaps
     encrypted(keys, plain)
 }
 
+/// A Dock feature that Apple's client opens or closes from its toolbar and View menu. The agent notifies the Dock
+/// itself, so it works whatever shortcuts the user set on the Mac.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum Dock {
+    /// Apps, formerly Launchpad
+    Apps = 0,
+    Desktop = 1,
+    MissionControl = 2,
+    /// The front app's windows (App Exposé)
+    AppWindows = 3,
+}
+
+/// Builds the key event that toggles a Dock feature. Apple's client sends a press with a vendor keysym and a matching
+/// key code, and no release.
+pub fn dock(keys: &RecordKeys, feature: Dock, elapsed_us: u32) -> [u8; 18] {
+    let index = feature as u16;
+    key_event(keys, 0x1008_fd00 | u32::from(index), true, 0xfd00 | index, elapsed_us)
+}
+
 // An input event: its 16 bytes encrypted with the content key as one AES block, after the type and a flags byte.
 //
 // - Apple's client sends the flags as 0x03 nearly always, at times 0x01 or 0x05. Without 0x02 the agent ignores a key
@@ -169,8 +188,8 @@ pub fn clipboard_request() -> [u8; 8] {
 #[cfg(test)]
 mod tests {
     use super::{
-        clipboard_offer_request, clipboard_request, framebuffer_request, key, key_event, pointer, set_encodings,
-        viewer_info,
+        Dock, clipboard_offer_request, clipboard_request, dock, framebuffer_request, key, key_event, pointer,
+        set_encodings, viewer_info,
     };
     use crate::record::RecordKeys;
     use aes::Aes128;
@@ -229,6 +248,32 @@ mod tests {
             block.as_slice(),
             [0xff, 1, 0, 0, 0xff, 0xe1, 0, 7, 0x5e, 0x8d, 0, 0, 0, 0x28, 0, 0x38]
         );
+    }
+
+    // What Apple's client sent for each toolbar and View menu button in the 2026-10-25 relay capture.
+    #[test]
+    fn dock_plaintext_matches_apple() {
+        let keys = RecordKeys {
+            content_key: [5; 16],
+            iv: [0; 16],
+        };
+
+        for (feature, index) in [
+            (Dock::Apps, 0),
+            (Dock::Desktop, 1),
+            (Dock::MissionControl, 2),
+            (Dock::AppWindows, 3),
+        ] {
+            let message = dock(&keys, feature, 0x0018_ad62);
+            let mut block = GenericArray::clone_from_slice(&message[2..]);
+            Aes128::new(&keys.content_key.into()).decrypt_block(&mut block);
+            assert_eq!(
+                block.as_slice(),
+                [
+                    0xff, 1, 0x10, 0x08, 0xfd, index, 0, 0x18, 0xad, 0x62, 0, 0, 0, 0x28, 0xfd, index
+                ]
+            );
+        }
     }
 
     #[test]

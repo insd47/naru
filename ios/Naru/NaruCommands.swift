@@ -37,9 +37,10 @@ struct NaruCommands: Commands {
 
         CommandGroup(replacing: .toolbar) {
             Group {
-                Button("Mission Control") { session.press(.missionControl) }
-                Button("App Windows") { session.press(.appWindows) }
-                Button("Desktop") { session.press(.desktop) }
+                Button("Mission Control") { session.toggle(.missionControl) }
+                Button("App Windows") { session.toggle(.appWindows) }
+                Button("Desktop") { session.toggle(.desktop) }
+                Button("Apps") { session.toggle(.apps) }
             }
             .disabled(session.connection == nil)
         }

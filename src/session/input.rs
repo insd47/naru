@@ -1,4 +1,4 @@
-use crate::message::client;
+use crate::message::client::{self, Dock};
 use crate::message::gesture::{Magnify, MomentumPhase, Phase, Scroll};
 use crate::record::RecordKeys;
 use std::time::Instant;
@@ -94,6 +94,13 @@ impl Input {
         let elapsed_us = u32::try_from(now.saturating_duration_since(self.keyed).as_micros()).unwrap_or(u32::MAX);
         self.keyed = now;
         client::key_event(&self.keys, keysym, down, keycode, elapsed_us).to_vec()
+    }
+
+    /// The key event that toggles a Dock feature. It counts as a key event for timing.
+    pub fn dock(&mut self, feature: Dock, now: Instant) -> Vec<u8> {
+        let elapsed_us = u32::try_from(now.saturating_duration_since(self.keyed).as_micros()).unwrap_or(u32::MAX);
+        self.keyed = now;
+        client::dock(&self.keys, feature, elapsed_us).to_vec()
     }
 
     // Pointer events carry the time since the previous pointer event, which decides double clicks.
