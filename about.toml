@@ -15,3 +15,7 @@ accepted = [
 # Only what is linked into the apps: no tests, examples, or build tools.
 ignore-dev-dependencies = true
 ignore-build-dependencies = true
+
+# Third-party notices only. The core itself is not published, so it is left out, along with its version, which every
+# release changes.
+private = { ignore = true }
