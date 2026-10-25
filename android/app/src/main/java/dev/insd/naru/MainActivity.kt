@@ -42,12 +42,16 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedSecureTextField
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.WideNavigationRailDefaults
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteItem
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.Composable
@@ -141,9 +145,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
     }
 
+    // The page sits on the container color, as in the system Settings, so the grouped items' surface stands out.
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun Home() {
+        val page = MaterialTheme.colorScheme.surfaceContainer
+
         NavigationSuiteScaffold(
             navigationItems = {
                 for (destination in Tab.entries) {
@@ -157,6 +164,11 @@ class MainActivity : ComponentActivity() {
             },
             // On tablets the rail centers its items vertically and puts the new connection button at the top.
             navigationItemVerticalArrangement = Arrangement.Center,
+            navigationSuiteColors = NavigationSuiteDefaults.colors(
+                shortNavigationBarContainerColor = page,
+                wideNavigationRailColors = WideNavigationRailDefaults.colors(containerColor = page),
+            ),
+            containerColor = page,
             // The rail (96dp) header aligns content to the start, so the FAB (56dp) is padded to center it. A FAB inside the rail has no shadow.
             // A new connection button does not fit the settings tab, so it is omitted there.
             primaryActionContent = {
@@ -169,7 +181,15 @@ class MainActivity : ComponentActivity() {
                 }
             },
         ) {
-            Scaffold(topBar = { TopAppBar(title = { Text(tab.title) }) }) { padding ->
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text(tab.title) },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = page, scrolledContainerColor = page),
+                    )
+                },
+                containerColor = page,
+            ) { padding ->
                 Box(Modifier.padding(padding).fillMaxSize()) {
                     when (tab) {
                         Tab.SAVED -> Saved()
