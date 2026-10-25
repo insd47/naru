@@ -140,6 +140,8 @@ pub fn key_event(keys: &RecordKeys, keysym: u32, down: bool, keycode: u16, elaps
 
 /// A Dock feature that Apple's client opens or closes from its toolbar and View menu. The agent notifies the Dock
 /// itself, so it works whatever shortcuts the user set on the Mac.
+///
+/// - Apple's client sends it as a key press with a vendor keysym and a matching key code, and no release.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum Dock {
     /// Apps, formerly Launchpad
@@ -150,11 +152,14 @@ pub enum Dock {
     AppWindows = 3,
 }
 
-/// Builds the key event that toggles a Dock feature. Apple's client sends a press with a vendor keysym and a matching
-/// key code, and no release.
-pub fn dock(keys: &RecordKeys, feature: Dock, elapsed_us: u32) -> [u8; 18] {
-    let index = feature as u16;
-    key_event(keys, 0x1008_fd00 | u32::from(index), true, 0xfd00 | index, elapsed_us)
+impl Dock {
+    pub fn keysym(self) -> u32 {
+        0x1008_fd00 | self as u32
+    }
+
+    pub fn keycode(self) -> u16 {
+        0xfd00 | self as u16
+    }
 }
 
 // An input event: its 16 bytes encrypted with the content key as one AES block, after the type and a flags byte.
@@ -188,8 +193,8 @@ pub fn clipboard_request() -> [u8; 8] {
 #[cfg(test)]
 mod tests {
     use super::{
-        Dock, clipboard_offer_request, clipboard_request, dock, framebuffer_request, key, key_event, pointer,
-        set_encodings, viewer_info,
+        Dock, clipboard_offer_request, clipboard_request, framebuffer_request, key, key_event, pointer, set_encodings,
+        viewer_info,
     };
     use crate::record::RecordKeys;
     use aes::Aes128;
@@ -264,7 +269,7 @@ mod tests {
             (Dock::MissionControl, 2),
             (Dock::AppWindows, 3),
         ] {
-            let message = dock(&keys, feature, 0x0018_ad62);
+            let message = key_event(&keys, feature.keysym(), true, feature.keycode(), 0x0018_ad62);
             let mut block = GenericArray::clone_from_slice(&message[2..]);
             Aes128::new(&keys.content_key.into()).decrypt_block(&mut block);
             assert_eq!(
