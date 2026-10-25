@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -86,7 +87,8 @@ fun Entry(
             onLongClick = { menuAt = pressedAt },
             onLongClickLabel = "Show actions",
             shapes = ListItemDefaults.segmentedShapes(index, count),
-            colors = ListItemDefaults.segmentedColors(),
+            colors = itemColors(),
+            contentPadding = ItemPadding,
             interactionSource = interaction,
             modifier = Modifier.pointerInput(Unit) {
                 awaitPointerEventScope {
@@ -100,7 +102,8 @@ fun Entry(
                     }
                 }
             },
-            leadingContent = { Icon(Icons.Outlined.DesktopMac, contentDescription = null, Modifier.size(32.dp)) },
+            // The item puts 16dp after the icon; 8dp more matches the item's side padding.
+            leadingContent = { Icon(Icons.Outlined.DesktopMac, contentDescription = null, Modifier.padding(end = 8.dp)) },
             supportingContent = subtitle?.let { { Text(it) } },
             trailingContent = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -131,6 +134,18 @@ fun Entry(
         }
     }
 }
+
+/** Colors of a grouped item: the brightest surface, which stands out from the page in light and dark themes alike, as in the system Settings. */
+@Composable
+fun itemColors() = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceBright)
+
+/** Padding inside a grouped item: the default top and bottom, with wider sides as in the system Settings. */
+val ItemPadding = PaddingValues(
+    start = 24.dp,
+    top = ListItemDefaults.ContentPadding.calculateTopPadding(),
+    end = 24.dp,
+    bottom = ListItemDefaults.ContentPadding.calculateBottomPadding(),
+)
 
 /** Shows items as one group with joined corners. */
 @Composable

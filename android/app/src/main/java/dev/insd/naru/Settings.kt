@@ -25,6 +25,8 @@ import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import dev.insd.naru.home.Group
+import dev.insd.naru.home.ItemPadding
+import dev.insd.naru.home.itemColors
 import kotlinx.coroutines.launch
 
 /** Settings screen shared by every Mac */
@@ -63,7 +65,8 @@ fun Settings(preferences: Preferences) {
             SegmentedListItem(
                 onClick = { scope.launch { Diagnostics.share(context) } },
                 shapes = ListItemDefaults.segmentedShapes(0, 1),
-                colors = ListItemDefaults.segmentedColors(),
+                colors = itemColors(),
+                contentPadding = ItemPadding,
                 supportingContent = { Text("Saves this launch's app log as a text file to share with a bug report. It has no passwords, typed text, or clipboard contents.") },
             ) { Text("Export Diagnostics") }
         }
@@ -74,7 +77,8 @@ fun Settings(preferences: Preferences) {
             SegmentedListItem(
                 onClick = { context.startActivity(Intent(context, LicensesActivity::class.java)) },
                 shapes = ListItemDefaults.segmentedShapes(0, 2),
-                colors = ListItemDefaults.segmentedColors(),
+                colors = itemColors(),
+                contentPadding = ItemPadding,
             ) { Text("Open source licenses") }
         }
 
@@ -82,7 +86,8 @@ fun Settings(preferences: Preferences) {
             SegmentedListItem(
                 onClick = { uriHandler.openUri("https://github.com/insd47/naru/blob/main/PRIVACY.md") },
                 shapes = ListItemDefaults.segmentedShapes(1, 2),
-                colors = ListItemDefaults.segmentedColors(),
+                colors = itemColors(),
+                contentPadding = ItemPadding,
             ) { Text("Privacy policy") }
         }
     }
@@ -105,7 +110,8 @@ private fun SwitchItem(title: String, summary: String, checked: Boolean, index: 
     SegmentedListItem(
         onClick = { onChange(!checked) },
         shapes = ListItemDefaults.segmentedShapes(index, count),
-        colors = ListItemDefaults.segmentedColors(),
+        colors = itemColors(),
+        contentPadding = ItemPadding,
         modifier = Modifier.semantics {
             role = Role.Switch
             toggleableState = ToggleableState(checked)
