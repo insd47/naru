@@ -75,7 +75,7 @@ Within an attempt the order is fixed: UDP sockets are opened first so the local 
 the TCP handshake, sign-in (`auth`), and the switch to the encrypted record layer (`record`). After that the `Engine`
 runs one loop over three inputs: control messages from the Mac, UDP datagrams, and commands from the app.
 
-- `negotiation` sends the media offer and resends it if the Mac does not answer.
+- `negotiation` sends the media offer whenever the Mac asks for one: at the start, after a display configuration, and after its display wakes.
 - `media` decrypts SRTP, picks the active group of video SSRCs, one per band (`media::Streams`), and reassembles access
   units in decoding order (`media::Group`). The Mac does not retransmit, so a gap waits only for late packets. H.264
   then keeps going without the lost unit and asks for a keyframe. For HEVC it reads each picture's reference set

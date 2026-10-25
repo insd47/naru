@@ -148,6 +148,13 @@ async fn serve(listener: TcpListener, _audio: UdpSocket, video: UdpSocket, clien
     stream.read_exact(&mut activate).await.unwrap();
     assert_eq!(activate, [0x12, 0, 0, 2, 0, 1, 0, 0]);
 
+    // The server asks for the offer, as the Mac does once its display is ready.
+    let mut request = vec![0, 0, 0, 1];
+    let mut body = vec![0, 1, 0, 1, 0, 0, 0, 0, 0x17, 0x0c, 0, 0, 0, 1, 0x17, 0x0d, 0, 0, 0, 1];
+    body.resize(36, 0);
+    request.extend(rect(0x3f2, &body));
+    stream.write_all(&sealer.seal(&request)).await.unwrap();
+
     let offer = loop {
         let body = record(&mut stream, &mut opener).await;
 

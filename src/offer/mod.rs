@@ -61,6 +61,10 @@ const CLIENT_NAME: &str = "Naru";
 const PLIST_MARKER: &[u8] = b"bplist00";
 const MAX_ANSWER_BYTES: u64 = 1 << 20;
 
+// The server asks for an offer with a 36-byte media stream rectangle that starts like this and ends in zeros, the same
+// at the start, after a display configuration, and after the Mac's display wakes.
+const REQUEST: [u8; 20] = [0, 1, 0, 1, 0, 0, 0, 0, 0x17, 0x0c, 0, 0, 0, 1, 0x17, 0x0d, 0, 0, 0, 1];
+
 /// Media offer for one session. The same offer is resent on retransmission and resolution changes.
 pub struct Offer {
     session_id: [u8; 16],
@@ -94,6 +98,11 @@ pub struct Answer {
 }
 
 impl Offer {
+    /// Whether a media stream rectangle's body is the server asking for an offer
+    pub fn requested(body: &[u8]) -> bool {
+        body.starts_with(&REQUEST)
+    }
+
     /// Builds an offer with fresh keys and SSRCs.
     pub fn new(audio: bool, codec: VideoCodec) -> Self {
         Self {
@@ -460,6 +469,19 @@ mod tests {
 
         assert_eq!(Answer::find(&body), Some(Answer { ready: false }));
         assert_eq!(Answer::find(b"no plist here"), None);
+    }
+
+    // What the Mac sent before each of Apple's offers in the 2026-10-25 relay captures
+    #[test]
+    fn the_server_asks_for_an_offer_with_a_fixed_rectangle() {
+        let request = [
+            0, 1, 0, 1, 0, 0, 0, 0, 0x17, 0x0c, 0, 0, 0, 1, 0x17, 0x0d, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0,
+        ];
+
+        assert!(Offer::requested(&request));
+        assert!(!Offer::requested(&request[..12]));
+        assert!(!Offer::requested(b"bplist00"));
     }
 
     #[test]
