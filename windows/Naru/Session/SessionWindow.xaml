@@ -17,6 +17,8 @@
         <!-- The screen spans both rows so the title bar can overlay it in full screen. -->
         <local:ScreenGrid x:Name="Screen" Grid.Row="1" Background="Black">
             <SwapChainPanel x:Name="Surface" />
+            <!-- The last picture, blurred and stretched while the Mac's display changes size -->
+            <Image x:Name="Frozen" Stretch="Fill" Opacity="0" IsHitTestVisible="False" />
             <!-- The cursor drawn where finger touches moved it. Touch has no system pointer. -->
             <Canvas IsHitTestVisible="False">
                 <Image x:Name="TouchImage" Stretch="Fill" Visibility="Collapsed" />

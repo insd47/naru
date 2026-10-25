@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import Metal
 import VideoToolbox
 import os
@@ -33,6 +34,9 @@ final class Video: @unchecked Sendable {
     private let firstFrame: @Sendable () -> Void
     private let work = DispatchQueue(label: "naru-video", qos: .userInteractive)
     private let output = OSAllocatedUnfairLock(uncheckedState: Output())
+    // The last whole picture sent to the display layer, kept from the pool for [blurred]
+    private let latest = OSAllocatedUnfairLock<CVPixelBuffer?>(uncheckedState: nil)
+    private lazy var images = CIContext(mtlDevice: device)
     // Queue only
     private var format: CMVideoFormatDescription?
     // The stream's color attachments, which the pictures shown carry
@@ -99,6 +103,23 @@ final class Video: @unchecked Sendable {
         CATransaction.commit()
 
         work.async { [self] in visible = size }
+    }
+
+    /// The last picture shown, blurred as Screen Sharing blurs it while the Mac's display changes size, or `nil` before
+    /// the first one.
+    @MainActor
+    func blurred() -> CGImage? {
+        guard let picture = latest.withLockUnchecked({ $0 }) else {
+            return nil
+        }
+
+        // Blurring a quarter-size copy looks the same and costs a sixteenth. The edges are extended before scaling and
+        // blurring, which would otherwise fade them into transparency.
+        let image = CIImage(cvPixelBuffer: picture)
+        let scale = CGAffineTransform(scaleX: 0.25, y: 0.25)
+        let extent = image.extent.applying(scale).integral
+        let blurred = image.clampedToExtent().transformed(by: scale).applyingGaussianBlur(sigma: 12).cropped(to: extent)
+        return images.createCGImage(blurred, from: extent)
     }
 
     func configure(_ config: DecoderConfig) {
@@ -343,6 +364,7 @@ final class Video: @unchecked Sendable {
 
             if let sample = Self.sample(showing: used.1.image) {
                 renderer.enqueue(sample)
+                latest.withLockUnchecked { $0 = used.1.image }
             }
         }
         buffer.commit()

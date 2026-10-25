@@ -50,6 +50,9 @@ final class SessionController {
     private(set) var cursor: Cursor?
     /// Whether the first frame has been drawn
     private(set) var shown = false
+    /// Whether the screen shows its last picture blurred while the Mac's display changes size, as Screen Sharing does.
+    /// It starts as the screen's size changes and ends when the new stream draws, or when no new stream is coming.
+    private(set) var settling = false
     /// Whether the Mac's input source follows the iPad's input language
     var syncsKeyboardLanguage: Bool { preferences.syncKeyboardLanguage }
 
@@ -85,7 +88,15 @@ final class SessionController {
         let connection = Connection(
             config: config,
             announce: { [weak self] event in DispatchQueue.main.async { MainActor.assumeIsolated { self?.receive(event, from: token) } } },
-            firstFrame: { [weak self] in DispatchQueue.main.async { MainActor.assumeIsolated { if self?.running?.token == token { self?.shown = true } } } }
+            firstFrame: { [weak self] in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self, self.running?.token == token else { return }
+                        self.shown = true
+                        self.settling = false
+                    }
+                }
+            }
         )
 
         self.running = running
@@ -102,9 +113,15 @@ final class SessionController {
         connection?.disconnect()
     }
 
+    /// The screen's size is changing. The last picture stays, blurred, until the new stream draws.
+    func sizeChanging() {
+        if running != nil { settling = true }
+    }
+
     /// Resizes the virtual display. Called after the window size changes. Sends nothing when connected to the Mac's physical display or when the size is unchanged.
     func resize(_ mode: DisplayMode) {
         guard let running, let current = running.display, mode != current else {
+            settling = false
             return
         }
 
@@ -201,10 +218,14 @@ final class SessionController {
         case .clipboardRequested:
             clipboard?.requested()
         case let .layout(logicalWidth, logicalHeight, pixelWidth, pixelHeight):
-            layout = Layout(
+            let next = Layout(
                 logical: CGSize(width: Int(logicalWidth), height: Int(logicalHeight)),
                 pixels: CGSize(width: Int(pixelWidth), height: Int(pixelHeight))
             )
+
+            // The Mac keeps the stream for the same pixels, so no new one will draw.
+            if next.pixels == layout?.pixels { settling = false }
+            layout = next
         case let .cursor(width, height, hotspotX, hotspotY, rgba):
             cursor = Self.cursor(width: Int(width), height: Int(height), rgba: rgba)
                 .map { Cursor(image: $0, hotspot: CGPoint(x: Int(hotspotX), y: Int(hotspotY))) }
@@ -274,6 +295,7 @@ final class SessionController {
         layout = nil
         cursor = nil
         shown = false
+        settling = false
     }
 
     // The core provides non-premultiplied RGBA.

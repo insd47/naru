@@ -95,18 +95,19 @@ internal sealed class Sessions(Hosts hosts)
     }
 
     /// <summary>
-    /// Resizes the virtual display. Does nothing on the Mac's real display or when the size is unchanged.
+    /// Resizes the virtual display. Does nothing on the Mac's real display or when the size is unchanged, and returns false then.
     /// </summary>
-    public void Resize(Running session, DisplayMode mode)
+    public bool Resize(Running session, DisplayMode mode)
     {
         if (session.Display is not { } current || current == mode)
         {
-            return;
+            return false;
         }
 
         Log.Info($"Virtual display: {mode.Width}×{mode.Height} at {mode.Scale}×");
         session.Display = mode;
         session.Connection.Resize(mode);
+        return true;
     }
 
     private void Handle(Running session, Event @event)

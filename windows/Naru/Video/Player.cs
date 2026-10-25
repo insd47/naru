@@ -87,6 +87,9 @@ internal sealed class Player : IDisposable
         });
     }
 
+    /// <summary>Blurs the picture on screen and hands it to <paramref name="done"/>, null when there is none.</summary>
+    public void Freeze(Action<Blurred?> done) => Post(() => Guard("freeze", () => done(renderer?.Picture() is { } picture ? Blurred.Of(picture) : null)));
+
     public void Resize(uint width, uint height, float scale) => Post(() => Guard("resize", () => renderer?.Resize(width, height, scale)));
 
     /// <summary>The visible size of the Mac's screen in pixels, which the decoded picture may pad.</summary>

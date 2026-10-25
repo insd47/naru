@@ -4,16 +4,23 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.hardware.input.InputManager
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.PixelCopy
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -36,10 +43,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -89,6 +102,7 @@ class SessionActivity : ComponentActivity() {
         override fun onEvent(event: Event) = handle(event)
         override fun onFirstFrame() {
             loading = false
+            settling = false
         }
     }
 
@@ -110,6 +124,11 @@ class SessionActivity : ComponentActivity() {
     }
 
     private var loading by mutableStateOf(true)
+    // While the Mac's display changes size, the last picture stays stretched and blurred, as in Screen Sharing, until
+    // the new stream draws or no new one is coming.
+    private var settling by mutableStateOf(false)
+    private var frozen by mutableStateOf<ImageBitmap?>(null)
+    private var screen: ScreenView? = null
     private var title by mutableStateOf("")
     private var windowed by mutableStateOf(false)
     // Whether a mouse or touchpad is connected
@@ -149,7 +168,7 @@ class SessionActivity : ComponentActivity() {
                 LaunchedEffect(area) {
                     val size = area ?: return@LaunchedEffect
                     delay(RESIZE_SETTLE_MS)
-                    service?.resize(virtualDisplay(size.width, size.height))
+                    if (service?.resize(virtualDisplay(size.width, size.height)) != true) settling = false
                 }
 
                 // Seen before the Mac's screen and the bar take the pointer. Resting at the top edge brings the bar down
@@ -183,7 +202,11 @@ class SessionActivity : ComponentActivity() {
                         if (!hides && connection != null) Bar()
 
                         Box(
-                            Modifier.fillMaxWidth().weight(1f).onSizeChanged { area = it }
+                            Modifier.fillMaxWidth().weight(1f)
+                                .onSizeChanged {
+                                    if (area != null && connection != null) freeze()
+                                    area = it
+                                }
                                 .offset { IntOffset(0, if (hides) (shown * barHeight).roundToInt() else 0) },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -324,6 +347,8 @@ class SessionActivity : ComponentActivity() {
     private fun Screen() {
         val current = layout
         val aspect = current?.let { it.pixelWidth.toFloat() / it.pixelHeight.toFloat() }
+        // The blur comes at once and fades over a moment once the new stream draws under it.
+        val shade by animateFloatAsState(if (settling) 1f else 0f, if (settling) snap() else tween(SETTLE_FADE_MS), label = "settling")
 
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             AndroidView(
@@ -335,6 +360,16 @@ class SessionActivity : ComponentActivity() {
                 },
             )
 
+            // Compose blurs from Android 12. Before it the picture shows stretched only.
+            frozen?.takeIf { shade > 0f }?.let { picture ->
+                Image(
+                    picture,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize().graphicsLayer { alpha = shade }.blur(BLUR, BlurredEdgeTreatment.Rectangle),
+                    contentScale = ContentScale.FillBounds,
+                )
+            }
+
             // A centered progress indicator shows until the first frame is drawn.
             if (loading) {
                 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -343,7 +378,20 @@ class SessionActivity : ComponentActivity() {
         }
     }
 
+    // Copies the picture on screen to show it blurred until the new stream draws.
+    private fun freeze() {
+        val view = screen?.takeIf { it.width > 0 && it.height > 0 && !loading } ?: return
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        settling = true
+        frozen = null
+
+        PixelCopy.request(view, bitmap, { result ->
+            if (result == PixelCopy.SUCCESS && settling) frozen = bitmap.asImageBitmap()
+        }, Handler(Looper.getMainLooper()))
+    }
+
     private fun bind(view: ScreenView) {
+        screen = view
         view.connection = connection
         view.momentum = momentum
         view.onKey = { handleKey(it) }
@@ -361,7 +409,11 @@ class SessionActivity : ComponentActivity() {
 
     private fun handle(event: Event) {
         when (event) {
-            is Event.Layout -> layout = event
+            is Event.Layout -> {
+                // The Mac keeps the stream for the same pixels, so no new one will draw.
+                if (event.pixelWidth == layout?.pixelWidth && event.pixelHeight == layout?.pixelHeight) settling = false
+                layout = event
+            }
             is Event.Cursor -> cursor = event
             is Event.CursorHidden -> cursor = null
             is Event.Closed -> closed()
@@ -399,5 +451,7 @@ class SessionActivity : ComponentActivity() {
     companion object {
         private const val RESIZE_SETTLE_MS = 500L
         private const val REVEAL_MS = 500L
+        private const val SETTLE_FADE_MS = 300
+        private val BLUR = 40.dp
     }
 }
