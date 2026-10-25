@@ -114,7 +114,8 @@ each store. An app that failed is built again with the run's Re-run failed jobs.
   the Mac input source selected), never what was typed: no passwords, keys, typed characters or key codes, or
   clipboard contents.
 - Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org/): `type: subject`, lowercase and
-  imperative, one concern per commit.
+  imperative, one concern per commit. A change to one app only takes its scope, `ipad`, `android`, or `windows`
+  (`fix(android): …`), which files it under that app in the changelog and that app's store notes.
 - Comments explain what the code cannot show: a contract, a constraint, or the reason for a choice that looks wrong.
   They do not document the wire format; the code is the reference for that.
 - Prefer matching Apple's Screen Sharing client over inventing behavior it does not have.
