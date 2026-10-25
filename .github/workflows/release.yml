@@ -194,6 +194,26 @@ jobs:
           TAG: ${{ needs.release.outputs.tag }}
         run: echo "name=$(git rev-list --count HEAD) (${TAG#v})" >> "$GITHUB_OUTPUT"
 
+      # The release's changes to every app and to Android, as one list, new features first. Google Play takes 500
+      # characters, so whole lines are left out past that.
+      - name: Write the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/whatsnew"
+          gh release view "$TAG" --json body -q .body | awk '
+            /^### / { platform = substr($0, 5); next }
+            /^#### / { group = substr($0, 6); next }
+            /^- / && (platform == "All" || platform == "Android") {
+              line = substr($0, 3)
+              sub(/^\[\*\*breaking\*\*\] /, "", line)
+              notes[group] = notes[group] "• " toupper(substr(line, 1, 1)) substr(line, 2) "\n"
+            }
+            END { printf "%s%s%s", notes["Added"], notes["Fixed"], notes["Changed"] }
+          ' | awk '{ n += length($0) + 1; if (n > 500) exit; print }' > "$RUNNER_TEMP/whatsnew/whatsnew-en-US"
+          [ -s "$RUNNER_TEMP/whatsnew/whatsnew-en-US" ] || echo "Bug fixes and improvements." > "$RUNNER_TEMP/whatsnew/whatsnew-en-US"
+
       - name: Upload to Google Play
         uses: r0adkll/upload-google-play@v1
         with:
@@ -201,6 +221,7 @@ jobs:
           packageName: dev.insd.naru
           releaseName: ${{ steps.name.outputs.name }}
           releaseFiles: android/app/build/outputs/bundle/release/Naru-release.aab
+          whatsNewDirectory: ${{ runner.temp }}/whatsnew
           track: alpha
           status: draft
 

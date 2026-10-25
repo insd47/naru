@@ -17,6 +17,12 @@ jobs:
       - name: Check PR title
         uses: amannn/action-semantic-pull-request@v6
         with:
+          # A change to one app only names it, so its store gets the change in the release notes.
+          scopes: |
+            ipad
+            android
+            windows
+          requireScope: false
           subjectPattern: ^[a-z0-9][ -~]*$
           subjectPatternError: The subject "{subject}" goes into CHANGELOG.md as is, so write it in English (ASCII), lowercase and imperative.
         env:
