@@ -35,7 +35,7 @@ internal sealed class Connection : SessionListener
         session = Core.Session.Connect(config, this);
     }
 
-    /// <summary>A key, with the physical key as a USB HID usage, or <c>null</c> for one the app makes up.</summary>
+    /// <summary>A key, with the physical key as a USB HID usage, or <c>null</c> when it is unknown.</summary>
     public void Key(uint keysym, ushort? usage, bool down) => session.Key(keysym, usage, down);
 
     public void Toggle(Dock feature) => session.Toggle(feature);

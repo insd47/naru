@@ -3,8 +3,8 @@ import SwiftUI
 
 /// The session screen. Shows the Mac's screen under a title bar, with a loading state until the first frame arrives.
 ///
-/// - The title bar follows Screen Sharing's toolbar: the way back to the connections, the Mac's name, and the Mac's
-///   window shortcuts.
+/// - The title bar follows Screen Sharing's toolbar: the way back to the connections, the Mac's name, and the Dock
+///   features.
 /// - Filling the screen, the title bar hides until the pointer rests at the top edge. Without a mouse or trackpad nothing
 ///   could bring it down, so it stays as in a window.
 /// - The stage is built again when the bar starts or stops hiding, since a navigation bar hidden in full screen kept the

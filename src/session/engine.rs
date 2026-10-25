@@ -318,7 +318,7 @@ impl<'a> Engine<'a> {
             }
             // Unlike a typed key, it does not wait for an input source switch, since it types nothing.
             Command::Dock(feature) => {
-                let message = self.input.dock(feature, now);
+                let message = self.input.key(feature.keysym(), feature.keycode(), true, now);
                 self.control.send(&message).await
             }
             Command::Language(language) => {
