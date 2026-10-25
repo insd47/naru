@@ -116,14 +116,14 @@ class SessionActivity : ComponentActivity() {
     private var pointing by mutableStateOf(false)
     // Whether the pointer brought the hidden title bar down
     private var revealed by mutableStateOf(false)
+    private var layout by mutableStateOf<Event.Layout?>(null)
+    private var cursor by mutableStateOf<Event.Cursor?>(null)
 
     private val devices = object : InputManager.InputDeviceListener {
         override fun onInputDeviceAdded(deviceId: Int) = recount()
         override fun onInputDeviceRemoved(deviceId: Int) = recount()
         override fun onInputDeviceChanged(deviceId: Int) = recount()
     }
-    private var layout by mutableStateOf<Event.Layout?>(null)
-    private var cursor by mutableStateOf<Event.Cursor?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -257,7 +257,6 @@ class SessionActivity : ComponentActivity() {
         for (key in translated) {
             current.key(key.keysym, key.usage, key.down)
         }
-
 
         // Keys not sent to the Mac pass through to the system and IME: Korean/English switches the IME language, volume keys change volume, and Back changes the screen.
         if (translated.isEmpty() && !KeyEvent.isModifierKey(event.keyCode) && !keys.isMouseNavigation(event) && !keys.isDeadKey(event)) {
