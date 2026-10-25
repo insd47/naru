@@ -1,3 +1,4 @@
+import GameController
 import SwiftUI
 
 /// The connection list window. Like Screen Sharing, the sidebar holds All Connections and Network, and the detail shows the Macs in the selected one.
@@ -257,8 +258,9 @@ extension FocusedValues {
 /// A virtual display sized to the session screen this window will show. The scale is 2 so the Mac renders at Retina
 /// resolution, and the pixel size matches the iPad screen.
 ///
-/// - In a window the session screen sits below its title bar: the window's top inset and a standard navigation bar. Sizing
-///   for the whole window would have the Mac resize its display as soon as the screen appears.
+/// - Where the title bar stays (in a window, or with no mouse or trackpad) the session screen sits below it: the window's
+///   top inset and a standard navigation bar. Sizing for the whole window would have the Mac resize its display as soon
+///   as the screen appears.
 @MainActor
 func virtualDisplay() -> DisplayMode? {
     guard let window = UIWindow.key else {
@@ -267,7 +269,7 @@ func virtualDisplay() -> DisplayMode? {
 
     var size = window.bounds.size
 
-    if !window.fillsScreen {
+    if !(window.fillsScreen && GCMouse.pointing) {
         let bar = UINavigationController().navigationBar.sizeThatFits(size).height
         size.height -= window.safeAreaInsets.top + bar
     }
