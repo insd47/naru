@@ -22,6 +22,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmarks
+import androidx.compose.material.icons.filled.Lan
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Close
@@ -157,7 +160,7 @@ class MainActivity : ComponentActivity() {
                     NavigationSuiteItem(
                         selected = tab == destination,
                         onClick = { tab = destination },
-                        icon = { Icon(destination.icon, contentDescription = null) },
+                        icon = { Icon(if (tab == destination) destination.selectedIcon else destination.icon, contentDescription = null) },
                         label = { Text(destination.title) },
                     )
                 }
@@ -454,9 +457,10 @@ class MainActivity : ComponentActivity() {
         is Failure.Other -> "The connection ended unexpectedly."
     }
 
-    private enum class Tab(val title: String, val icon: ImageVector) {
-        SAVED("Saved", Icons.Outlined.Bookmarks),
-        NETWORK("Network", Icons.Outlined.Lan),
-        SETTINGS("Settings", Icons.Outlined.Settings),
+    // The selected tab shows its filled icon, as Material's navigation does.
+    private enum class Tab(val title: String, val icon: ImageVector, val selectedIcon: ImageVector) {
+        SAVED("Saved", Icons.Outlined.Bookmarks, Icons.Filled.Bookmarks),
+        NETWORK("Network", Icons.Outlined.Lan, Icons.Filled.Lan),
+        SETTINGS("Settings", Icons.Outlined.Settings, Icons.Filled.Settings),
     }
 }
