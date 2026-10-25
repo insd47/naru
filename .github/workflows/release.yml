@@ -186,11 +186,20 @@ jobs:
             android/app/build/outputs/bundle/release/Naru-release.aab
             android/app/build/outputs/apk/release/Naru-release.apk
 
+      # Named as Play Console names a release it makes, "build (version)", since an upload into an existing draft
+      # otherwise keeps the draft's old name.
+      - name: Name the release
+        id: name
+        env:
+          TAG: ${{ needs.release.outputs.tag }}
+        run: echo "name=$(git rev-list --count HEAD) (${TAG#v})" >> "$GITHUB_OUTPUT"
+
       - name: Upload to Google Play
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT }}
           packageName: dev.insd.naru
+          releaseName: ${{ steps.name.outputs.name }}
           releaseFiles: android/app/build/outputs/bundle/release/Naru-release.aab
           track: alpha
           status: draft
