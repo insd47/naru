@@ -174,7 +174,7 @@ pub struct MediaStats {
     pub highest: Option<u32>,
     /// Number of other SSRCs being watched as switch candidates
     pub candidates: u32,
-    /// Number of offers sent, including those resent after negotiation for resizes and keyframes
+    /// Number of offers sent, including those the Mac asked for after negotiation and those resent for keyframes
     pub offers: u32,
     /// Number of sequence numbers found missing. The server does not retransmit, so these are lost unless they arrive
     /// late.

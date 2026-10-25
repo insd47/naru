@@ -37,8 +37,6 @@ pub struct Engine<'a> {
     // The latest cursor shape, and whether the Mac hid it until the pointer moves
     cursor: Option<Arc<CursorImage>>,
     cursor_hidden: bool,
-    // Pixel size of the last layout. A change resends the offer.
-    pixels: Option<(u16, u16)>,
     // The latest resize asked before the first frame, sent once it arrives, since its framebuffer request derails the
     // start
     held_resize: Option<Vec<u8>>,
@@ -83,7 +81,6 @@ impl<'a> Engine<'a> {
             cursors: Cursors::default(),
             cursor: None,
             cursor_hidden: false,
-            pixels: None,
             held_resize: None,
             clipboard_token: 0,
             sources,
@@ -152,14 +149,13 @@ impl<'a> Engine<'a> {
         }
     }
 
-    // Requests sent right after the record layer turns on. After the offer, a non-incremental full-area request wakes
-    // the TCP side.
+    // Requests sent right after the record layer turns on. A non-incremental full-area request wakes the TCP side, and
+    // the server asks for the media offer once its display is ready.
     async fn start(&mut self, outgoing: &mut Vec<Event>) -> Result<()> {
         // The encoding list is sent again over the record layer even though the plaintext prelude had it, matching
         // Apple's client order.
         self.control.send(&client::set_encodings()).await?;
         self.control.send(&client::AUTO_CLIPBOARD).await?;
-        self.control.send(&self.negotiation.start(Instant::now())).await?;
         self.control
             .send(&client::framebuffer_request(false, u16::MAX, u16::MAX))
             .await?;
@@ -235,10 +231,6 @@ impl<'a> Engine<'a> {
                         continue;
                     };
 
-                    let resized = self
-                        .pixels
-                        .replace(layout.pixels)
-                        .is_some_and(|previous| previous != layout.pixels);
                     self.input.resize(layout.pixels);
                     outgoing.push(Event::Layout(layout));
 
@@ -246,12 +238,12 @@ impl<'a> Engine<'a> {
                     self.control
                         .send(&client::framebuffer_request(false, u16::MAX, u16::MAX))
                         .await?;
-
-                    if let Some(offer) = resized.then(|| self.negotiation.resize(now)).flatten() {
-                        self.control.send(&offer).await?;
-                    }
                 }
-                // A media answer with a size moves on to the media stage.
+                // The server asks for the offer whenever it opens a stream, and the first answer with a size moves on
+                // to the media stage.
+                Rect::MediaStream(body) | Rect::Unknown { rest: body, .. } if Offer::requested(&body) => {
+                    self.control.send(&self.negotiation.request(now)).await?;
+                }
                 Rect::MediaStream(body) | Rect::Unknown { rest: body, .. } => {
                     if self.negotiation.answer(&body, now) {
                         outgoing.push(Event::Progress(Stage::Media));
@@ -381,8 +373,7 @@ impl<'a> Engine<'a> {
             .await
     }
 
-    // Resend the same offer until an answer with a size arrives, giving up past the limit. After negotiation, send the
-    // deferred resend.
+    // Gives up the start when the server never answered, or sends the deferred resend after negotiation.
     async fn retry(&mut self, now: Instant) -> Result<()> {
         match self.negotiation.expire(now) {
             Some(offer) => self.control.send(&offer).await,
