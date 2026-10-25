@@ -2,10 +2,16 @@ package dev.insd.naru
 
 import android.content.Intent
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
@@ -92,7 +98,8 @@ private fun Section(title: String) {
     )
 }
 
-// A list item that turns a setting on or off, which accessibility services read as a switch
+// A list item that turns a setting on or off, which accessibility services read as a switch. The switch shows its state
+// as an icon too, as in the system Settings.
 @Composable
 private fun SwitchItem(title: String, summary: String, checked: Boolean, index: Int, count: Int, onChange: (Boolean) -> Unit) {
     SegmentedListItem(
@@ -104,6 +111,12 @@ private fun SwitchItem(title: String, summary: String, checked: Boolean, index: 
             toggleableState = ToggleableState(checked)
         },
         supportingContent = { Text(summary) },
-        trailingContent = { Switch(checked = checked, onCheckedChange = null) },
+        trailingContent = {
+            Switch(
+                checked = checked,
+                onCheckedChange = null,
+                thumbContent = { Icon(if (checked) Icons.Filled.Check else Icons.Filled.Close, null, Modifier.size(SwitchDefaults.IconSize)) },
+            )
+        },
     ) { Text(title) }
 }
