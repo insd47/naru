@@ -15,6 +15,7 @@ namespace Naru.Video;
 /// <item>The swap chain matches the panel's physical pixels, and its transform undoes the panel's scale, so nothing is resampled twice.</item>
 /// <item>The video processor converts NV12 (H.264) or AYUV (HEVC 4:4:4) to BGRA and scales in one pass on the GPU.</item>
 /// <item>Display P3 is drawn into a texture the size of the screen first, and <see cref="Gamut"/> converts it to sRGB on the way to the swap chain.</item>
+/// <item>When the panel changes size, the buffers keep theirs and the transform stretches the last picture over the panel, until the next picture is drawn at the new size. Screen Sharing keeps the last picture the same way while the Mac's display changes size.</item>
 /// <item>Call only on the video thread, except <see cref="Attach"/>, which runs on the UI thread.</item>
 /// </list>
 /// </remarks>
@@ -32,8 +33,13 @@ internal sealed class Renderer : IDisposable
     private ID3D11VideoProcessor? processor;
     private (uint Width, uint Height, uint OutputWidth, uint OutputHeight) processorSize;
     private readonly Dictionary<(nint, uint), ID3D11VideoProcessorInputView> inputs = [];
+    // The panel's size in physical pixels and its scale, and the buffers' size, which follows at the next drawing
     private uint width;
     private uint height;
+    private float scale;
+    private (uint Width, uint Height) buffers;
+    // Where the last picture went in the buffers, or null when they hold none
+    private (int Left, int Top, int Width, int Height)? shown;
 
     // The scaled picture before its colors are converted, the size of the swap chain
     private ID3D11Texture2D? scaled;
@@ -66,7 +72,9 @@ internal sealed class Renderer : IDisposable
 
         using var created = factory.CreateSwapChainForComposition(graphics.Device, description);
         swapChain = created.QueryInterface<IDXGISwapChain2>();
-        Scale(scale);
+        buffers = (this.width, this.height);
+        this.scale = scale;
+        Transform();
         Clear();
     }
 
@@ -89,25 +97,18 @@ internal sealed class Renderer : IDisposable
         }
     }
 
-    public void Resize(uint nextWidth, uint nextHeight, float scale)
+    public void Resize(uint nextWidth, uint nextHeight, float nextScale)
     {
-        nextWidth = Math.Max(1, nextWidth);
-        nextHeight = Math.Max(1, nextHeight);
-
-        if (nextWidth != width || nextHeight != height)
-        {
-            width = nextWidth;
-            height = nextHeight;
-            ReleaseScaled();
-            swapChain.ResizeBuffers(0, width, height, Format.Unknown, SwapChainFlags.None).CheckError();
-        }
-
-        Scale(scale);
+        width = Math.Max(1, nextWidth);
+        height = Math.Max(1, nextHeight);
+        scale = nextScale;
+        Transform();
     }
 
     /// <summary>Draws a slice of a texture, cropped to the visible size the Mac reports, placed by <see cref="Fit"/> with black around it.</summary>
     public void Render(ID3D11Texture2D source, uint slice, Colors colors, uint visibleWidth, uint visibleHeight)
     {
+        Match();
         var texture = source.Description;
         var sourceWidth = Math.Min(visibleWidth == 0 ? texture.Width : visibleWidth, texture.Width);
         var sourceHeight = Math.Min(visibleHeight == 0 ? texture.Height : visibleHeight, texture.Height);
@@ -157,15 +158,64 @@ internal sealed class Renderer : IDisposable
         }
 
         swapChain.Present(0, PresentFlags.None);
+        shown = (left, top, drawWidth, drawHeight);
+    }
+
+    /// <summary>
+    /// The picture last presented as BGRA rows without padding, or null when none is on screen. A flip model swap
+    /// chain lets its buffers past the first be read, and the last one holds what was presented last.
+    /// </summary>
+    public (byte[] Pixels, int Width, int Height)? Picture()
+    {
+        if (shown is not { } picture || picture.Width <= 0 || picture.Height <= 0)
+        {
+            return null;
+        }
+
+        using var last = swapChain.GetBuffer<ID3D11Texture2D>(1);
+        using var staging = graphics.Device.CreateTexture2D(new Texture2DDescription
+        {
+            Width = (uint)picture.Width,
+            Height = (uint)picture.Height,
+            MipLevels = 1,
+            ArraySize = 1,
+            Format = BackBufferFormat,
+            SampleDescription = new SampleDescription(1, 0),
+            Usage = ResourceUsage.Staging,
+            CPUAccessFlags = CpuAccessFlags.Read,
+        });
+
+        var region = new Box(picture.Left, picture.Top, 0, picture.Left + picture.Width, picture.Top + picture.Height, 1);
+        graphics.Context.CopySubresourceRegion(staging, 0, 0, 0, 0, last, 0, region);
+        var mapped = graphics.Context.Map(staging, 0, MapMode.Read);
+
+        try
+        {
+            var rowBytes = picture.Width * 4;
+            var pixels = new byte[rowBytes * picture.Height];
+
+            for (var y = 0; y < picture.Height; y++)
+            {
+                Marshal.Copy(mapped.DataPointer + y * (nint)mapped.RowPitch, pixels, y * rowBytes, rowBytes);
+            }
+
+            return (pixels, picture.Width, picture.Height);
+        }
+        finally
+        {
+            graphics.Context.Unmap(staging, 0);
+        }
     }
 
     /// <summary>Fills the screen with black, before the first picture or after the video stops.</summary>
     public void Clear()
     {
+        Match();
         using var backBuffer = swapChain.GetBuffer<ID3D11Texture2D>(0);
         using var target = graphics.Device.CreateRenderTargetView(backBuffer);
         graphics.Context.ClearRenderTargetView(target, new Color4(0, 0, 0, 1));
         swapChain.Present(0, PresentFlags.None);
+        shown = null;
     }
 
     public void Dispose()
@@ -178,10 +228,24 @@ internal sealed class Renderer : IDisposable
         videoDevice.Dispose();
     }
 
-    // The panel is scaled by the monitor's scale. The inverse transform maps one swap chain pixel to one screen pixel.
-    private void Scale(float scale)
+    // Brings the buffers to the panel's size before drawing.
+    private void Match()
     {
-        swapChain.MatrixTransform = Matrix3x2.CreateScale(1 / scale);
+        if (buffers != (width, height))
+        {
+            ReleaseScaled();
+            swapChain.ResizeBuffers(0, width, height, Format.Unknown, SwapChainFlags.None).CheckError();
+            buffers = (width, height);
+            shown = null;
+            Transform();
+        }
+    }
+
+    // The panel is scaled by the monitor's scale. The inverse transform maps one swap chain pixel to one screen pixel,
+    // and stretches buffers of another size over the panel.
+    private void Transform()
+    {
+        swapChain.MatrixTransform = Matrix3x2.CreateScale((float)width / buffers.Width / scale, (float)height / buffers.Height / scale);
     }
 
     // The processor depends on the input and output sizes, so it is recreated only when either changes.

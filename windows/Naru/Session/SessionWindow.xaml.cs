@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
@@ -6,6 +7,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Naru.Core;
 using Windows.Foundation;
 using Windows.Graphics;
@@ -21,6 +24,7 @@ namespace Naru.Session;
 /// <item>The virtual display follows the screen area's size. The picture is centered with black bars when the sizes differ.</item>
 /// <item>Pointer positions are converted to the pixels of the Mac's latest layout. Touch goes to the trackpad emulation.</item>
 /// <item>Any press, wheel, or touchpad contact first ends the momentum of the last scroll.</item>
+/// <item>While the Mac's display changes size, the last picture stays blurred and stretched over the screen, as in Screen Sharing. The blur comes at once and fades once the new stream draws, or goes at once when no new stream is coming.</item>
 /// </list>
 /// </remarks>
 internal sealed partial class SessionWindow : Window
@@ -43,11 +47,15 @@ internal sealed partial class SessionWindow : Window
     // Held so the tracker lives as long as the window
     private readonly Touchpad? touchpad;
     private readonly DispatcherQueueTimer resizing;
+    private readonly Storyboard thaw = new();
 
     // The screen area size in DIPs the window opened for, until the first layout checks it
     private (double Width, double Height)? opening;
     private bool active;
     private bool closed;
+    private bool settling;
+    // The pixel size of the Mac's latest layout, which tells a new stream from the same one
+    private (uint Width, uint Height)? pixels;
 
     public SessionWindow(Sessions sessions, Running session)
     {
@@ -86,6 +94,11 @@ internal sealed partial class SessionWindow : Window
             touchCursor.Show(shape);
         }
 
+        var fade = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(300) };
+        Storyboard.SetTarget(fade, Frozen);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        thaw.Children.Add(fade);
+
         resizing = DispatcherQueue.CreateTimer();
         resizing.Interval = TimeSpan.FromMilliseconds(500);
         resizing.IsRepeating = false;
@@ -107,7 +120,11 @@ internal sealed partial class SessionWindow : Window
             cursor.Dispose();
         };
 
-        session.Connection.Video.FirstFrame += () => DispatcherQueue.TryEnqueue(() => Loading.Visibility = Visibility.Collapsed);
+        session.Connection.Video.FirstFrame += () => DispatcherQueue.TryEnqueue(() =>
+        {
+            Loading.Visibility = Visibility.Collapsed;
+            Settle();
+        });
         Surface.Loaded += (_, _) => session.Connection.Video.Attach(Surface, PixelWidth, PixelHeight, Scale);
         Surface.SizeChanged += (_, _) => OnSurfaceChanged();
         Surface.CompositionScaleChanged += (_, _) => OnSurfaceChanged();
@@ -156,7 +173,14 @@ internal sealed partial class SessionWindow : Window
                 cursor.Hide();
                 touchCursor.Clear();
                 break;
-            case Event.Layout:
+            case Event.Layout layout:
+                // The Mac keeps the stream for the same pixels, so no new one will draw.
+                if (pixels == (layout.PixelWidth, layout.PixelHeight))
+                {
+                    Settle();
+                }
+
+                pixels = (layout.PixelWidth, layout.PixelHeight);
                 PlaceCursors();
                 break;
         }
@@ -224,17 +248,61 @@ internal sealed partial class SessionWindow : Window
     private void OnSurfaceChanged()
     {
         Correct();
+        Freeze();
         session.Connection.Video.Resize(PixelWidth, PixelHeight, Scale);
         PlaceCursors();
         resizing.Stop();
         resizing.Start();
     }
 
+    // No new stream comes when the size ends up unchanged, so the blur goes at once then.
     private void ResizeDisplay()
     {
-        if (Surface.ActualWidth > 0 && Surface.ActualHeight > 0)
+        var resized = Surface.ActualWidth > 0 && Surface.ActualHeight > 0
+            && sessions.Resize(session, Displays.Mode(Surface.ActualWidth, Surface.ActualHeight, Scale));
+
+        if (!resized)
         {
-            sessions.Resize(session, Displays.Mode(Surface.ActualWidth, Surface.ActualHeight, Scale));
+            Settle();
+        }
+    }
+
+    // Covers the screen with the picture on it, blurred, until the new stream draws.
+    private void Freeze()
+    {
+        if (settling || Loading.Visibility == Visibility.Visible)
+        {
+            return;
+        }
+
+        settling = true;
+        session.Connection.Video.Freeze(blurred => DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!settling || blurred is null)
+            {
+                return;
+            }
+
+            var bitmap = new WriteableBitmap(blurred.Width, blurred.Height);
+
+            using (var stream = bitmap.PixelBuffer.AsStream())
+            {
+                stream.Write(blurred.Pixels);
+            }
+
+            bitmap.Invalidate();
+            thaw.Stop();
+            Frozen.Source = bitmap;
+            Frozen.Opacity = 1;
+        }));
+    }
+
+    private void Settle()
+    {
+        if (settling)
+        {
+            settling = false;
+            thaw.Begin();
         }
     }
 
