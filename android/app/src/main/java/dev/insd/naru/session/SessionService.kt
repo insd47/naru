@@ -127,19 +127,20 @@ class SessionService : Service() {
     /**
      * Resizes the virtual display to this size. Called after rotation or a window resize.
      *
-     * - Does nothing when connected to the Mac's real display or when the size is unchanged.
+     * - Does nothing when connected to the Mac's real display or when the size is unchanged, and returns `false` then.
      */
-    fun resize(mode: DisplayMode) {
-        val running = session ?: return
-        val current = running.display ?: return
+    fun resize(mode: DisplayMode): Boolean {
+        val running = session ?: return false
+        val current = running.display ?: return false
 
         if (mode == current) {
-            return
+            return false
         }
 
         Log.i(TAG, "Virtual display: ${mode.width}×${mode.height}")
         running.display = mode
         running.connection.resize(mode)
+        return true
     }
 
     /** Sends text copied in another app to the Mac. Called when the screen gains focus. */
