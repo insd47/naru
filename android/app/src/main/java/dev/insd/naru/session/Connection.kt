@@ -7,6 +7,7 @@ import dev.insd.naru.audio.Player
 import dev.insd.naru.core.ClipboardItem
 import dev.insd.naru.core.Config
 import dev.insd.naru.core.DisplayMode
+import dev.insd.naru.core.Dock
 import dev.insd.naru.core.Event
 import dev.insd.naru.core.InputSource
 import dev.insd.naru.core.MomentumPhase
@@ -44,8 +45,10 @@ class Connection(config: Config, private val listener: Listener) {
     /** Surface to draw video on, or `null` once it is gone */
     fun attach(next: Surface?) = video.attach(next)
 
-    /** A key, with the physical key as a USB HID usage, or `null` for one the app makes up */
+    /** A key, with the physical key as a USB HID usage, or `null` when it is unknown */
     fun key(keysym: Int, usage: Int?, down: Boolean) = session.key(keysym.toUInt(), usage?.toUShort(), down)
+
+    fun toggle(feature: Dock) = session.toggle(feature)
 
     fun pointer(buttons: Int, x: Int, y: Int) = session.pointer(buttons.toUByte(), x.toUShort(), y.toUShort())
 
