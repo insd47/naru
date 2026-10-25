@@ -51,14 +51,15 @@
             </StackPanel>
 
             <StackPanel x:Name="Toolbar" Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                <!-- As in Screen Sharing's toolbar -->
+                <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="Apps" AutomationProperties.Name="Apps" Click="OnApps">
+                    <FontIcon Glyph="&#xE8A9;" FontSize="16" />
+                </Button>
                 <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="Mission Control" AutomationProperties.Name="Mission Control" Click="OnMissionControl">
                     <FontIcon Glyph="&#xE7C4;" FontSize="16" />
                 </Button>
-                <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="App Windows" AutomationProperties.Name="App Windows" Click="OnAppWindows">
-                    <FontIcon Glyph="&#xE8A9;" FontSize="16" />
-                </Button>
                 <Button Style="{StaticResource BarButton}" ToolTipService.ToolTip="Desktop" AutomationProperties.Name="Desktop" Click="OnDesktop">
-                    <FontIcon Glyph="&#xE7F4;" FontSize="16" />
+                    <FontIcon Glyph="&#xE75B;" FontSize="16" />
                 </Button>
             </StackPanel>
 

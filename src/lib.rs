@@ -12,6 +12,7 @@
 
 pub use error::{Error, Result};
 pub use media::{AccessUnit, AudioFrame, DecoderConfig, RtpPacket, SrtpContext, VideoCodec};
+pub use message::client::Dock;
 pub use message::clipboard::ClipboardItem;
 pub use message::gesture::{MomentumPhase, Phase};
 pub use message::{CursorImage, DisplayConfig, InputSource, Layout, Mode};

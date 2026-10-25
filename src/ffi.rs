@@ -5,8 +5,8 @@
 //! - Core types without tuples or private fields pass through as is; the rest are reshaped here for the native side.
 use crate::touchpad::TouchPhase;
 use crate::{
-    AccessUnit, AudioFrame, ClipboardItem, DecoderConfig, Error, InputSource, MediaStats, Mode, MomentumPhase, Phase,
-    Stage, VideoCodec,
+    AccessUnit, AudioFrame, ClipboardItem, DecoderConfig, Dock, Error, InputSource, MediaStats, Mode, MomentumPhase,
+    Phase, Stage, VideoCodec,
 };
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -283,10 +283,16 @@ impl Session {
     ///
     /// - `usage` is the physical key as a USB HID keyboard usage (page 7). Like Apple's client, the key goes with its
     ///   macOS key code while the Mac is on the source of the client's language, so the Mac's input method composes it
-    ///   even when the agent holds the wrong layout after a source switch. Pass `None` for a key with no physical key,
-    ///   such as one of a shortcut the app makes up.
+    ///   even when the agent holds the wrong layout after a source switch. Pass `None` when the physical key is
+    ///   unknown.
     pub fn key(&self, keysym: u32, usage: Option<u16>, down: bool) {
         let _ = self.session.key(keysym, usage, down);
+    }
+
+    /// Opens or closes a Dock feature, as Apple's client does from its toolbar and View menu. The Mac's Dock acts on it
+    /// directly, whatever shortcuts the user set.
+    pub fn toggle(&self, feature: Dock) {
+        let _ = self.session.toggle(feature);
     }
 
     /// Pointer position in layout pixels and pressed buttons (left 1, right 2, middle 4)

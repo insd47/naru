@@ -38,6 +38,8 @@ internal sealed class Connection : SessionListener
     /// <summary>A key, with the physical key as a USB HID usage, or <c>null</c> for one the app makes up.</summary>
     public void Key(uint keysym, ushort? usage, bool down) => session.Key(keysym, usage, down);
 
+    public void Toggle(Dock feature) => session.Toggle(feature);
+
     public void SetInputLanguage(string language) => session.SetInputLanguage(language);
 
     public void SetSyncKeyboardLanguage(bool on) => session.SetSyncKeyboardLanguage(on);

@@ -26,11 +26,12 @@ final class Connection: SessionListener, @unchecked Sendable {
         video.requestKeyframe = { [weak self] in self?.session.requestKeyframe() }
     }
 
-    /// `usage` is the physical key as a USB HID usage, or `nil` for a key with no physical key, such as one of a
-    /// shortcut the app makes up.
+    /// `usage` is the physical key as a USB HID usage, or `nil` when it is unknown.
     func key(_ keysym: UInt32, usage: Int?, down: Bool) {
         session.key(keysym: keysym, usage: usage.flatMap { UInt16(exactly: $0) }, down: down)
     }
+
+    func toggle(_ feature: Dock) { session.toggle(feature: feature) }
 
     func pointer(_ buttons: UInt8, x: UInt16, y: UInt16) { session.pointer(buttons: buttons, x: x, y: y) }
 

@@ -36,20 +36,6 @@ final class SessionController {
         var pixels: CGSize
     }
 
-    /// A Mac shortcut iPadOS takes for its own three-finger gestures, sent from the View menu and the toolbar
-    enum Shortcut {
-        case missionControl, appWindows, desktop
-
-        // The Mac's defaults: Control-Up Arrow, Control-Down Arrow, F11
-        var keysyms: [UInt32] {
-            switch self {
-            case .missionControl: [0xffe3, 0xff52]
-            case .appWindows: [0xffe3, 0xff54]
-            case .desktop: [0xffc8]
-            }
-        }
-    }
-
     /// The cursor image. Its size and hotspot are in the Mac's logical coordinates.
     struct Cursor {
         var image: CGImage
@@ -136,14 +122,10 @@ final class SessionController {
         clipboard?.send()
     }
 
-    /// Presses a shortcut's keys in order and releases them in reverse.
-    func press(_ shortcut: Shortcut) {
-        guard let connection else {
-            return
-        }
-
-        shortcut.keysyms.forEach { connection.key($0, usage: nil, down: true) }
-        shortcut.keysyms.reversed().forEach { connection.key($0, usage: nil, down: false) }
+    /// Opens or closes a Dock feature on the Mac, from the View menu and the title bar. They stand in for the
+    /// three-finger gestures iPadOS keeps for itself, as in Screen Sharing's toolbar and View menu.
+    func toggle(_ feature: Dock) {
+        connection?.toggle(feature)
     }
 
     /// Writes the diagnostics log to a file and offers it in the share sheet.
