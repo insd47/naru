@@ -73,6 +73,8 @@ private struct ScreenStage: UIViewControllerRepresentable {
         screen.cursor = cursor
         screen.syncsLanguage = syncsLanguage
         screen.onResize = { [session] mode in session.resize(mode) }
+        screen.onResizing = { [session] in session.sizeChanging() }
+        screen.settling = session.settling
     }
 }
 

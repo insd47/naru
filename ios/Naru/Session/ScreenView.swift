@@ -11,6 +11,29 @@ import UIKit
 /// - After a size change it waits briefly, then reports the virtual display size through [onResize].
 final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGestureRecognizerDelegate {
     var onResize: (DisplayMode) -> Void = { _ in }
+    /// Called as soon as the size changes, before the size settles and [onResize] reports it
+    var onResizing: () -> Void = {}
+
+    /// Whether the last picture shows stretched and blurred while the Mac's display changes size. As in Screen Sharing,
+    /// the blur comes at once and fades over a moment once the new stream draws under it.
+    var settling = false {
+        didSet {
+            guard settling != oldValue else { return }
+
+            if settling {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                frozen.contents = connection?.video.blurred()
+                frozen.opacity = 1
+                CATransaction.commit()
+            } else {
+                CATransaction.begin()
+                CATransaction.setAnimationDuration(0.3)
+                frozen.opacity = 0
+                CATransaction.commit()
+            }
+        }
+    }
 
     var connection: Connection? {
         didSet {
@@ -64,6 +87,8 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     private lazy var momentum = Momentum { [weak self] phase, delta in
         self?.connection?.momentum(phase, dx: Float(delta.x), dy: Float(delta.y))
     }
+    // The blurred last picture, stretched over the screen while the Mac's display changes size
+    private let frozen = CALayer()
     private var resizing: DispatchWorkItem?
     private var measured = CGSize.zero
 
@@ -73,6 +98,9 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         isMultipleTouchEnabled = true
         cursorLayer.zPosition = 1
         layer.addSublayer(cursorLayer)
+        frozen.contentsGravity = .resize
+        frozen.opacity = 0
+        layer.addSublayer(frozen)
 
         addInteraction(UIPointerInteraction(delegate: self))
         NotificationCenter.default.addObserver(self, selector: #selector(languageChanged), name: UITextInputMode.currentInputModeDidChangeNotification, object: nil)
@@ -114,12 +142,17 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     override func layoutSubviews() {
         super.layoutSubviews()
         connection?.video.place(in: bounds, screen: layout?.pixels)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        frozen.frame = bounds
+        CATransaction.commit()
         placeCursor()
 
         doubleClick.isEnabled = window?.fillsScreen == true
 
         if bounds.size != measured, bounds.width > 0, bounds.height > 0 {
             measured = bounds.size
+            onResizing()
             resizing?.cancel()
             let mode = DisplayMode(size: bounds.size)
             let work = DispatchWorkItem { [weak self] in self?.onResize(mode) }
