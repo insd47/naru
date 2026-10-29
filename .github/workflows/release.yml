@@ -194,8 +194,9 @@ jobs:
           TAG: ${{ needs.release.outputs.tag }}
         run: echo "name=$(git rev-list --count HEAD) (${TAG#v})" >> "$GITHUB_OUTPUT"
 
-      # The release's changes to every app and to Android, as one list, new features first. Google Play takes 500
-      # characters, so whole lines are left out past that.
+      # The release's changes to every app and to Android, as one list, new features first, without the pull request
+      # links that Google Play would show as plain text. Google Play takes 500 characters, so whole lines are left out
+      # past that.
       - name: Write the release notes
         env:
           GH_TOKEN: ${{ github.token }}
@@ -208,6 +209,7 @@ jobs:
             /^- / && (platform == "All" || platform == "Android") {
               line = substr($0, 3)
               sub(/^\[\*\*breaking\*\*\] /, "", line)
+              sub(/ \(\[#[0-9]+\]\([^)]*\)\)$/, "", line)
               notes[group] = notes[group] "• " toupper(substr(line, 1, 1)) substr(line, 2) "\n"
             }
             END { printf "%s%s%s", notes["Added"], notes["Fixed"], notes["Changed"] }
