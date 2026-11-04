@@ -79,6 +79,8 @@ pub struct Touchpad {
     // Previous center of the two-finger gesture, and the distance when both fingers touched down
     origin: (f32, f32),
     base_spread: f32,
+    // The finger that moved since two unclassified fingers were last compared
+    unpaired: Option<u32>,
     last_tap: Option<Instant>,
 }
 
@@ -91,6 +93,7 @@ impl Touchpad {
             travel: 0.0,
             origin: (0.0, 0.0),
             base_spread: 0.0,
+            unpaired: None,
             last_tap: None,
         }
     }
@@ -126,6 +129,7 @@ impl Touchpad {
                 self.mode = Some(Mode::Pair);
                 self.origin = self.centroid();
                 self.base_spread = self.spread();
+                self.unpaired = None;
                 Vec::new()
             }
             (2, _) => Vec::new(),
@@ -148,7 +152,7 @@ impl Touchpad {
                 self.travel += delta.0.hypot(delta.1);
                 vec![Gesture::Move(delta)]
             }
-            Some(Mode::Pair) if self.fingers.len() == 2 => self.classify(),
+            Some(Mode::Pair) if self.fingers.len() == 2 => self.pair_moved(touch.id),
             Some(Mode::Scroll) => self.scroll(Phase::Changed),
             Some(Mode::Pinch) if self.fingers.len() == 2 => vec![Gesture::Magnify {
                 phase: Phase::Changed,
@@ -184,11 +188,32 @@ impl Touchpad {
         gestures
     }
 
+    // Clients report fingers one at a time, so for a moment the first of two fingers moving together has moved alone,
+    // which spreads them as a pinch does. Two fingers are compared only once both have reported, or once one reports
+    // again while the other stays still. Otherwise a quick scroll along the line between them starts as a magnify.
+    fn pair_moved(&mut self, id: u32) -> Vec<Gesture> {
+        let center = self.centroid();
+        self.travel = self
+            .travel
+            .max((center.0 - self.origin.0).hypot(center.1 - self.origin.1));
+
+        match self.unpaired {
+            Some(other) if other != id => {
+                self.unpaired = None;
+                self.classify()
+            }
+            Some(_) => self.classify(),
+            None => {
+                self.unpaired = Some(id);
+                Vec::new()
+            }
+        }
+    }
+
     // Decides between magnify and scroll from how the two fingers first moved.
     fn classify(&mut self) -> Vec<Gesture> {
         let center = self.centroid();
         let moved = (center.0 - self.origin.0).hypot(center.1 - self.origin.1);
-        self.travel = self.travel.max(moved);
 
         if self.base_spread > 0.0 && (self.spread() - self.base_spread).abs() > PINCH_SLOP {
             self.mode = Some(Mode::Pinch);
@@ -341,18 +366,12 @@ mod tests {
         fingers.touch(1, Began, (100.0, 100.0));
         fingers.touch(2, Began, (160.0, 100.0));
 
-        assert_eq!(
-            fingers.touch(1, Moved, (100.0, 140.0)),
-            [Gesture::Scroll {
-                phase: Phase::Began,
-                delta: (0.0, 20.0)
-            }]
-        );
+        assert_eq!(fingers.touch(1, Moved, (100.0, 140.0)), []);
         assert_eq!(
             fingers.touch(2, Moved, (160.0, 140.0)),
             [Gesture::Scroll {
-                phase: Phase::Changed,
-                delta: (0.0, 20.0)
+                phase: Phase::Began,
+                delta: (0.0, 40.0)
             }]
         );
 
@@ -379,28 +398,77 @@ mod tests {
         fingers.touch(1, Began, (100.0, 100.0));
         fingers.touch(2, Began, (200.0, 100.0));
 
+        assert_eq!(fingers.touch(2, Moved, (250.0, 100.0)), []);
         assert_eq!(
-            fingers.touch(2, Moved, (250.0, 100.0)),
+            fingers.touch(1, Moved, (50.0, 100.0)),
             [Gesture::Magnify {
                 phase: Phase::Began,
                 scale: 1.0
             }]
         );
         assert_eq!(
-            fingers.touch(1, Moved, (50.0, 100.0)),
+            fingers.touch(2, Moved, (350.0, 100.0)),
             [Gesture::Magnify {
                 phase: Phase::Changed,
-                scale: 2.0
+                scale: 3.0
             }]
         );
         fingers.touch(1, Ended, (50.0, 100.0));
         assert!(matches!(
-            fingers.touch(2, Ended, (250.0, 100.0))[..],
+            fingers.touch(2, Ended, (350.0, 100.0))[..],
             [Gesture::Magnify {
                 phase: Phase::Ended,
                 ..
             }]
         ));
+    }
+
+    // The first finger alone moves 30 toward the second, which a pinch would also do, before the second follows.
+    #[test]
+    fn a_quick_scroll_along_the_fingers_reported_one_at_a_time_scrolls() {
+        let mut fingers = Fingers::new();
+        fingers.touch(1, Began, (100.0, 100.0));
+        fingers.touch(2, Began, (160.0, 100.0));
+
+        assert_eq!(fingers.touch(1, Moved, (130.0, 100.0)), []);
+        assert_eq!(
+            fingers.touch(2, Moved, (190.0, 100.0)),
+            [Gesture::Scroll {
+                phase: Phase::Began,
+                delta: (30.0, 0.0)
+            }]
+        );
+        assert_eq!(
+            fingers.touch(1, Moved, (160.0, 100.0)),
+            [Gesture::Scroll {
+                phase: Phase::Changed,
+                delta: (15.0, 0.0)
+            }]
+        );
+    }
+
+    // A finger that stays still reports no movement, so the other one reporting twice means it pinches alone.
+    #[test]
+    fn spreading_one_finger_from_a_still_one_magnifies() {
+        let mut fingers = Fingers::new();
+        fingers.touch(1, Began, (100.0, 100.0));
+        fingers.touch(2, Began, (200.0, 100.0));
+
+        assert_eq!(fingers.touch(2, Moved, (230.0, 100.0)), []);
+        assert_eq!(
+            fingers.touch(2, Moved, (260.0, 100.0)),
+            [Gesture::Magnify {
+                phase: Phase::Began,
+                scale: 1.0
+            }]
+        );
+        assert_eq!(
+            fingers.touch(2, Moved, (300.0, 100.0)),
+            [Gesture::Magnify {
+                phase: Phase::Changed,
+                scale: 2.0
+            }]
+        );
     }
 
     #[test]
