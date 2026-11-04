@@ -432,6 +432,10 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if touches.contains(where: { $0.type == .indirectPointer }) {
+            Diagnostics.input.log("Pointer touch cancelled")
+        }
+
         point(touches, event: event, released: true)
         finger(touches, .cancelled)
     }
@@ -476,11 +480,14 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         }
     }
 
-    // The pencil is the left button.
+    // The pencil is the left button. Button changes are logged, to tell which button a click that did nothing on the
+    // Mac sent.
     private func point(_ touches: Set<UITouch>, event: UIEvent?, released: Bool = false) {
         guard let touch = touches.first(where: { $0.type == .indirectPointer || $0.type == .pencil }) else {
             return
         }
+
+        let before = buttons
 
         if released {
             buttons = 0
@@ -488,6 +495,10 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
             buttons = 1
         } else if let mask = event?.buttonMask {
             buttons = (mask.contains(.primary) ? 1 : 0) | (mask.contains(.secondary) ? 2 : 0) | (mask.contains(.button(3)) ? 4 : 0)
+        }
+
+        if buttons != before {
+            Diagnostics.input.log("Pointer buttons \(before) to \(self.buttons)")
         }
 
         move(to: touch.location(in: self))
@@ -566,11 +577,16 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
 
         switch recognizer.state {
         case .began:
+            Diagnostics.input.log("Trackpad pinch began, pointer buttons \(self.buttons)")
             momentum.stop()
             connection?.magnify(.began, scale: 1)
         case .changed: connection?.magnify(.changed, scale: scale)
-        case .ended: connection?.magnify(.ended, scale: scale)
-        case .cancelled, .failed: connection?.magnify(.cancelled, scale: scale)
+        case .ended:
+            Diagnostics.input.log("Trackpad pinch ended")
+            connection?.magnify(.ended, scale: scale)
+        case .cancelled, .failed:
+            Diagnostics.input.log("Trackpad pinch cancelled")
+            connection?.magnify(.cancelled, scale: scale)
         default: break
         }
     }
