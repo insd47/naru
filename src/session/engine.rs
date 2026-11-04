@@ -126,12 +126,14 @@ impl<'a> Engine<'a> {
             match wake {
                 Wake::Tcp(opened) => self.receive(opened?, now, &mut outgoing).await?,
                 Wake::Video(received) => {
-                    let (len, from) = received?;
-                    self.media.receive(&video_buffer[..len], from, now, &mut outgoing).await;
+                    if let Some((len, from)) = datagram(received)? {
+                        self.media.receive(&video_buffer[..len], from, now, &mut outgoing).await;
+                    }
                 }
                 Wake::Audio(received) => {
-                    let (len, from) = received?;
-                    self.media.receive_audio(&audio_buffer[..len], from, now, &mut outgoing);
+                    if let Some((len, from)) = datagram(received)? {
+                        self.media.receive_audio(&audio_buffer[..len], from, now, &mut outgoing);
+                    }
                 }
                 Wake::Tick => self.tick(now, &mut outgoing).await?,
                 Wake::Feedback => self.media.feedback(now).await,
@@ -389,9 +391,42 @@ impl<'a> Engine<'a> {
     }
 }
 
+// Windows fails a UDP socket's next receive when the network answered one of its sends with an ICMP error, such as a
+// port or host it could not reach for a moment (WSAECONNRESET) or a packet that expired on the way (WSAENETRESET). The
+// socket keeps working and the path may recover, so these end nothing.
+fn datagram(received: std::io::Result<(usize, SocketAddr)>) -> std::io::Result<Option<(usize, SocketAddr)>> {
+    const WSAENETRESET: i32 = 10052;
+
+    match received {
+        Ok(received) => Ok(Some(received)),
+        Err(error)
+            if error.kind() == std::io::ErrorKind::ConnectionReset
+                || (cfg!(windows) && error.raw_os_error() == Some(WSAENETRESET)) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 async fn sleep_until(deadline: Option<Instant>) {
     match deadline {
         Some(deadline) => tokio::time::sleep_until(deadline.into()).await,
         None => std::future::pending().await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::datagram;
+    use std::io::{Error, ErrorKind};
+    use std::net::SocketAddr;
+
+    #[test]
+    fn an_icmp_error_on_receive_skips_the_datagram_and_others_end_the_session() {
+        let from = SocketAddr::from(([192, 168, 0, 2], 5901));
+        assert_eq!(datagram(Ok((12, from))).unwrap(), Some((12, from)));
+        assert_eq!(datagram(Err(ErrorKind::ConnectionReset.into())).unwrap(), None);
+        assert!(datagram(Err(Error::from(ErrorKind::PermissionDenied))).is_err());
     }
 }
