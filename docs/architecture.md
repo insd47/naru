@@ -83,7 +83,7 @@ runs one loop over three inputs: control messages from the Mac, UDP datagrams, a
   pictures, which tells the Mac what it may predict from, and asks for a refresh about once a frame while packets go
   missing. Every picture still goes to the decoder, marked `AccessUnit::intact`, and the screen holds while any band
   is broken until the Mac answers with pictures predicted from acknowledged ones, so it recovers whole and without a
-  keyframe.
+  keyframe. Before the first whole screen a band may have nothing acknowledged yet, so a loss then asks for a keyframe.
 - Every 50 ms `media` also sends the receiver feedback Apple's client sends (`RCTL`): what arrived, and the bandwidth
   it allows. The Mac raises the bitrate from its 20.8 Mbps floor only on this feedback, and keeps it at or below that
   bandwidth. `media::Bandwidth` estimates it from the trend of one-way delay and from heavy loss, as Apple's client
