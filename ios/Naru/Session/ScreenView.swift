@@ -117,8 +117,12 @@ final class ScreenView: UIView, UIKeyInput, UIPointerInteractionDelegate, UIGest
         wheel.allowedTouchTypes = []
         addGestureRecognizer(wheel)
 
+        // A pinch only reports magnification, so it leaves the click under it to the Mac. Fingers that spread a little
+        // during a two-finger click begin a pinch, which would otherwise cancel the click and release the button at once.
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinch))
         pinch.allowedTouchTypes = [UITouch.TouchType.indirectPointer.rawValue as NSNumber]
+        pinch.cancelsTouchesInView = false
+        pinch.delaysTouchesEnded = false
         addGestureRecognizer(pinch)
 
         doubleClick.numberOfTapsRequired = 2
