@@ -97,9 +97,10 @@ pub struct Media {
     last_timestamp: u32,
     // Decoder resets since the last frame
     stall_resets: usize,
-    // The app's decoder lost its references, or an H.264 unit was lost, and no keyframe has arrived since. Requests
-    // repeat until one arrives rather than going out once and possibly being lost or swallowed by the rate limit, and
-    // nothing is acknowledged meanwhile, since the decoder no longer holds what the server would predict from.
+    // The app's decoder lost its references, or an H.264 unit or a HEVC unit before its group's first whole screen
+    // was lost, and no keyframe has arrived since. Requests repeat until one arrives rather than going out once and
+    // possibly being lost or swallowed by the rate limit, and nothing is acknowledged meanwhile, since the decoder no
+    // longer holds what the server would predict from.
     awaiting_keyframe: bool,
     last_keyframe_request: Option<Instant>,
     fir_sequence: u8,
@@ -284,9 +285,14 @@ impl Media {
                     self.playout.push(Lane::Video, Event::Frame(unit), Some(timestamp), now);
                 }
                 Assembled::Present => self.playout.push(Lane::Video, Event::Present, None, now),
+                // HEVC recovers from pictures the Mac predicts from acknowledged ones, but until the group has shown a
+                // whole screen, a band whose keyframe was lost has none to predict from. That holds for every group,
+                // as a new stream after a resize or a display wake starts from new keyframes. Asking for keyframes
+                // gives a lossy start more chances before it gives up.
                 Assembled::Lost => {
+                    let presented = self.group.as_ref().is_some_and(Group::presented);
                     self.losses += 1;
-                    self.awaiting_keyframe |= self.codec == VideoCodec::H264;
+                    self.awaiting_keyframe |= self.codec == VideoCodec::H264 || !presented;
                 }
             }
         }
