@@ -24,9 +24,10 @@ const APP_VERSION: [u32; 3] = [6, 1, 0];
 const OS_VERSION: [u32; 3] = [15, 3, 0];
 const CAPABILITIES: [(usize, u8); 5] = [(0, 0xb0), (2, 0x0c), (3, 0x03), (4, 0x90), (10, 0x40)];
 
-// Input events carry the flags Apple's client sends, and key events an ANSI Mac keyboard's type, which the agent also
-// logs as the viewer's.
-const INPUT_FLAGS: u8 = 0x03;
+// Key events carry the flags Apple's client sends, and an ANSI Mac keyboard's type, which the agent also logs as the
+// viewer's. Pointer events carry no flags, so the Mac counts clicks itself.
+const KEY_FLAGS: u8 = 0x03;
+const POINTER_FLAGS: u8 = 0;
 const ANSI_KEYBOARD: u32 = 40;
 
 /// Builds the 66-byte ViewerInfo that announces the client kind and its capabilities.
@@ -108,7 +109,8 @@ pub fn input_source(id: &str) -> Vec<u8> {
 /// - Coordinates are pixels of the decoded video; the caller clamps them to the video size.
 /// - The button mask is left 1, right 2, middle 4. The right and middle bits are swapped relative to standard RFB.
 /// - `elapsed_us` is the microseconds since the previous pointer event, summing to real elapsed time.
-///   The Mac builds event timestamps from it, so it also decides double-click intervals.
+///   The Mac builds event timestamps from it and counts clicks with it against its own double-click interval. A press
+///   adds to the count only at the position of the event before it, and a release keeps the press's count.
 pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16, elapsed_us: u32) -> [u8; 18] {
     let mut plain = [0; 16];
     plain[6..10].copy_from_slice(&elapsed_us.to_be_bytes());
@@ -116,7 +118,7 @@ pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16, elapsed_us: u32) 
     plain[11] = buttons;
     plain[12..14].copy_from_slice(&x.to_be_bytes());
     plain[14..16].copy_from_slice(&y.to_be_bytes());
-    encrypted(keys, plain)
+    encrypted(keys, POINTER_FLAGS, plain)
 }
 
 /// Builds an encrypted key event with the physical key, as Apple's client sends every key. This message is still
@@ -135,7 +137,7 @@ pub fn key_event(keys: &RecordKeys, keysym: u32, down: bool, keycode: u16, elaps
     plain[6..10].copy_from_slice(&elapsed_us.to_be_bytes());
     plain[10..14].copy_from_slice(&ANSI_KEYBOARD.to_be_bytes());
     plain[14..16].copy_from_slice(&keycode.to_be_bytes());
-    encrypted(keys, plain)
+    encrypted(keys, KEY_FLAGS, plain)
 }
 
 /// A Dock feature that Apple's client opens or closes from its toolbar and View menu. The agent notifies the Dock
@@ -167,13 +169,16 @@ impl Dock {
 // - Apple's client sends the flags as 0x03 nearly always, at times 0x01 or 0x05. Without 0x02 the agent ignores a key
 //   event's key code and types the keysym looked up in its layout, which comes out as separate jamo when it holds
 //   another source's layout after a switch.
-fn encrypted(keys: &RecordKeys, plain: [u8; 16]) -> [u8; 18] {
+// - In a pointer event, 0x01 makes the agent take the next three bits as the click count, which Apple's client takes
+//   from its own system. Sent as 0x03, every click was a single click, and Chromium zooms a window from its own title
+//   bar only on a release counted as a double click.
+fn encrypted(keys: &RecordKeys, flags: u8, plain: [u8; 16]) -> [u8; 18] {
     let mut block = GenericArray::from(plain);
     Aes128::new(&keys.content_key.into()).encrypt_block(&mut block);
 
     let mut message = [0; 18];
     message[0] = 0x10;
-    message[1] = INPUT_FLAGS;
+    message[1] = flags;
     message[2..].copy_from_slice(&block);
     message
 }
@@ -289,7 +294,7 @@ mod tests {
         };
 
         let message = pointer(&keys, 0b10, 1919, 1079, 0x0102_0304);
-        assert_eq!(&message[..2], [0x10, 3]);
+        assert_eq!(&message[..2], [0x10, 0]);
 
         let mut block = GenericArray::clone_from_slice(&message[2..]);
         Aes128::new(&keys.content_key.into()).decrypt_block(&mut block);
