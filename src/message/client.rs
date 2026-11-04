@@ -25,9 +25,10 @@ const OS_VERSION: [u32; 3] = [15, 3, 0];
 const CAPABILITIES: [(usize, u8); 5] = [(0, 0xb0), (2, 0x0c), (3, 0x03), (4, 0x90), (10, 0x40)];
 
 // Key events carry the flags Apple's client sends, and an ANSI Mac keyboard's type, which the agent also logs as the
-// viewer's. Pointer events carry no flags, so the Mac counts clicks itself.
+// viewer's. Pointer events carry their click count, as Apple's client sends it, in three bits.
 const KEY_FLAGS: u8 = 0x03;
-const POINTER_FLAGS: u8 = 0;
+const CLICK_COUNT: u8 = 0x01;
+const MAX_CLICKS: u8 = 7;
 const ANSI_KEYBOARD: u32 = 40;
 
 /// Builds the 66-byte ViewerInfo that announces the client kind and its capabilities.
@@ -108,17 +109,18 @@ pub fn input_source(id: &str) -> Vec<u8> {
 ///
 /// - Coordinates are pixels of the decoded video; the caller clamps them to the video size.
 /// - The button mask is left 1, right 2, middle 4. The right and middle bits are swapped relative to standard RFB.
+/// - `clicks` is the click count, which the Mac takes as is: 0 for a move with no button held, and the count of the
+///   latest press for that press, the moves while it is held, and its release. Counts past 7 go as 7.
 /// - `elapsed_us` is the microseconds since the previous pointer event, summing to real elapsed time.
-///   The Mac builds event timestamps from it and counts clicks with it against its own double-click interval. A press
-///   adds to the count only at the position of the event before it, and a release keeps the press's count.
-pub fn pointer(keys: &RecordKeys, buttons: u8, x: u16, y: u16, elapsed_us: u32) -> [u8; 18] {
+///   The Mac builds event timestamps from it.
+pub fn pointer(keys: &RecordKeys, buttons: u8, clicks: u8, x: u16, y: u16, elapsed_us: u32) -> [u8; 18] {
     let mut plain = [0; 16];
     plain[6..10].copy_from_slice(&elapsed_us.to_be_bytes());
     plain[10] = 0xff;
     plain[11] = buttons;
     plain[12..14].copy_from_slice(&x.to_be_bytes());
     plain[14..16].copy_from_slice(&y.to_be_bytes());
-    encrypted(keys, POINTER_FLAGS, plain)
+    encrypted(keys, CLICK_COUNT | clicks.min(MAX_CLICKS) << 1, plain)
 }
 
 /// Builds an encrypted key event with the physical key, as Apple's client sends every key. This message is still
@@ -170,8 +172,10 @@ impl Dock {
 //   event's key code and types the keysym looked up in its layout, which comes out as separate jamo when it holds
 //   another source's layout after a switch.
 // - In a pointer event, 0x01 makes the agent take the next three bits as the click count, which Apple's client takes
-//   from its own system. Sent as 0x03, every click was a single click, and Chromium zooms a window from its own title
-//   bar only on a release counted as a double click.
+//   from its own system: 0x01 for a move, 0x03 for a single click, 0x05 for a double click. Without 0x01 the agent
+//   counts clicks itself, but only at exactly the position of the event before, so a pointer that moves a pixel between
+//   clicks makes single clicks. Chromium zooms a window from its own title bar only on a release counted as a double
+//   click.
 fn encrypted(keys: &RecordKeys, flags: u8, plain: [u8; 16]) -> [u8; 18] {
     let mut block = GenericArray::from(plain);
     Aes128::new(&keys.content_key.into()).encrypt_block(&mut block);
@@ -293,8 +297,8 @@ mod tests {
             iv: [0; 16],
         };
 
-        let message = pointer(&keys, 0b10, 1919, 1079, 0x0102_0304);
-        assert_eq!(&message[..2], [0x10, 0]);
+        let message = pointer(&keys, 0b10, 1, 1919, 1079, 0x0102_0304);
+        assert_eq!(&message[..2], [0x10, 3]);
 
         let mut block = GenericArray::clone_from_slice(&message[2..]);
         Aes128::new(&keys.content_key.into()).decrypt_block(&mut block);
@@ -302,6 +306,18 @@ mod tests {
             block.as_slice(),
             [0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 0xff, 2, 0x07, 0x7f, 0x04, 0x37]
         );
+    }
+
+    // The flags Apple's client sends for a move, a single click, and a double click
+    #[test]
+    fn pointer_flags_carry_the_click_count() {
+        let keys = RecordKeys {
+            content_key: [5; 16],
+            iv: [0; 16],
+        };
+        let flags = |clicks| pointer(&keys, 1, clicks, 0, 0, 0)[1];
+
+        assert_eq!([flags(0), flags(1), flags(2), flags(9)], [0x01, 0x03, 0x05, 0x0f]);
     }
 
     // Byte for byte what Apple's client sent when Sync Keyboard Language was turned off in the 2026-10-24 relay capture.

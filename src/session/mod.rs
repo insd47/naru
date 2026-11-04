@@ -58,10 +58,14 @@ pub struct Config {
     /// Local UDP ports (audio, video). They default to the server's numbers; set them only when those are unavailable,
     /// such as when testing on the server's own machine.
     pub local_ports: Option<(u16, u16)>,
+    /// The client system's double-click interval, between a release and the next press. The Mac takes click counts
+    /// as the client counts them.
+    pub double_click: Duration,
 }
 
 impl Config {
-    /// Builds settings for the default port (5900) without audio or a virtual display.
+    /// Builds settings for the default port (5900) without audio or a virtual display, with the macOS default
+    /// double-click interval.
     pub fn new(host: impl Into<String>, username: impl Into<String>, password: impl Into<String>) -> Self {
         Self {
             host: host.into(),
@@ -73,6 +77,7 @@ impl Config {
             audio: false,
             codec: VideoCodec::H264,
             local_ports: None,
+            double_click: Duration::from_millis(500),
         }
     }
 }

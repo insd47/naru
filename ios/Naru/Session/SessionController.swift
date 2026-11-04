@@ -76,10 +76,11 @@ final class SessionController {
         state = .connecting(host)
         clearScreen()
 
+        // iPadOS has no double-click setting, so clicks are counted with the macOS default.
         let config = Config(
             host: host.address, port: UInt16(host.port), username: credentials.username, password: credentials.password,
             knownKey: ServerKeys.find(host), display: display, audio: true,
-            codec: Video.decodesHevc444 ? .hevc : .h264
+            codec: Video.decodesHevc444 ? .hevc : .h264, doubleClickMs: 500
         )
 
         // Drops events from a previous session that arrive after a new one has started.
