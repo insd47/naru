@@ -57,6 +57,8 @@ pub struct Group {
     references: References,
     // Bands whose latest picture was lost or does not decode intact
     broken: Vec<bool>,
+    // Whether a whole screen has gone out
+    presented: bool,
     outputs: VecDeque<Assembled>,
     // RTP timestamp of the instant whose bands are going out, and when the last of them went out
     instant: Option<(u32, Instant)>,
@@ -82,6 +84,7 @@ impl Group {
             awaiting_keyframe: true,
             references: References::default(),
             broken: vec![false; bands.len()],
+            presented: false,
             bands,
             outputs: VecDeque::new(),
             instant: None,
@@ -106,6 +109,12 @@ impl Group {
         }
 
         self.outputs.pop_front()
+    }
+
+    /// Whether a whole screen has gone out, so every band has had an intact picture. Until then a band whose keyframe
+    /// was lost has nothing acknowledged for the Mac to predict from.
+    pub fn presented(&self) -> bool {
+        self.presented
     }
 
     /// When `next()` must be called again, or `None` when nothing is waiting
@@ -225,6 +234,7 @@ impl Group {
     // from the newest picture rather than replaying the ones in between.
     fn end_instant(&mut self) {
         if self.instant.take().is_some() && !self.broken.contains(&true) {
+            self.presented = true;
             self.outputs.retain(|output| *output != Assembled::Present);
             self.outputs.push_back(Assembled::Present);
         }
@@ -399,6 +409,22 @@ mod tests {
 
         assert!(matches!(&outputs[0], Assembled::Config(config) if config.sps.len() == 1));
         assert!(matches!(&outputs[1], Assembled::Frame { unit, .. } if unit.keyframe && unit.nals.len() == 1));
+    }
+
+    #[test]
+    fn a_group_is_presented_from_its_first_whole_screen() {
+        let now = Instant::now();
+        let mut group = Group::new(VideoCodec::Hevc, 100);
+        group.push(packet(100, 0, 90, false, &parameter_sets(10, 1)));
+        group.push(packet(100, 1, 90, true, &slice(10, true)));
+        assert_eq!(summary(&drain(&mut group, now)), ["C", "0:10"]);
+        assert!(!group.presented());
+
+        group.push(packet(101, 0, 90, true, &slice(11, false)));
+        group.push(packet(102, 0, 90, true, &slice(12, false)));
+        group.push(packet(103, 0, 90, true, &slice(13, false)));
+        assert_eq!(summary(&drain(&mut group, now)), ["1:11", "2:12", "3:13", "|"]);
+        assert!(group.presented());
     }
 
     // A unit that never arrives does not hold the others back once its band has nothing in flight.

@@ -90,18 +90,17 @@ pub struct Media {
     group: Option<Group>,
     // What goes to the app, paced to the Mac's clock
     playout: Playout<Event>,
-    // Whether a decoder config and a whole HEVC screen have ever arrived, and when a frame and a packet last did
+    // Whether a decoder config has ever arrived, and when a frame and a packet last did
     started: bool,
-    presented: bool,
     last_frame: Option<Instant>,
     last_packet: Option<Instant>,
     last_timestamp: u32,
     // Decoder resets since the last frame
     stall_resets: usize,
-    // The app's decoder lost its references, or an H.264 unit or a HEVC unit before the first whole screen was lost,
-    // and no keyframe has arrived since. Requests repeat until one arrives rather than going out once and possibly being
-    // lost or swallowed by the rate limit, and nothing is acknowledged meanwhile, since the decoder no longer holds what
-    // the server would predict from.
+    // The app's decoder lost its references, or an H.264 unit or a HEVC unit before its group's first whole screen
+    // was lost, and no keyframe has arrived since. Requests repeat until one arrives rather than going out once and
+    // possibly being lost or swallowed by the rate limit, and nothing is acknowledged meanwhile, since the decoder no
+    // longer holds what the server would predict from.
     awaiting_keyframe: bool,
     last_keyframe_request: Option<Instant>,
     fir_sequence: u8,
@@ -142,7 +141,6 @@ impl Media {
             group: None,
             playout: Playout::new(),
             started: false,
-            presented: false,
             last_frame: None,
             last_packet: None,
             last_timestamp: 0,
@@ -286,16 +284,15 @@ impl Media {
                     let timestamp = unit.timestamp;
                     self.playout.push(Lane::Video, Event::Frame(unit), Some(timestamp), now);
                 }
-                Assembled::Present => {
-                    self.presented = true;
-                    self.playout.push(Lane::Video, Event::Present, None, now);
-                }
-                // HEVC recovers from pictures the Mac predicts from acknowledged ones, but until every band has shown
-                // an intact picture, a band whose keyframe was lost has none to predict from. Asking for keyframes
+                Assembled::Present => self.playout.push(Lane::Video, Event::Present, None, now),
+                // HEVC recovers from pictures the Mac predicts from acknowledged ones, but until the group has shown a
+                // whole screen, a band whose keyframe was lost has none to predict from. That holds for every group,
+                // as a new stream after a resize or a display wake starts from new keyframes. Asking for keyframes
                 // gives a lossy start more chances before it gives up.
                 Assembled::Lost => {
+                    let presented = self.group.as_ref().is_some_and(Group::presented);
                     self.losses += 1;
-                    self.awaiting_keyframe |= self.codec == VideoCodec::H264 || !self.presented;
+                    self.awaiting_keyframe |= self.codec == VideoCodec::H264 || !presented;
                 }
             }
         }
