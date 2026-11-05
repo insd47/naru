@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [0.2.0](https://github.com/insd47/naru/compare/v0.1.1...v0.2.0) - 2026-11-05
+
+### All
+
+#### Fixed
+- count clicks in the core so double clicks reach the mac ([#30](https://github.com/insd47/naru/pull/30))
+- ask for a keyframe when hevc loses one before the first whole screen ([#32](https://github.com/insd47/naru/pull/32))
+- tell a quick two-finger scroll from a pinch when fingers report one at a time ([#35](https://github.com/insd47/naru/pull/35))
+- keep the session when the network answers a media packet with an icmp error ([#31](https://github.com/insd47/naru/pull/31))
+
+### iPad
+
+#### Fixed
+- keep a trackpad pinch from cancelling the click under it ([#34](https://github.com/insd47/naru/pull/34))
 ## [0.1.1](https://github.com/insd47/naru/compare/v0.1.0...v0.1.1) - 2026-10-25
 
 ### All
