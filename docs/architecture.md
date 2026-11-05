@@ -53,6 +53,9 @@ An app opens a session with `Session::connect(config, listener)` and gets events
   until the next `Cursor`, which the session sends again once the pointer moves even when the shape did not change.
 - Pointer coordinates are in the pixels of the latest `Layout`. Keys are X11 keysyms of what the Mac should type, and
   a release repeats the keysym of its press. The Mac does not repeat held keys, so key repeat is the app's to send.
+- The core counts clicks, as Apple's client counts them on its own system, with the double-click interval the app
+  gives in `Config`, and the Mac takes the count as is. The Mac's own count goes up only for a press at exactly the
+  position of the event before it.
 - Scrolls follow a Mac trackpad's phases: `MayBegin` when fingers rest, `Began` with the first movement, `Changed`,
   and `Ended` when they lift, or `Cancelled` if they never moved. Momentum is the app's: after `Ended`, it sends
   `momentum` frames as its own system decelerates the scroll, and ends them before any new input. Mouse wheels have

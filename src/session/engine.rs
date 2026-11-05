@@ -73,7 +73,7 @@ impl<'a> Engine<'a> {
 
         Self {
             media: Media::new(sockets.clone(), &offer, codec),
-            input: Input::new(control.keys().clone()),
+            input: Input::new(control.keys().clone(), config.double_click),
             control,
             sockets,
             negotiation: Negotiation::new(offer),

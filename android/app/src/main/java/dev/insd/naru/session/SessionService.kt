@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import android.view.ViewConfiguration
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -100,6 +101,8 @@ class SessionService : Service() {
             audio = Player.supported(),
             // The server's HEVC is 4:4:4 only, which most Android hardware decoders cannot decode, and there is no profile constant to query support.
             codec = VideoCodec.H264,
+            // Android has no double-click setting of its own, so its double-tap timeout stands in.
+            doubleClickMs = ViewConfiguration.getDoubleTapTimeout().toUInt(),
         )
 
         val relay = Relay()

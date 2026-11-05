@@ -10,7 +10,7 @@ use crate::{
 };
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, LazyLock, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 
 // Sessions run on this crate's tokio runtime, so the native side needs no runtime of its own.
@@ -43,6 +43,9 @@ pub struct Config {
     /// Video codec to request. Ask for HEVC 4:4:4 only when the device's hardware decoder supports 4:4:4; if it brings
     /// no video at all, the session retries once with H.264 4:2:0.
     pub codec: VideoCodec,
+    /// The system's double-click interval in milliseconds, from a release to the next press. The core counts clicks
+    /// with it, and the Mac takes the count as is. Systems without a setting of their own pass 500, the macOS default.
+    pub double_click_ms: u32,
 }
 
 impl From<Config> for crate::Config {
@@ -58,6 +61,7 @@ impl From<Config> for crate::Config {
             audio: config.audio,
             codec: config.codec,
             local_ports: None,
+            double_click: Duration::from_millis(config.double_click_ms.into()),
         }
     }
 }

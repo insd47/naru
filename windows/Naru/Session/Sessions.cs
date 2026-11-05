@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 using Naru.Core;
 using Naru.Store;
@@ -40,7 +41,7 @@ internal sealed class Running
 /// <item>A session window opens once authentication succeeds, and closing it disconnects.</item>
 /// </list>
 /// </remarks>
-internal sealed class Sessions(Hosts hosts)
+internal sealed partial class Sessions(Hosts hosts)
 {
     private readonly DispatcherQueue queue = DispatcherQueue.GetForCurrentThread();
     private readonly Dictionary<string, Running> running = [];
@@ -72,7 +73,8 @@ internal sealed class Sessions(Hosts hosts)
             KnownKey: ServerKeys.Find(host),
             Display: display,
             Audio: true,
-            Codec: Video.Decoder.SupportsHevc444() ? VideoCodec.Hevc : VideoCodec.H264);
+            Codec: Video.Decoder.SupportsHevc444() ? VideoCodec.Hevc : VideoCodec.H264,
+            DoubleClickMs: GetDoubleClickTime());
 
         Running? session = null;
         var connection = new Connection(config, @event => queue.TryEnqueue(() => Handle(session!, @event)));
@@ -202,4 +204,8 @@ internal sealed class Sessions(Hosts hosts)
 
         session.Window?.Ended();
     }
+
+    // The user's double-click speed, which the core counts clicks with for the Mac
+    [LibraryImport("user32.dll")]
+    private static partial uint GetDoubleClickTime();
 }
